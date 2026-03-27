@@ -1,17 +1,11 @@
 import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import authConfig from "@/auth.config";
+import { ACTIVE_TENANT_COOKIE, SUPPORT_ACCESS_COOKIE } from "@/lib/auth-cookies";
 
 const { auth } = NextAuth(authConfig);
 const ONBOARDING_REFRESH_COOKIE = "wyndos_onboarding_refresh";
-
-/** Routes anyone (signed-in or not) can always visit. */
 const PUBLIC_ROUTES = new Set(["/auth/signin", "/auth/signup"]);
-
-/**
- * Pattern for routes that are publicly accessible by token (invite links).
- * These are allowed through without auth so the page can validate the token.
- */
 const PUBLIC_PREFIXES = ["/auth/invite/"];
 
 export default auth((req) => {
@@ -20,27 +14,20 @@ export default auth((req) => {
   const isLoggedIn = Boolean(user);
   const hasOnboardingRefreshCookie = req.cookies.get(ONBOARDING_REFRESH_COOKIE)?.value === "1";
 
-  // 1. Always allow NextAuth API routes
   if (pathname.startsWith("/api/auth")) return NextResponse.next();
-
-  // 1b. Keep the health endpoint publicly reachable for uptime checks
   if (pathname === "/api/health") return NextResponse.next();
 
-  // 2. Allow public prefix routes (invite links) unconditionally
-  if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
-    // Redirect already-signed-in users back to home (they don't need to accept)
+  if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     if (isLoggedIn) return NextResponse.redirect(new URL("/", req.nextUrl));
     return NextResponse.next();
   }
 
-  // 3. Unauthenticated users can only visit public routes
   if (!isLoggedIn && !PUBLIC_ROUTES.has(pathname)) {
     const url = new URL("/auth/signin", req.nextUrl);
     url.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(url);
   }
 
-  // 4. Signed-in users visiting sign-in/sign-up are sent home
   if (isLoggedIn && PUBLIC_ROUTES.has(pathname)) {
     return NextResponse.redirect(new URL("/", req.nextUrl));
   }
@@ -48,22 +35,22 @@ export default auth((req) => {
   if (isLoggedIn) {
     const role = user?.role;
 
-    // 5. Non-super-admins cannot access /admin
     if (pathname.startsWith("/admin") && role !== "SUPER_ADMIN") {
       return NextResponse.redirect(new URL("/", req.nextUrl));
     }
 
-    // 5b. SUPER_ADMIN with no tenant selected must pick one from /admin first
+    const hasTenantCookie = Boolean(req.cookies.get(ACTIVE_TENANT_COOKIE)?.value);
+    const hasSupportCookie = Boolean(req.cookies.get(SUPPORT_ACCESS_COOKIE)?.value);
+
     if (
       role === "SUPER_ADMIN" &&
       !pathname.startsWith("/admin") &&
       !pathname.startsWith("/api/") &&
-      !req.cookies.get("wyndos_active_tenant")?.value
+      (!hasTenantCookie || !hasSupportCookie)
     ) {
       return NextResponse.redirect(new URL("/admin", req.nextUrl));
     }
 
-    // 6. OWNER/WORKER who haven't completed onboarding must finish it first
     if (
       role !== "SUPER_ADMIN" &&
       !user?.onboardingComplete &&
@@ -74,7 +61,6 @@ export default auth((req) => {
       return NextResponse.redirect(new URL("/auth/onboarding", req.nextUrl));
     }
 
-    // 7. Once onboarding is complete, block revisiting the onboarding page
     if (pathname === "/auth/onboarding" && (user?.onboardingComplete || hasOnboardingRefreshCookie)) {
       return NextResponse.redirect(new URL("/", req.nextUrl));
     }

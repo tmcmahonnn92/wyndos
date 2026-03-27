@@ -256,6 +256,7 @@ export type TenantWhereInput = {
   holidays?: Prisma.HolidayListRelationFilter
   invites?: Prisma.InviteListRelationFilter
   settings?: Prisma.XOR<Prisma.TenantSettingsNullableScalarRelationFilter, Prisma.TenantSettingsWhereInput> | null
+  supportAccessLogs?: Prisma.SupportAccessLogListRelationFilter
 }
 
 export type TenantOrderByWithRelationInput = {
@@ -276,6 +277,7 @@ export type TenantOrderByWithRelationInput = {
   holidays?: Prisma.HolidayOrderByRelationAggregateInput
   invites?: Prisma.InviteOrderByRelationAggregateInput
   settings?: Prisma.TenantSettingsOrderByWithRelationInput
+  supportAccessLogs?: Prisma.SupportAccessLogOrderByRelationAggregateInput
 }
 
 export type TenantWhereUniqueInput = Prisma.AtLeast<{
@@ -299,6 +301,7 @@ export type TenantWhereUniqueInput = Prisma.AtLeast<{
   holidays?: Prisma.HolidayListRelationFilter
   invites?: Prisma.InviteListRelationFilter
   settings?: Prisma.XOR<Prisma.TenantSettingsNullableScalarRelationFilter, Prisma.TenantSettingsWhereInput> | null
+  supportAccessLogs?: Prisma.SupportAccessLogListRelationFilter
 }, "id" | "slug">
 
 export type TenantOrderByWithAggregationInput = {
@@ -350,6 +353,7 @@ export type TenantCreateInput = {
   holidays?: Prisma.HolidayCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutTenantInput
 }
 
 export type TenantUncheckedCreateInput = {
@@ -370,6 +374,7 @@ export type TenantUncheckedCreateInput = {
   holidays?: Prisma.HolidayUncheckedCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteUncheckedCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsUncheckedCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutTenantInput
 }
 
 export type TenantUpdateInput = {
@@ -389,6 +394,7 @@ export type TenantUpdateInput = {
   holidays?: Prisma.HolidayUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantUncheckedUpdateInput = {
@@ -409,6 +415,7 @@ export type TenantUncheckedUpdateInput = {
   holidays?: Prisma.HolidayUncheckedUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUncheckedUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUncheckedUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantCreateManyInput = {
@@ -560,6 +567,20 @@ export type TenantUpdateOneWithoutUsersNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.TenantUpdateToOneWithWhereWithoutUsersInput, Prisma.TenantUpdateWithoutUsersInput>, Prisma.TenantUncheckedUpdateWithoutUsersInput>
 }
 
+export type TenantCreateNestedOneWithoutSupportAccessLogsInput = {
+  create?: Prisma.XOR<Prisma.TenantCreateWithoutSupportAccessLogsInput, Prisma.TenantUncheckedCreateWithoutSupportAccessLogsInput>
+  connectOrCreate?: Prisma.TenantCreateOrConnectWithoutSupportAccessLogsInput
+  connect?: Prisma.TenantWhereUniqueInput
+}
+
+export type TenantUpdateOneRequiredWithoutSupportAccessLogsNestedInput = {
+  create?: Prisma.XOR<Prisma.TenantCreateWithoutSupportAccessLogsInput, Prisma.TenantUncheckedCreateWithoutSupportAccessLogsInput>
+  connectOrCreate?: Prisma.TenantCreateOrConnectWithoutSupportAccessLogsInput
+  upsert?: Prisma.TenantUpsertWithoutSupportAccessLogsInput
+  connect?: Prisma.TenantWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.TenantUpdateToOneWithWhereWithoutSupportAccessLogsInput, Prisma.TenantUpdateWithoutSupportAccessLogsInput>, Prisma.TenantUncheckedUpdateWithoutSupportAccessLogsInput>
+}
+
 export type TenantCreateNestedOneWithoutAreasInput = {
   create?: Prisma.XOR<Prisma.TenantCreateWithoutAreasInput, Prisma.TenantUncheckedCreateWithoutAreasInput>
   connectOrCreate?: Prisma.TenantCreateOrConnectWithoutAreasInput
@@ -646,6 +667,7 @@ export type TenantCreateWithoutSettingsInput = {
   tags?: Prisma.TagCreateNestedManyWithoutTenantInput
   holidays?: Prisma.HolidayCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteCreateNestedManyWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutTenantInput
 }
 
 export type TenantUncheckedCreateWithoutSettingsInput = {
@@ -665,6 +687,7 @@ export type TenantUncheckedCreateWithoutSettingsInput = {
   tags?: Prisma.TagUncheckedCreateNestedManyWithoutTenantInput
   holidays?: Prisma.HolidayUncheckedCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteUncheckedCreateNestedManyWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutTenantInput
 }
 
 export type TenantCreateOrConnectWithoutSettingsInput = {
@@ -699,6 +722,7 @@ export type TenantUpdateWithoutSettingsInput = {
   tags?: Prisma.TagUpdateManyWithoutTenantNestedInput
   holidays?: Prisma.HolidayUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUpdateManyWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantUncheckedUpdateWithoutSettingsInput = {
@@ -718,6 +742,7 @@ export type TenantUncheckedUpdateWithoutSettingsInput = {
   tags?: Prisma.TagUncheckedUpdateManyWithoutTenantNestedInput
   holidays?: Prisma.HolidayUncheckedUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUncheckedUpdateManyWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantCreateWithoutInvitesInput = {
@@ -736,6 +761,7 @@ export type TenantCreateWithoutInvitesInput = {
   tags?: Prisma.TagCreateNestedManyWithoutTenantInput
   holidays?: Prisma.HolidayCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutTenantInput
 }
 
 export type TenantUncheckedCreateWithoutInvitesInput = {
@@ -755,6 +781,7 @@ export type TenantUncheckedCreateWithoutInvitesInput = {
   tags?: Prisma.TagUncheckedCreateNestedManyWithoutTenantInput
   holidays?: Prisma.HolidayUncheckedCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsUncheckedCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutTenantInput
 }
 
 export type TenantCreateOrConnectWithoutInvitesInput = {
@@ -789,6 +816,7 @@ export type TenantUpdateWithoutInvitesInput = {
   tags?: Prisma.TagUpdateManyWithoutTenantNestedInput
   holidays?: Prisma.HolidayUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantUncheckedUpdateWithoutInvitesInput = {
@@ -808,6 +836,7 @@ export type TenantUncheckedUpdateWithoutInvitesInput = {
   tags?: Prisma.TagUncheckedUpdateManyWithoutTenantNestedInput
   holidays?: Prisma.HolidayUncheckedUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUncheckedUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantCreateWithoutUsersInput = {
@@ -826,6 +855,7 @@ export type TenantCreateWithoutUsersInput = {
   holidays?: Prisma.HolidayCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutTenantInput
 }
 
 export type TenantUncheckedCreateWithoutUsersInput = {
@@ -845,6 +875,7 @@ export type TenantUncheckedCreateWithoutUsersInput = {
   holidays?: Prisma.HolidayUncheckedCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteUncheckedCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsUncheckedCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutTenantInput
 }
 
 export type TenantCreateOrConnectWithoutUsersInput = {
@@ -879,6 +910,7 @@ export type TenantUpdateWithoutUsersInput = {
   holidays?: Prisma.HolidayUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantUncheckedUpdateWithoutUsersInput = {
@@ -891,6 +923,101 @@ export type TenantUncheckedUpdateWithoutUsersInput = {
   logoUrl?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
+  customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
+  workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
+  tags?: Prisma.TagUncheckedUpdateManyWithoutTenantNestedInput
+  holidays?: Prisma.HolidayUncheckedUpdateManyWithoutTenantNestedInput
+  invites?: Prisma.InviteUncheckedUpdateManyWithoutTenantNestedInput
+  settings?: Prisma.TenantSettingsUncheckedUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutTenantNestedInput
+}
+
+export type TenantCreateWithoutSupportAccessLogsInput = {
+  name: string
+  slug: string
+  phone?: string
+  address?: string
+  website?: string
+  logoUrl?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  users?: Prisma.UserCreateNestedManyWithoutTenantInput
+  areas?: Prisma.AreaCreateNestedManyWithoutTenantInput
+  customers?: Prisma.CustomerCreateNestedManyWithoutTenantInput
+  workDays?: Prisma.WorkDayCreateNestedManyWithoutTenantInput
+  tags?: Prisma.TagCreateNestedManyWithoutTenantInput
+  holidays?: Prisma.HolidayCreateNestedManyWithoutTenantInput
+  invites?: Prisma.InviteCreateNestedManyWithoutTenantInput
+  settings?: Prisma.TenantSettingsCreateNestedOneWithoutTenantInput
+}
+
+export type TenantUncheckedCreateWithoutSupportAccessLogsInput = {
+  id?: number
+  name: string
+  slug: string
+  phone?: string
+  address?: string
+  website?: string
+  logoUrl?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  users?: Prisma.UserUncheckedCreateNestedManyWithoutTenantInput
+  areas?: Prisma.AreaUncheckedCreateNestedManyWithoutTenantInput
+  customers?: Prisma.CustomerUncheckedCreateNestedManyWithoutTenantInput
+  workDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutTenantInput
+  tags?: Prisma.TagUncheckedCreateNestedManyWithoutTenantInput
+  holidays?: Prisma.HolidayUncheckedCreateNestedManyWithoutTenantInput
+  invites?: Prisma.InviteUncheckedCreateNestedManyWithoutTenantInput
+  settings?: Prisma.TenantSettingsUncheckedCreateNestedOneWithoutTenantInput
+}
+
+export type TenantCreateOrConnectWithoutSupportAccessLogsInput = {
+  where: Prisma.TenantWhereUniqueInput
+  create: Prisma.XOR<Prisma.TenantCreateWithoutSupportAccessLogsInput, Prisma.TenantUncheckedCreateWithoutSupportAccessLogsInput>
+}
+
+export type TenantUpsertWithoutSupportAccessLogsInput = {
+  update: Prisma.XOR<Prisma.TenantUpdateWithoutSupportAccessLogsInput, Prisma.TenantUncheckedUpdateWithoutSupportAccessLogsInput>
+  create: Prisma.XOR<Prisma.TenantCreateWithoutSupportAccessLogsInput, Prisma.TenantUncheckedCreateWithoutSupportAccessLogsInput>
+  where?: Prisma.TenantWhereInput
+}
+
+export type TenantUpdateToOneWithWhereWithoutSupportAccessLogsInput = {
+  where?: Prisma.TenantWhereInput
+  data: Prisma.XOR<Prisma.TenantUpdateWithoutSupportAccessLogsInput, Prisma.TenantUncheckedUpdateWithoutSupportAccessLogsInput>
+}
+
+export type TenantUpdateWithoutSupportAccessLogsInput = {
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  phone?: Prisma.StringFieldUpdateOperationsInput | string
+  address?: Prisma.StringFieldUpdateOperationsInput | string
+  website?: Prisma.StringFieldUpdateOperationsInput | string
+  logoUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  users?: Prisma.UserUpdateManyWithoutTenantNestedInput
+  areas?: Prisma.AreaUpdateManyWithoutTenantNestedInput
+  customers?: Prisma.CustomerUpdateManyWithoutTenantNestedInput
+  workDays?: Prisma.WorkDayUpdateManyWithoutTenantNestedInput
+  tags?: Prisma.TagUpdateManyWithoutTenantNestedInput
+  holidays?: Prisma.HolidayUpdateManyWithoutTenantNestedInput
+  invites?: Prisma.InviteUpdateManyWithoutTenantNestedInput
+  settings?: Prisma.TenantSettingsUpdateOneWithoutTenantNestedInput
+}
+
+export type TenantUncheckedUpdateWithoutSupportAccessLogsInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  phone?: Prisma.StringFieldUpdateOperationsInput | string
+  address?: Prisma.StringFieldUpdateOperationsInput | string
+  website?: Prisma.StringFieldUpdateOperationsInput | string
+  logoUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  users?: Prisma.UserUncheckedUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
@@ -916,6 +1043,7 @@ export type TenantCreateWithoutAreasInput = {
   holidays?: Prisma.HolidayCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutTenantInput
 }
 
 export type TenantUncheckedCreateWithoutAreasInput = {
@@ -935,6 +1063,7 @@ export type TenantUncheckedCreateWithoutAreasInput = {
   holidays?: Prisma.HolidayUncheckedCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteUncheckedCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsUncheckedCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutTenantInput
 }
 
 export type TenantCreateOrConnectWithoutAreasInput = {
@@ -969,6 +1098,7 @@ export type TenantUpdateWithoutAreasInput = {
   holidays?: Prisma.HolidayUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantUncheckedUpdateWithoutAreasInput = {
@@ -988,6 +1118,7 @@ export type TenantUncheckedUpdateWithoutAreasInput = {
   holidays?: Prisma.HolidayUncheckedUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUncheckedUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUncheckedUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantCreateWithoutTagsInput = {
@@ -1006,6 +1137,7 @@ export type TenantCreateWithoutTagsInput = {
   holidays?: Prisma.HolidayCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutTenantInput
 }
 
 export type TenantUncheckedCreateWithoutTagsInput = {
@@ -1025,6 +1157,7 @@ export type TenantUncheckedCreateWithoutTagsInput = {
   holidays?: Prisma.HolidayUncheckedCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteUncheckedCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsUncheckedCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutTenantInput
 }
 
 export type TenantCreateOrConnectWithoutTagsInput = {
@@ -1059,6 +1192,7 @@ export type TenantUpdateWithoutTagsInput = {
   holidays?: Prisma.HolidayUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantUncheckedUpdateWithoutTagsInput = {
@@ -1078,6 +1212,7 @@ export type TenantUncheckedUpdateWithoutTagsInput = {
   holidays?: Prisma.HolidayUncheckedUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUncheckedUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUncheckedUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantCreateWithoutCustomersInput = {
@@ -1096,6 +1231,7 @@ export type TenantCreateWithoutCustomersInput = {
   holidays?: Prisma.HolidayCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutTenantInput
 }
 
 export type TenantUncheckedCreateWithoutCustomersInput = {
@@ -1115,6 +1251,7 @@ export type TenantUncheckedCreateWithoutCustomersInput = {
   holidays?: Prisma.HolidayUncheckedCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteUncheckedCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsUncheckedCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutTenantInput
 }
 
 export type TenantCreateOrConnectWithoutCustomersInput = {
@@ -1149,6 +1286,7 @@ export type TenantUpdateWithoutCustomersInput = {
   holidays?: Prisma.HolidayUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantUncheckedUpdateWithoutCustomersInput = {
@@ -1168,6 +1306,7 @@ export type TenantUncheckedUpdateWithoutCustomersInput = {
   holidays?: Prisma.HolidayUncheckedUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUncheckedUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUncheckedUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantCreateWithoutWorkDaysInput = {
@@ -1186,6 +1325,7 @@ export type TenantCreateWithoutWorkDaysInput = {
   holidays?: Prisma.HolidayCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutTenantInput
 }
 
 export type TenantUncheckedCreateWithoutWorkDaysInput = {
@@ -1205,6 +1345,7 @@ export type TenantUncheckedCreateWithoutWorkDaysInput = {
   holidays?: Prisma.HolidayUncheckedCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteUncheckedCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsUncheckedCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutTenantInput
 }
 
 export type TenantCreateOrConnectWithoutWorkDaysInput = {
@@ -1239,6 +1380,7 @@ export type TenantUpdateWithoutWorkDaysInput = {
   holidays?: Prisma.HolidayUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantUncheckedUpdateWithoutWorkDaysInput = {
@@ -1258,6 +1400,7 @@ export type TenantUncheckedUpdateWithoutWorkDaysInput = {
   holidays?: Prisma.HolidayUncheckedUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUncheckedUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUncheckedUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantCreateWithoutHolidaysInput = {
@@ -1276,6 +1419,7 @@ export type TenantCreateWithoutHolidaysInput = {
   tags?: Prisma.TagCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutTenantInput
 }
 
 export type TenantUncheckedCreateWithoutHolidaysInput = {
@@ -1295,6 +1439,7 @@ export type TenantUncheckedCreateWithoutHolidaysInput = {
   tags?: Prisma.TagUncheckedCreateNestedManyWithoutTenantInput
   invites?: Prisma.InviteUncheckedCreateNestedManyWithoutTenantInput
   settings?: Prisma.TenantSettingsUncheckedCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutTenantInput
 }
 
 export type TenantCreateOrConnectWithoutHolidaysInput = {
@@ -1329,6 +1474,7 @@ export type TenantUpdateWithoutHolidaysInput = {
   tags?: Prisma.TagUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutTenantNestedInput
 }
 
 export type TenantUncheckedUpdateWithoutHolidaysInput = {
@@ -1348,6 +1494,7 @@ export type TenantUncheckedUpdateWithoutHolidaysInput = {
   tags?: Prisma.TagUncheckedUpdateManyWithoutTenantNestedInput
   invites?: Prisma.InviteUncheckedUpdateManyWithoutTenantNestedInput
   settings?: Prisma.TenantSettingsUncheckedUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutTenantNestedInput
 }
 
 
@@ -1363,6 +1510,7 @@ export type TenantCountOutputType = {
   tags: number
   holidays: number
   invites: number
+  supportAccessLogs: number
 }
 
 export type TenantCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1373,6 +1521,7 @@ export type TenantCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions
   tags?: boolean | TenantCountOutputTypeCountTagsArgs
   holidays?: boolean | TenantCountOutputTypeCountHolidaysArgs
   invites?: boolean | TenantCountOutputTypeCountInvitesArgs
+  supportAccessLogs?: boolean | TenantCountOutputTypeCountSupportAccessLogsArgs
 }
 
 /**
@@ -1434,6 +1583,13 @@ export type TenantCountOutputTypeCountInvitesArgs<ExtArgs extends runtime.Types.
   where?: Prisma.InviteWhereInput
 }
 
+/**
+ * TenantCountOutputType without action
+ */
+export type TenantCountOutputTypeCountSupportAccessLogsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.SupportAccessLogWhereInput
+}
+
 
 export type TenantSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1453,6 +1609,7 @@ export type TenantSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   holidays?: boolean | Prisma.Tenant$holidaysArgs<ExtArgs>
   invites?: boolean | Prisma.Tenant$invitesArgs<ExtArgs>
   settings?: boolean | Prisma.Tenant$settingsArgs<ExtArgs>
+  supportAccessLogs?: boolean | Prisma.Tenant$supportAccessLogsArgs<ExtArgs>
   _count?: boolean | Prisma.TenantCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["tenant"]>
 
@@ -1502,6 +1659,7 @@ export type TenantInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   holidays?: boolean | Prisma.Tenant$holidaysArgs<ExtArgs>
   invites?: boolean | Prisma.Tenant$invitesArgs<ExtArgs>
   settings?: boolean | Prisma.Tenant$settingsArgs<ExtArgs>
+  supportAccessLogs?: boolean | Prisma.Tenant$supportAccessLogsArgs<ExtArgs>
   _count?: boolean | Prisma.TenantCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type TenantIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
@@ -1518,6 +1676,7 @@ export type $TenantPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs
     holidays: Prisma.$HolidayPayload<ExtArgs>[]
     invites: Prisma.$InvitePayload<ExtArgs>[]
     settings: Prisma.$TenantSettingsPayload<ExtArgs> | null
+    supportAccessLogs: Prisma.$SupportAccessLogPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: number
@@ -1931,6 +2090,7 @@ export interface Prisma__TenantClient<T, Null = never, ExtArgs extends runtime.T
   holidays<T extends Prisma.Tenant$holidaysArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Tenant$holidaysArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HolidayPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   invites<T extends Prisma.Tenant$invitesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Tenant$invitesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$InvitePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   settings<T extends Prisma.Tenant$settingsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Tenant$settingsArgs<ExtArgs>>): Prisma.Prisma__TenantSettingsClient<runtime.Types.Result.GetResult<Prisma.$TenantSettingsPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  supportAccessLogs<T extends Prisma.Tenant$supportAccessLogsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Tenant$supportAccessLogsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SupportAccessLogPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2546,6 +2706,30 @@ export type Tenant$settingsArgs<ExtArgs extends runtime.Types.Extensions.Interna
    */
   include?: Prisma.TenantSettingsInclude<ExtArgs> | null
   where?: Prisma.TenantSettingsWhereInput
+}
+
+/**
+ * Tenant.supportAccessLogs
+ */
+export type Tenant$supportAccessLogsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the SupportAccessLog
+   */
+  select?: Prisma.SupportAccessLogSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the SupportAccessLog
+   */
+  omit?: Prisma.SupportAccessLogOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.SupportAccessLogInclude<ExtArgs> | null
+  where?: Prisma.SupportAccessLogWhereInput
+  orderBy?: Prisma.SupportAccessLogOrderByWithRelationInput | Prisma.SupportAccessLogOrderByWithRelationInput[]
+  cursor?: Prisma.SupportAccessLogWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.SupportAccessLogScalarFieldEnum | Prisma.SupportAccessLogScalarFieldEnum[]
 }
 
 /**

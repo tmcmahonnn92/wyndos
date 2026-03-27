@@ -275,6 +275,8 @@ export type UserWhereInput = {
   tenant?: Prisma.XOR<Prisma.TenantNullableScalarRelationFilter, Prisma.TenantWhereInput> | null
   accounts?: Prisma.AccountListRelationFilter
   sessions?: Prisma.SessionListRelationFilter
+  supportAccessLogs?: Prisma.SupportAccessLogListRelationFilter
+  endedSupportAccessLogs?: Prisma.SupportAccessLogListRelationFilter
 }
 
 export type UserOrderByWithRelationInput = {
@@ -293,6 +295,8 @@ export type UserOrderByWithRelationInput = {
   tenant?: Prisma.TenantOrderByWithRelationInput
   accounts?: Prisma.AccountOrderByRelationAggregateInput
   sessions?: Prisma.SessionOrderByRelationAggregateInput
+  supportAccessLogs?: Prisma.SupportAccessLogOrderByRelationAggregateInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogOrderByRelationAggregateInput
 }
 
 export type UserWhereUniqueInput = Prisma.AtLeast<{
@@ -314,6 +318,8 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   tenant?: Prisma.XOR<Prisma.TenantNullableScalarRelationFilter, Prisma.TenantWhereInput> | null
   accounts?: Prisma.AccountListRelationFilter
   sessions?: Prisma.SessionListRelationFilter
+  supportAccessLogs?: Prisma.SupportAccessLogListRelationFilter
+  endedSupportAccessLogs?: Prisma.SupportAccessLogListRelationFilter
 }, "id" | "email">
 
 export type UserOrderByWithAggregationInput = {
@@ -369,6 +375,8 @@ export type UserCreateInput = {
   tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
   accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
 }
 
 export type UserUncheckedCreateInput = {
@@ -386,6 +394,8 @@ export type UserUncheckedCreateInput = {
   updatedAt?: Date | string
   accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
 }
 
 export type UserUpdateInput = {
@@ -403,6 +413,8 @@ export type UserUpdateInput = {
   tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
   accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
 }
 
 export type UserUncheckedUpdateInput = {
@@ -420,6 +432,8 @@ export type UserUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
 }
 
 export type UserCreateManyInput = {
@@ -534,6 +548,11 @@ export type UserScalarRelationFilter = {
   isNot?: Prisma.UserWhereInput
 }
 
+export type UserNullableScalarRelationFilter = {
+  is?: Prisma.UserWhereInput | null
+  isNot?: Prisma.UserWhereInput | null
+}
+
 export type UserCreateNestedManyWithoutTenantInput = {
   create?: Prisma.XOR<Prisma.UserCreateWithoutTenantInput, Prisma.UserUncheckedCreateWithoutTenantInput> | Prisma.UserCreateWithoutTenantInput[] | Prisma.UserUncheckedCreateWithoutTenantInput[]
   connectOrCreate?: Prisma.UserCreateOrConnectWithoutTenantInput | Prisma.UserCreateOrConnectWithoutTenantInput[]
@@ -616,6 +635,36 @@ export type UserUpdateOneRequiredWithoutSessionsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutSessionsInput, Prisma.UserUpdateWithoutSessionsInput>, Prisma.UserUncheckedUpdateWithoutSessionsInput>
 }
 
+export type UserCreateNestedOneWithoutSupportAccessLogsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutSupportAccessLogsInput, Prisma.UserUncheckedCreateWithoutSupportAccessLogsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutSupportAccessLogsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserCreateNestedOneWithoutEndedSupportAccessLogsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutEndedSupportAccessLogsInput, Prisma.UserUncheckedCreateWithoutEndedSupportAccessLogsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutEndedSupportAccessLogsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutSupportAccessLogsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutSupportAccessLogsInput, Prisma.UserUncheckedCreateWithoutSupportAccessLogsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutSupportAccessLogsInput
+  upsert?: Prisma.UserUpsertWithoutSupportAccessLogsInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutSupportAccessLogsInput, Prisma.UserUpdateWithoutSupportAccessLogsInput>, Prisma.UserUncheckedUpdateWithoutSupportAccessLogsInput>
+}
+
+export type UserUpdateOneWithoutEndedSupportAccessLogsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutEndedSupportAccessLogsInput, Prisma.UserUncheckedCreateWithoutEndedSupportAccessLogsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutEndedSupportAccessLogsInput
+  upsert?: Prisma.UserUpsertWithoutEndedSupportAccessLogsInput
+  disconnect?: Prisma.UserWhereInput | boolean
+  delete?: Prisma.UserWhereInput | boolean
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutEndedSupportAccessLogsInput, Prisma.UserUpdateWithoutEndedSupportAccessLogsInput>, Prisma.UserUncheckedUpdateWithoutEndedSupportAccessLogsInput>
+}
+
 export type UserCreateWithoutTenantInput = {
   id?: string
   name?: string | null
@@ -630,6 +679,8 @@ export type UserCreateWithoutTenantInput = {
   updatedAt?: Date | string
   accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
 }
 
 export type UserUncheckedCreateWithoutTenantInput = {
@@ -646,6 +697,8 @@ export type UserUncheckedCreateWithoutTenantInput = {
   updatedAt?: Date | string
   accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
 }
 
 export type UserCreateOrConnectWithoutTenantInput = {
@@ -706,6 +759,8 @@ export type UserCreateWithoutAccountsInput = {
   updatedAt?: Date | string
   tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
 }
 
 export type UserUncheckedCreateWithoutAccountsInput = {
@@ -722,6 +777,8 @@ export type UserUncheckedCreateWithoutAccountsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
 }
 
 export type UserCreateOrConnectWithoutAccountsInput = {
@@ -754,6 +811,8 @@ export type UserUpdateWithoutAccountsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutAccountsInput = {
@@ -770,6 +829,8 @@ export type UserUncheckedUpdateWithoutAccountsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
 }
 
 export type UserCreateWithoutSessionsInput = {
@@ -786,6 +847,8 @@ export type UserCreateWithoutSessionsInput = {
   updatedAt?: Date | string
   tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
   accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
 }
 
 export type UserUncheckedCreateWithoutSessionsInput = {
@@ -802,6 +865,8 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
 }
 
 export type UserCreateOrConnectWithoutSessionsInput = {
@@ -834,6 +899,8 @@ export type UserUpdateWithoutSessionsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
   accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutSessionsInput = {
@@ -850,6 +917,184 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
+}
+
+export type UserCreateWithoutSupportAccessLogsInput = {
+  id?: string
+  name?: string | null
+  email: string
+  emailVerified?: Date | string | null
+  image?: string | null
+  passwordHash?: string | null
+  role?: $Enums.UserRole
+  onboardingComplete?: boolean
+  workerPermissions?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
+  accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
+  sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
+}
+
+export type UserUncheckedCreateWithoutSupportAccessLogsInput = {
+  id?: string
+  name?: string | null
+  email: string
+  emailVerified?: Date | string | null
+  image?: string | null
+  passwordHash?: string | null
+  role?: $Enums.UserRole
+  tenantId?: number | null
+  onboardingComplete?: boolean
+  workerPermissions?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
+  sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
+}
+
+export type UserCreateOrConnectWithoutSupportAccessLogsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutSupportAccessLogsInput, Prisma.UserUncheckedCreateWithoutSupportAccessLogsInput>
+}
+
+export type UserCreateWithoutEndedSupportAccessLogsInput = {
+  id?: string
+  name?: string | null
+  email: string
+  emailVerified?: Date | string | null
+  image?: string | null
+  passwordHash?: string | null
+  role?: $Enums.UserRole
+  onboardingComplete?: boolean
+  workerPermissions?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
+  accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
+  sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
+}
+
+export type UserUncheckedCreateWithoutEndedSupportAccessLogsInput = {
+  id?: string
+  name?: string | null
+  email: string
+  emailVerified?: Date | string | null
+  image?: string | null
+  passwordHash?: string | null
+  role?: $Enums.UserRole
+  tenantId?: number | null
+  onboardingComplete?: boolean
+  workerPermissions?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
+  sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
+}
+
+export type UserCreateOrConnectWithoutEndedSupportAccessLogsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutEndedSupportAccessLogsInput, Prisma.UserUncheckedCreateWithoutEndedSupportAccessLogsInput>
+}
+
+export type UserUpsertWithoutSupportAccessLogsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutSupportAccessLogsInput, Prisma.UserUncheckedUpdateWithoutSupportAccessLogsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutSupportAccessLogsInput, Prisma.UserUncheckedCreateWithoutSupportAccessLogsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutSupportAccessLogsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutSupportAccessLogsInput, Prisma.UserUncheckedUpdateWithoutSupportAccessLogsInput>
+}
+
+export type UserUpdateWithoutSupportAccessLogsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  emailVerified?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  image?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  onboardingComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  workerPermissions?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
+  accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
+  sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutSupportAccessLogsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  emailVerified?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  image?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  tenantId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  onboardingComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  workerPermissions?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
+  sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
+}
+
+export type UserUpsertWithoutEndedSupportAccessLogsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutEndedSupportAccessLogsInput, Prisma.UserUncheckedUpdateWithoutEndedSupportAccessLogsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutEndedSupportAccessLogsInput, Prisma.UserUncheckedCreateWithoutEndedSupportAccessLogsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutEndedSupportAccessLogsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutEndedSupportAccessLogsInput, Prisma.UserUncheckedUpdateWithoutEndedSupportAccessLogsInput>
+}
+
+export type UserUpdateWithoutEndedSupportAccessLogsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  emailVerified?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  image?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  onboardingComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  workerPermissions?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
+  accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
+  sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutEndedSupportAccessLogsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  emailVerified?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  image?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  tenantId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  onboardingComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  workerPermissions?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
+  sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
 }
 
 export type UserCreateManyTenantInput = {
@@ -880,6 +1125,8 @@ export type UserUpdateWithoutTenantInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutTenantInput = {
@@ -896,6 +1143,8 @@ export type UserUncheckedUpdateWithoutTenantInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
 }
 
 export type UserUncheckedUpdateManyWithoutTenantInput = {
@@ -920,11 +1169,15 @@ export type UserUncheckedUpdateManyWithoutTenantInput = {
 export type UserCountOutputType = {
   accounts: number
   sessions: number
+  supportAccessLogs: number
+  endedSupportAccessLogs: number
 }
 
 export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   accounts?: boolean | UserCountOutputTypeCountAccountsArgs
   sessions?: boolean | UserCountOutputTypeCountSessionsArgs
+  supportAccessLogs?: boolean | UserCountOutputTypeCountSupportAccessLogsArgs
+  endedSupportAccessLogs?: boolean | UserCountOutputTypeCountEndedSupportAccessLogsArgs
 }
 
 /**
@@ -951,6 +1204,20 @@ export type UserCountOutputTypeCountSessionsArgs<ExtArgs extends runtime.Types.E
   where?: Prisma.SessionWhereInput
 }
 
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountSupportAccessLogsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.SupportAccessLogWhereInput
+}
+
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountEndedSupportAccessLogsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.SupportAccessLogWhereInput
+}
+
 
 export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -968,6 +1235,8 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   tenant?: boolean | Prisma.User$tenantArgs<ExtArgs>
   accounts?: boolean | Prisma.User$accountsArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
+  supportAccessLogs?: boolean | Prisma.User$supportAccessLogsArgs<ExtArgs>
+  endedSupportAccessLogs?: boolean | Prisma.User$endedSupportAccessLogsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -1023,6 +1292,8 @@ export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   tenant?: boolean | Prisma.User$tenantArgs<ExtArgs>
   accounts?: boolean | Prisma.User$accountsArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
+  supportAccessLogs?: boolean | Prisma.User$supportAccessLogsArgs<ExtArgs>
+  endedSupportAccessLogs?: boolean | Prisma.User$endedSupportAccessLogsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type UserIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1038,6 +1309,8 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     tenant: Prisma.$TenantPayload<ExtArgs> | null
     accounts: Prisma.$AccountPayload<ExtArgs>[]
     sessions: Prisma.$SessionPayload<ExtArgs>[]
+    supportAccessLogs: Prisma.$SupportAccessLogPayload<ExtArgs>[]
+    endedSupportAccessLogs: Prisma.$SupportAccessLogPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1455,6 +1728,8 @@ export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Typ
   tenant<T extends Prisma.User$tenantArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$tenantArgs<ExtArgs>>): Prisma.Prisma__TenantClient<runtime.Types.Result.GetResult<Prisma.$TenantPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   accounts<T extends Prisma.User$accountsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$accountsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AccountPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   sessions<T extends Prisma.User$sessionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$sessionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SessionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  supportAccessLogs<T extends Prisma.User$supportAccessLogsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$supportAccessLogsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SupportAccessLogPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  endedSupportAccessLogs<T extends Prisma.User$endedSupportAccessLogsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$endedSupportAccessLogsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SupportAccessLogPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1961,6 +2236,54 @@ export type User$sessionsArgs<ExtArgs extends runtime.Types.Extensions.InternalA
   take?: number
   skip?: number
   distinct?: Prisma.SessionScalarFieldEnum | Prisma.SessionScalarFieldEnum[]
+}
+
+/**
+ * User.supportAccessLogs
+ */
+export type User$supportAccessLogsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the SupportAccessLog
+   */
+  select?: Prisma.SupportAccessLogSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the SupportAccessLog
+   */
+  omit?: Prisma.SupportAccessLogOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.SupportAccessLogInclude<ExtArgs> | null
+  where?: Prisma.SupportAccessLogWhereInput
+  orderBy?: Prisma.SupportAccessLogOrderByWithRelationInput | Prisma.SupportAccessLogOrderByWithRelationInput[]
+  cursor?: Prisma.SupportAccessLogWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.SupportAccessLogScalarFieldEnum | Prisma.SupportAccessLogScalarFieldEnum[]
+}
+
+/**
+ * User.endedSupportAccessLogs
+ */
+export type User$endedSupportAccessLogsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the SupportAccessLog
+   */
+  select?: Prisma.SupportAccessLogSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the SupportAccessLog
+   */
+  omit?: Prisma.SupportAccessLogOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.SupportAccessLogInclude<ExtArgs> | null
+  where?: Prisma.SupportAccessLogWhereInput
+  orderBy?: Prisma.SupportAccessLogOrderByWithRelationInput | Prisma.SupportAccessLogOrderByWithRelationInput[]
+  cursor?: Prisma.SupportAccessLogWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.SupportAccessLogScalarFieldEnum | Prisma.SupportAccessLogScalarFieldEnum[]
 }
 
 /**

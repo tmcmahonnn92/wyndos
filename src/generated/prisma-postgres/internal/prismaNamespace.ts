@@ -392,6 +392,7 @@ export const ModelName = {
   Session: 'Session',
   VerificationToken: 'VerificationToken',
   PasswordResetToken: 'PasswordResetToken',
+  SupportAccessLog: 'SupportAccessLog',
   Area: 'Area',
   Tag: 'Tag',
   CustomerTag: 'CustomerTag',
@@ -415,7 +416,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "tenant" | "tenantSettings" | "invite" | "user" | "account" | "session" | "verificationToken" | "passwordResetToken" | "area" | "tag" | "customerTag" | "customer" | "workDay" | "job" | "payment" | "holiday"
+    modelProps: "tenant" | "tenantSettings" | "invite" | "user" | "account" | "session" | "verificationToken" | "passwordResetToken" | "supportAccessLog" | "area" | "tag" | "customerTag" | "customer" | "workDay" | "job" | "payment" | "holiday"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1008,6 +1009,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.PasswordResetTokenCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.PasswordResetTokenCountAggregateOutputType> | number
+        }
+      }
+    }
+    SupportAccessLog: {
+      payload: Prisma.$SupportAccessLogPayload<ExtArgs>
+      fields: Prisma.SupportAccessLogFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.SupportAccessLogFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SupportAccessLogPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.SupportAccessLogFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SupportAccessLogPayload>
+        }
+        findFirst: {
+          args: Prisma.SupportAccessLogFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SupportAccessLogPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.SupportAccessLogFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SupportAccessLogPayload>
+        }
+        findMany: {
+          args: Prisma.SupportAccessLogFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SupportAccessLogPayload>[]
+        }
+        create: {
+          args: Prisma.SupportAccessLogCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SupportAccessLogPayload>
+        }
+        createMany: {
+          args: Prisma.SupportAccessLogCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.SupportAccessLogCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SupportAccessLogPayload>[]
+        }
+        delete: {
+          args: Prisma.SupportAccessLogDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SupportAccessLogPayload>
+        }
+        update: {
+          args: Prisma.SupportAccessLogUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SupportAccessLogPayload>
+        }
+        deleteMany: {
+          args: Prisma.SupportAccessLogDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.SupportAccessLogUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.SupportAccessLogUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SupportAccessLogPayload>[]
+        }
+        upsert: {
+          args: Prisma.SupportAccessLogUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SupportAccessLogPayload>
+        }
+        aggregate: {
+          args: Prisma.SupportAccessLogAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateSupportAccessLog>
+        }
+        groupBy: {
+          args: Prisma.SupportAccessLogGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.SupportAccessLogGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.SupportAccessLogCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.SupportAccessLogCountAggregateOutputType> | number
         }
       }
     }
@@ -1782,6 +1857,22 @@ export const PasswordResetTokenScalarFieldEnum = {
 export type PasswordResetTokenScalarFieldEnum = (typeof PasswordResetTokenScalarFieldEnum)[keyof typeof PasswordResetTokenScalarFieldEnum]
 
 
+export const SupportAccessLogScalarFieldEnum = {
+  id: 'id',
+  tenantId: 'tenantId',
+  superAdminUserId: 'superAdminUserId',
+  endedByUserId: 'endedByUserId',
+  reason: 'reason',
+  scope: 'scope',
+  ipAddress: 'ipAddress',
+  userAgent: 'userAgent',
+  createdAt: 'createdAt',
+  endedAt: 'endedAt'
+} as const
+
+export type SupportAccessLogScalarFieldEnum = (typeof SupportAccessLogScalarFieldEnum)[keyof typeof SupportAccessLogScalarFieldEnum]
+
+
 export const AreaScalarFieldEnum = {
   id: 'id',
   tenantId: 'tenantId',
@@ -2153,6 +2244,7 @@ export type GlobalOmitConfig = {
   session?: Prisma.SessionOmit
   verificationToken?: Prisma.VerificationTokenOmit
   passwordResetToken?: Prisma.PasswordResetTokenOmit
+  supportAccessLog?: Prisma.SupportAccessLogOmit
   area?: Prisma.AreaOmit
   tag?: Prisma.TagOmit
   customerTag?: Prisma.CustomerTagOmit

@@ -83,6 +83,11 @@ export type VerificationToken = Prisma.VerificationTokenModel
  */
 export type PasswordResetToken = Prisma.PasswordResetTokenModel
 /**
+ * Model SupportAccessLog
+ * 
+ */
+export type SupportAccessLog = Prisma.SupportAccessLogModel
+/**
  * Model Area
  * 
  */

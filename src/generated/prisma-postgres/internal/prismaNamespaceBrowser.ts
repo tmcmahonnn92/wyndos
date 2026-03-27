@@ -59,6 +59,7 @@ export const ModelName = {
   Session: 'Session',
   VerificationToken: 'VerificationToken',
   PasswordResetToken: 'PasswordResetToken',
+  SupportAccessLog: 'SupportAccessLog',
   Area: 'Area',
   Tag: 'Tag',
   CustomerTag: 'CustomerTag',
@@ -223,6 +224,22 @@ export const PasswordResetTokenScalarFieldEnum = {
 } as const
 
 export type PasswordResetTokenScalarFieldEnum = (typeof PasswordResetTokenScalarFieldEnum)[keyof typeof PasswordResetTokenScalarFieldEnum]
+
+
+export const SupportAccessLogScalarFieldEnum = {
+  id: 'id',
+  tenantId: 'tenantId',
+  superAdminUserId: 'superAdminUserId',
+  endedByUserId: 'endedByUserId',
+  reason: 'reason',
+  scope: 'scope',
+  ipAddress: 'ipAddress',
+  userAgent: 'userAgent',
+  createdAt: 'createdAt',
+  endedAt: 'endedAt'
+} as const
+
+export type SupportAccessLogScalarFieldEnum = (typeof SupportAccessLogScalarFieldEnum)[keyof typeof SupportAccessLogScalarFieldEnum]
 
 
 export const AreaScalarFieldEnum = {
