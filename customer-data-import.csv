@@ -1,0 +1,355 @@
+Name,Address,Price,Area,Email,Phone,Notes,Job Name,Next Due Date,Payment Method,Advance Notice,Frequency
+68 riddel,68 riddel,20.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+15 markham langold,15 markham langold,17.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+6 cross street,6 cross street,12.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+31 church st langold,31 church st langold,15.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+33 church st langold,33 church st langold,12.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+12 church st langold,12 church st langold,12.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+7 main st oldcotes,7 main st oldcotes,19.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+roche house oldcotes,roche house oldcotes,22.00,Langold (8-Weekly),,,,Window Cleaning,,CASH,false,8
+gildingwells farm,gildingwells farm,45.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+86 lincoln rd tuxford,86 lincoln rd tuxford,16.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+14b gilbert ave tuxford,14b gilbert ave tuxford,10.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+15 machin tuxford,15 machin tuxford,17.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+17 machin tuxford,17 machin tuxford,13.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+19 machin tuxford,19 machin tuxford,12.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+25 machin tuxford,25 machin tuxford,12.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+kennels tuxford,kennels tuxford,20.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+salon tuxford,salon tuxford,7.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+goosemore house,goosemore house,40.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+church view (behind millionhaires) tuxford,church view (behind millionhaires) tuxford,12.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+retford paving,retford paving,15.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+18 lowfields retford,18 lowfields retford,15.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+old vicarage blyth,old vicarage blyth,45.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+botany bay farm,botany bay farm,20.00,Langold (4-Weekly),,,,Window Cleaning,,CASH,false,4
+White cottage budby,White cottage budby,30.00,Langold (8-Weekly),,,,Window Cleaning,,CASH,false,8
+"2 Model Lane, Creswell","2 Model Lane, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"3 Model Lane, Creswell","3 Model Lane, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"4 Model Lane, Creswell","4 Model Lane, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"10 Model Lane, Creswell","10 Model Lane, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"11 Model Lane, Creswell","11 Model Lane, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"16 Model Lane, Creswell","16 Model Lane, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"18 Model Lane, Creswell","18 Model Lane, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"17 Model Lane, Creswell","17 Model Lane, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"31 Model Lane, Creswell","31 Model Lane, Creswell",17.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"33 Model Lane, Creswell","33 Model Lane, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"8 Model View, Creswell","8 Model View, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"10 Model View, Creswell","10 Model View, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"14 Model View, Creswell","14 Model View, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"10 Fox Street, Creswell","10 Fox Street, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"27 Fox Street, Creswell","27 Fox Street, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"44 Fox Street, Creswell","44 Fox Street, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"17 Fox Street, Creswell","17 Fox Street, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"14 Fox Street, Creswell","14 Fox Street, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"34 Fox Street, Creswell","34 Fox Street, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"1 Fox Lane, Creswell","1 Fox Lane, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"3 Fox Lane, Creswell","3 Fox Lane, Creswell",10.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"2 Colliery Street, Creswell","2 Colliery Street, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"6 Colliery Street, Creswell","6 Colliery Street, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"12 Colliery Street, Creswell","12 Colliery Street, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"26 Colliery Street, Creswell","26 Colliery Street, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"2 colliery way, Creswell","2 colliery way, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"4 colliery way, Creswell","4 colliery way, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"15 elmton way, Creswell","15 elmton way, Creswell",12.00,Model Way (8-Weekly),,,,Window Cleaning,,CASH,false,8
+"7 elmton way, Creswell","7 elmton way, Creswell",12.00,Model Way (4-Weekly),,,,Window Cleaning,,CASH,false,4
+"4 elmton way, Creswell","4 elmton way, Creswell",12.00,Model Way (8-Weekly),,,,Window Cleaning,,CASH,false,8
+1 Rogers AVE,1 Rogers AVE,12.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+3 Rogers ave,3 Rogers ave,12.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+5 Rogers AVE,5 Rogers AVE,8.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+9 Rogers AVE,9 Rogers AVE,5.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+11 Rogers AVE,11 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+13 Rogers AVE,13 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+15 Rogers AVE,15 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+17 Rogers AVE,17 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+19 Rogers AVE,19 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+21 Rogers AVE,21 Rogers AVE,12.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+25 Rogers AVE,25 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+29 Rogers AVE,29 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+31 Rogers ave,31 Rogers ave,5.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+33 Rogers AVE,33 Rogers AVE,5.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+37 Rogers 10,37 Rogers 10,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+39 Rogers AVE,39 Rogers AVE,7.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+2 Rogers AVE,2 Rogers AVE,12.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+6 Rogers AVE,6 Rogers AVE,12.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+14 Rogers AVE,14 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+18 Rogers AVE,18 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+20 Rogers AVE,20 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+24 rogers,24 rogers,12.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+26 Rogers AVE,26 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+28 Rogers AVE,28 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+30 Rogers AVE,30 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+32 Rogers AVE,32 Rogers AVE,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+34 Rogers AVE,34 Rogers AVE,12.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+42a Rogers AVE,42a Rogers AVE,5.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+40 portland,40 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+48 Portland,48 Portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+50 portland,50 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+54 portland ave,54 portland ave,7.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+66 portland,66 portland,10.00,Rogers & Portland (8-Weekly),,,,Window Cleaning,,CASH,false,8
+70 portland,70 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+74 portland,74 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+76 portland,76 portland,12.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+82 portland,82 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+84 portland,84 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+39 portland,39 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+41 portland,41 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+55 portland,55 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+57 portland,57 portland,12.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+59 portland,59 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+61 portland,61 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+65 portland,65 portland,10.00,Rogers & Portland (4-Weekly),,,,Window Cleaning,,CASH,false,4
+5 Sherwood AVE,5 Sherwood AVE,6.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+7 Sherwood AVE,7 Sherwood AVE,8.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+15 Sherwood AVE,15 Sherwood AVE,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+2 Sherwood AVE,2 Sherwood AVE,14.00,Creswell (8-Weekly),,,,Window Cleaning,,CASH,false,8
+6 Sherwood AVE,6 Sherwood AVE,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+16 Sherwood AVE,16 Sherwood AVE,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+28 Sherwood AVE,28 Sherwood AVE,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+30 Sherwood AVE,30 Sherwood AVE,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+34 Sherwood AVE,34 Sherwood AVE,7.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+36 Sherwood AVE,36 Sherwood AVE,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+4 west st,4 west st,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+6 west st,6 west st,6.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+8 west st,8 west st,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+30 west st,30 west st,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+62 west st,62 west st,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+64 west st,64 west st,8.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+29 west st,29 west st,14.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+31 west st,31 west st,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+37 west st,37 west st,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+39 west st,39 west st,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+1 eyre st,1 eyre st,14.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+11  eyre st,11  eyre st,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+21 eyre st,21 eyre st,13.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+10  eyre st,10  eyre st,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+6 tennyson ave,6 tennyson ave,10.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+10 tennyson ave,10 tennyson ave,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+64 skinner st,64 skinner st,35.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+70 skinner st,70 skinner st,13.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+67 skinner st,67 skinner st,13.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+77 skinner st,77 skinner st,12.00,Creswell (4-Weekly),,,,Window Cleaning,,CASH,false,4
+4 Cavendish,4 Cavendish,17.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+11 Devonshire drive,11 Devonshire drive,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+10 Devonshire drive,10 Devonshire drive,10.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+8 Devonshire drive,8 Devonshire drive,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+10 beely close,10 beely close,15.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+21 elmton rd,21 elmton rd,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+23 elmton rd,23 elmton rd,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+65a elmton rd bluebell bungalow,65a elmton rd bluebell bungalow,14.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+162 elmton rd,162 elmton rd,10.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+166 elmton rd,166 elmton rd,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+168 elmton rd,168 elmton rd,14.00,Elmton Road (8-Weekly),,,,Window Cleaning,,CASH,false,8
+170 elmton rd,170 elmton rd,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+176 elmton rd,176 elmton rd,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+178 elmton rd,178 elmton rd,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+186 elmton rd,186 elmton rd,10.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+194 elmton rd,194 elmton rd,10.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+198 elmton rd,198 elmton rd,10.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+224 elmton rd,224 elmton rd,10.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+234 elmton rd,234 elmton rd,10.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+240 elmton rd,240 elmton rd,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+Woodburn bungalow Elton rd,Woodburn bungalow Elton rd,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+Zetland house elmton rd,Zetland house elmton rd,15.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+246 elmton rd,246 elmton rd,13.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+250 elmton rd,250 elmton rd,8.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+254 elmton rd,254 elmton rd,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+256 elmton rd,256 elmton rd,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+282 elmton rd,282 elmton rd,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+6 elmton close,6 elmton close,14.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+8 elmton close,8 elmton close,12.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+Bungalow elmton close,Bungalow elmton close,15.00,Elmton Road (8-Weekly),,,,Window Cleaning,,CASH,false,8
+24 elmton close,24 elmton close,10.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+28 elmton close,28 elmton close,8.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+30 elmton close,30 elmton close,8.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+32 elmton close,32 elmton close,8.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+21 elmton close,21 elmton close,8.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+2 bulivant AVE,2 bulivant AVE,13.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+Frithwood farm cottage,Frithwood farm cottage,32.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+frithwood house (white),frithwood house (white),32.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+stables frithwood,stables frithwood,17.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+mistal barn,mistal barn,22.00,Elmton Road (4-Weekly),,,,Window Cleaning,,CASH,false,4
+1 Highfield,1 Highfield,12.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+3 Highfield,3 Highfield,15.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+5 Highfield,5 Highfield,13.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+7 Highfield,7 Highfield,18.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+9 Highfield,9 Highfield,17.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+11 Highfield,11 Highfield,13.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+15 Highfield,15 Highfield,6.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+17 Highfield,17 Highfield,6.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+6 Highfield,6 Highfield,15.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+8 Highfield,8 Highfield,15.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+14 brookfield,14 brookfield,12.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+10 Brookfield,10 Brookfield,12.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+11a searson,11a searson,14.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+8 searson,8 searson,10.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+63 houfton,63 houfton,15.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+34 northfields,34 northfields,12.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+38 Northfields,38 Northfields,12.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+87 high street clowne,87 high street clowne,12.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+85 high street clowne,85 high street clowne,12.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+pink houses clowne,pink houses clowne,40.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+1 old hall langwith,1 old hall langwith,20.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+2 old hall,2 old hall,15.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+3 old hall,3 old hall,20.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+big house langwith,big house langwith,45.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+mark and rachels,mark and rachels,15.00,Bolsover & Clowne,,,,Window Cleaning,,CASH,false,4
+25 beardsley rd edwinstowe,25 beardsley rd edwinstowe,12.00,Edwinstowe (12-Weekly),,,,Window Cleaning,,CASH,false,12
+10 beardsley rd edwinstowe,10 beardsley rd edwinstowe,8.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+32 first ave edwinstowe,32 first ave edwinstowe,12.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+49 first ave edwinstowe,49 first ave edwinstowe,17.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+92 fourth ave edwinstowe,92 fourth ave edwinstowe,12.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+56 fifth ave edwinstowe,56 fifth ave edwinstowe,15.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+54 fifth ave edwinstowe,54 fifth ave edwinstowe,12.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+Andy knowles edwinstowe,Andy knowles edwinstowe,35.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+the kennels perlthorpe,the kennels perlthorpe,27.00,Edwinstowe (8-Weekly),,,,Window Cleaning,,CASH,false,8
+10 jackson hill,10 jackson hill,5.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+8 jackson hill perlthorpe,8 jackson hill perlthorpe,15.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+3 jackson hill perlthorpe,3 jackson hill perlthorpe,20.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+1 whitmor cottage perlthorpe,1 whitmor cottage perlthorpe,15.00,Edwinstowe (8-Weekly),,,,Window Cleaning,,CASH,false,8
+2 whitmor cottage perlthorpe,2 whitmor cottage perlthorpe,5.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+bothamsall bungalow,bothamsall bungalow,15.00,Edwinstowe (4-Weekly),,,,Window Cleaning,,CASH,false,4
+middlehouse bothamsall,middlehouse bothamsall,25.00,Edwinstowe (8-Weekly),,,,Window Cleaning,,CASH,false,8
+Meadow lodge welbeck,Meadow lodge welbeck,25.00,Welbeck & Norton (8-Weekly),,,,Window Cleaning,,CASH,false,8
+4 lake view,4 lake view,14.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+2 lake view,2 lake view,14.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+1 lake view,1 lake view,14.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+meadowside bungalow (alan bellingham),meadowside bungalow (alan bellingham),17.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+mallards,mallards,20.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+mr brightman,mr brightman,20.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+Walpole,Walpole,25.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+tea rooms,tea rooms,25.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+bentink lodge,bentink lodge,18.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+4 lady margaret cres,4 lady margaret cres,10.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+3 lady margaret cres,3 lady margaret cres,10.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+2  lady margaret cres,2  lady margaret cres,10.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+3 new bungalows norton,3 new bungalows norton,10.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+rookeries norton,rookeries norton,13.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+pear tree cottage norton,pear tree cottage norton,14.00,Welbeck & Norton (8-Weekly),,,,Window Cleaning,,CASH,false,8
+3 main st bungalow norton,3 main st bungalow norton,10.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+rose tree cottage,rose tree cottage,12.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+south carr lodge,south carr lodge,20.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+tile kiln lodge,tile kiln lodge,20.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+crags lodge,crags lodge,20.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+ganabrig lodge,ganabrig lodge,17.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+corner bungalow holbeck,corner bungalow holbeck,12.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+4 new bungalows holbeck,4 new bungalows holbeck,10.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+5 new bungalows holbeck,5 new bungalows holbeck,10.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+barleycroft holbeck,barleycroft holbeck,15.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+old schoolhouse holbeck,old schoolhouse holbeck,15.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+windy nook cuckney,windy nook cuckney,12.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+stonecroft cukney,stonecroft cukney,12.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+old bakehouse cukney,old bakehouse cukney,20.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+john and jayne,john and jayne,14.00,Welbeck & Norton (4-Weekly),,,,Window Cleaning,,CASH,false,4
+2 hemmingfield cres,2 hemmingfield cres,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+4  hemmingfield cres,4  hemmingfield cres,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+6 hemmingfield cres,6 hemmingfield cres,15.00,Gateford & Hemmingfield (8-Weekly),,,,Window Cleaning,,CASH,false,8
+1 hemmingfield cres,1 hemmingfield cres,14.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+3  hemmingfield cres,3  hemmingfield cres,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+7  hemmingfield cres,7  hemmingfield cres,17.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+28  hemmingfield cres,28  hemmingfield cres,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+1  hemmingfield way,1  hemmingfield way,14.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+8  hemmingfield road,8  hemmingfield road,15.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+9 grasmere,9 grasmere,10.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+8 grasmere,8 grasmere,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+10 grasmere,10 grasmere,15.00,Gateford & Hemmingfield (8-Weekly),,,,Window Cleaning,,CASH,false,8
+12 grasmere,12 grasmere,17.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+6 lodore rd,6 lodore rd,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+8 langdale rd,8 langdale rd,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+12  langdale rd,12  langdale rd,15.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+14  langdale rd,14  langdale rd,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+11  langdale rd,11  langdale rd,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+13  langdale rd,13  langdale rd,6.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+15  langdale rd,15  langdale rd,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+21  langdale rd,21  langdale rd,14.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+93 thievesdale lane,93 thievesdale lane,16.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+46 kilton cres,46 kilton cres,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+48 kilton cres,48 kilton cres,20.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+15 avon way,15 avon way,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+17 avon way,17 avon way,10.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+19 avon way,19 avon way,14.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+21 avon way,21 avon way,17.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+23 avon way,23 avon way,14.00,Gateford & Hemmingfield (8-Weekly),,,,Window Cleaning,,CASH,false,8
+27 avon way,27 avon way,14.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+31 avon way,31 avon way,15.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+13 sheaf place,13 sheaf place,10.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+15 sheaf place,15 sheaf place,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+17 sheaf place,17 sheaf place,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+19 sheaf place,19 sheaf place,10.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+3 sheaf place,3 sheaf place,13.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+25 nene walk,25 nene walk,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+27 nene walk,27 nene walk,12.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+24 nene walk,24 nene walk,10.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+33 nene walk,33 nene walk,14.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+22 peregrine court,22 peregrine court,14.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+24  peregrine court,24  peregrine court,17.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+26  peregrine court,26  peregrine court,14.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+9 wren court,9 wren court,17.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+2 belgravia ct,2 belgravia ct,15.00,Gateford & Hemmingfield (4-Weekly),,,,Window Cleaning,,CASH,false,4
+2 robertson grove rhodesia,2 robertson grove rhodesia,12.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+2a robertson grove,2a robertson grove,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+4 Robertson grove Rhodesia,4 Robertson grove Rhodesia,12.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+31 Robertson grove Rhodesia,31 Robertson grove Rhodesia,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+32 Robertson grove Rhodesia,32 Robertson grove Rhodesia,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+36 Robertson grove Rhodesia,36 Robertson grove Rhodesia,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+37 Robertson grove Rhodesia,37 Robertson grove Rhodesia,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+38 Robertson grove Rhodesia,38 Robertson grove Rhodesia,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+39 Robertson grove Rhodesia,39 Robertson grove Rhodesia,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+40 robertson,40 robertson,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+41 Robertson grove Rhodesia,41 Robertson grove Rhodesia,8.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+2 Goranson walk Rhodesia,2 Goranson walk Rhodesia,8.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+22 Goranson walk Rhodesia,22 Goranson walk Rhodesia,15.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+13 Goranson walk Rhodesia,13 Goranson walk Rhodesia,14.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+9 Goranson walk Rhodesia,9 Goranson walk Rhodesia,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+54 Goranson walk Rhodesia,54 Goranson walk Rhodesia,8.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+1 Goranson walk Rhodesia,1 Goranson walk Rhodesia,15.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+2 dormer drive,2 dormer drive,15.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+4 dormer drive,4 dormer drive,6.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+1 dormer drive,1 dormer drive,17.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+68 Mary Street,68 Mary Street,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+5 queen Elizabeth cres,5 queen Elizabeth cres,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+6 eider,6 eider,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+1 lockside,1 lockside,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+2 lockside,2 lockside,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+3 lockside,3 lockside,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+4 lockside,4 lockside,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+233 carlton rd,233 carlton rd,17.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+377 carlton rd,377 carlton rd,13.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+469 carlton rd,469 carlton rd,14.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+467 carlton rd,467 carlton rd,17.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+457 carlton rd,457 carlton rd,12.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+420 carlton rd,420 carlton rd,14.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+418 carlton rd,418 carlton rd,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+410 carlton rd,410 carlton rd,8.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+28 raines ave,28 raines ave,12.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+42 raines ave,42 raines ave,12.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+44 raines ave,44 raines ave,12.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+59 raines,59 raines,15.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+361 carlton rd,361 carlton rd,20.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+122 keswick,122 keswick,12.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+98 keswick,98 keswick,12.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+45 keswick rd,45 keswick rd,12.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+24 keswick rd,24 keswick rd,12.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+174 Newcastle avenue,174 Newcastle avenue,12.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+160 Newcastle ave,160 Newcastle ave,15.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+152 Newcastle ave,152 Newcastle ave,10.00,Rhodesia & Carlton Road,,,,Window Cleaning,,CASH,false,4
+12 dale close,12 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+14dale close,14dale close,15.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+18 dale close,18 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+20 dale close,20 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+13 dale close,13 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+74 dale close,74 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+76 dale close,76 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+129 dale close,129 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+132 dale close,132 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+134 dale close,134 dale close,15.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+140 dale close,140 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+142 dale close,142 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+137dale close,137dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+135 dale close,135 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+133 dale close,133 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+119 dale close,119 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+125 dale close,125 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+107 dale close,107 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+105 dale close,105 dale close,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+69 woodlands,69 woodlands,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4
+72 woodlands,72 woodlands,10.00,Dale Close,,,,Window Cleaning,,CASH,false,4

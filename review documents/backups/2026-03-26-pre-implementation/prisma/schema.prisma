@@ -1,0 +1,326 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// --- Multi-Tenancy -----------------------------------------------------------
+
+/// A single window-cleaning business (one per OWNER sign-up).
+model Tenant {
+  id        Int      @id @default(autoincrement())
+  name      String                       // company / trading name
+  slug      String   @unique             // url-safe identifier, also used in URLs
+  phone     String   @default("")
+  address   String   @default("")
+  website   String   @default("")
+  logoUrl   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  areas     Area[]
+  customers Customer[]
+  workDays  WorkDay[]
+  tags      Tag[]
+  holidays  Holiday[]
+  invites   Invite[]
+  settings  TenantSettings?
+}
+
+/// Per-tenant app configuration (SMTP, SMS, invoice, templates).
+/// One row per Tenant; created during onboarding.
+model TenantSettings {
+  id              Int    @id @default(autoincrement())
+  tenantId        Int    @unique
+  tenant          Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Branding / invoice
+  businessName    String @default("My Window Cleaning")
+  ownerName       String @default("")
+  phone           String @default("")
+  email           String @default("")
+  address         String @default("")
+  bankDetails     String @default("")
+  vatNumber       String @default("")
+  invoicePrefix   String @default("INV")
+  nextInvoiceNum  Int    @default(1)
+  logoBase64      String? // base64 data URL
+
+  // SMTP
+  smtpProvider    String @default("gmail")
+  smtpHost        String @default("")
+  smtpPort        Int    @default(587)
+  smtpUser        String @default("")
+  smtpPass        String @default("")
+  smtpFromName    String @default("")
+
+  // SMS / messaging
+  messagingProvider    String @default("voodoosms")
+  voodooApiKey         String @default("")
+  voodooSender         String @default("VoodooSMS")
+  twilioAccountSid     String @default("")
+  twilioAuthToken      String @default("")
+  twilioFromNumber     String @default("")
+  metaPhoneNumberId    String @default("")
+  metaAccessToken      String @default("")
+  metaWabaId           String @default("")
+
+  // Message templates
+  tmplCleaningReminder  String @default("Hi {{customerFirstName}}, just a reminder your window cleaning is scheduled for {{jobDate}}. Thanks, {{businessName}}")
+  tmplJobComplete       String @default("Hi {{customerFirstName}}, your window cleaning has been completed today. Thanks for your custom! {{businessName}}")
+  tmplPaymentReminder1  String @default("Hi {{customerFirstName}}, just a friendly reminder you have an outstanding balance of {{amountDue}} for window cleaning. Please arrange payment at your convenience. Thanks, {{businessName}}")
+  tmplPaymentReminder2  String @default("Hi {{customerFirstName}}, this is a second reminder � your window cleaning balance of {{amountDue}} is overdue. Please arrange payment as soon as possible. Thanks, {{businessName}}")
+  tmplPaymentReminder3  String @default("Hi {{customerFirstName}}, this is a final reminder regarding your outstanding balance of {{amountDue}}. Please contact us immediately. {{businessName}}")
+  tmplPaymentReceived   String @default("Hi {{customerFirstName}}, we have received your payment of {{amountDue}}. Thank you! {{businessName}}")
+  tmplJobAndPayment     String @default("Hi {{customerFirstName}}, your window cleaning is complete and you have an outstanding balance of {{amountDue}}. Please arrange payment at your convenience. Thanks, {{businessName}}")
+  tmplInvoiceNote       String @default("")
+}
+
+/// Pending invite for a worker to join a tenant's account.
+model Invite {
+  id         Int       @id @default(autoincrement())
+  token      String    @unique @default(cuid())
+  email      String
+  role       UserRole  @default(WORKER)
+  /// JSON array of Permission strings to grant to the worker when they accept the invite.
+  permissions String   @default("[\"schedule\"]")
+  tenantId   Int
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+// --- Auth --------------------------------------------------------------------
+
+model User {
+  id                 String    @id @default(cuid())
+  name               String?
+  email              String    @unique
+  emailVerified      DateTime?
+  image              String?
+  passwordHash       String?
+  /// SUPER_ADMIN has tenantId = null; OWNER and WORKER have tenantId set.
+  role               UserRole  @default(OWNER)
+  tenantId           Int?
+  tenant             Tenant?   @relation(fields: [tenantId], references: [id])
+  onboardingComplete Boolean   @default(false)
+  /// JSON array of Permission strings — only used for WORKER accounts. OWNER/SUPER_ADMIN always have full access.
+  workerPermissions  String    @default("[]")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  accounts           Account[]
+  sessions           Session[]
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  token     String    @unique @default(cuid())
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+// --- Business Data (all scoped to a Tenant) ---------------------------------
+
+model Area {
+  id                Int        @id @default(autoincrement())
+  tenantId          Int
+  tenant            Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name              String
+  color             String     @default("#3B82F6")
+  sortOrder         Int        @default(0)
+  // WEEKLY: runs every frequencyWeeks weeks
+  // MONTHLY: runs on monthlyDay of each calendar month (1-28)
+  scheduleType      String     @default("WEEKLY")
+  frequencyWeeks    Int        @default(4)
+  monthlyDay        Int?
+  nextDueDate       DateTime?
+  lastCompletedDate DateTime?
+  isSystemArea      Boolean    @default(false)
+  customers         Customer[]
+  workDays          WorkDay[]
+  createdAt         DateTime   @default(now())
+
+  @@unique([tenantId, name])
+}
+
+model Tag {
+  id        Int           @id @default(autoincrement())
+  tenantId  Int
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  color     String        @default("#6B7280")
+  createdAt DateTime      @default(now())
+  customers CustomerTag[]
+
+  @@unique([tenantId, name])
+}
+
+model CustomerTag {
+  customerId Int
+  tagId      Int
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, tagId])
+}
+
+model Customer {
+  id                     Int           @id @default(autoincrement())
+  tenantId               Int
+  tenant                 Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name                   String
+  address                String
+  email                  String        @default("")
+  phone                  String        @default("")
+  areaId                 Int
+  area                   Area          @relation(fields: [areaId], references: [id])
+  frequencyWeeks         Int           @default(4)
+  price                  Float
+  notes                  String?
+  jobName                String        @default("Window Cleaning")
+  advanceNotice          Boolean       @default(false)
+  preferredPaymentMethod String        @default("")
+  active                 Boolean       @default(true)
+  sortOrder              Int           @default(0)
+  nextDueDate            DateTime?
+  lastCompletedDate      DateTime?
+  skipNextAreaRun        Boolean       @default(false)
+  createdAt              DateTime      @default(now())
+  jobs                   Job[]
+  payments               Payment[]
+  tags                   CustomerTag[]
+}
+
+model WorkDay {
+  id        Int           @id @default(autoincrement())
+  tenantId  Int
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  date      DateTime
+  areaId    Int?
+  area      Area?         @relation(fields: [areaId], references: [id])
+  status    WorkDayStatus @default(PLANNED)
+  notes     String?
+  createdAt DateTime      @default(now())
+  jobs      Job[]
+
+  @@unique([tenantId, date, areaId])
+}
+
+model Job {
+  id          Int       @id @default(autoincrement())
+  tenantId    Int
+  workDayId   Int
+  workDay     WorkDay   @relation(fields: [workDayId], references: [id])
+  customerId  Int
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  name        String    @default("Window Cleaning")
+  status      JobStatus @default(PENDING)
+  price       Float
+  completedAt DateTime?
+  notes       String?
+  sortOrder   Int       @default(0)
+  isOneOff    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  payments    Payment[]
+}
+
+model Payment {
+  id         Int           @id @default(autoincrement())
+  tenantId   Int
+  customerId Int
+  customer   Customer      @relation(fields: [customerId], references: [id])
+  jobId      Int?
+  job        Job?          @relation(fields: [jobId], references: [id])
+  amount     Float
+  method     PaymentMethod @default(CASH)
+  paidAt     DateTime      @default(now())
+  notes      String?
+  createdAt  DateTime      @default(now())
+}
+
+model Holiday {
+  id        Int      @id @default(autoincrement())
+  tenantId  Int
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  startDate DateTime
+  endDate   DateTime
+  label     String   @default("Holiday")
+  createdAt DateTime @default(now())
+}
+
+// --- Enums -------------------------------------------------------------------
+
+enum UserRole {
+  /// Application super-admin � no tenant, can view any tenant's data.
+  SUPER_ADMIN
+  /// Window cleaning business owner � created when they sign up.
+  OWNER
+  /// Worker/employee invited by an OWNER to access their round.
+  WORKER
+}
+
+enum WorkDayStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETE
+}
+
+enum JobStatus {
+  PENDING
+  COMPLETE
+  SKIPPED
+  MOVED
+  OUTSTANDING
+}
+
+enum PaymentMethod {
+  CASH
+  BACS
+  CARD
+}

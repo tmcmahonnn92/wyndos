@@ -1,0 +1,3 @@
+Name,Address,Price,Area,Email,Phone,Notes,Job Name,Next Due Date,Payment Method,Advance Notice,Frequency (Weeks)
+John Smith,123 High Street Nottingham,35.00,Edwinstowe,john@example.com,07700900123,Side gate code: 1234,Window Cleaning,2026-05-19,CASH,false,4
+Jane Doe,456 Oak Avenue Mansfield,28.00,Edwinstowe,,,Front only,,, ,false,8

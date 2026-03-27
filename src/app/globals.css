@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+/* Override Tailwind v4's built-in dark variant to use .dark class instead of prefers-color-scheme */
+@variant dark (&:where(.dark, .dark *));
+
+/* ── Brand tokens: light mode (default) ──────────────── */
+:root {
+  --background: #F0F2F7;   /* Fog */
+  --foreground: #0A0E1A;   /* Midnight */
+  --surface:    #FFFFFF;
+  --border:     #E2E8F0;
+  --signal:     #3D8EF5;   /* Signal blue */
+  --signal-dk:  #2170D8;   /* Signal Dark */
+  --muted:      #64748B;   /* muted text */
+}
+
+/* ── Brand tokens: dark mode ─────────────────────────── */
+.dark {
+  --background: #0A0E1A;   /* Midnight */
+  --foreground: #F8FAFF;   /* Cloud */
+  --surface:    #131929;   /* Slate */
+  --border:     #1E2840;
+  --muted:      #4A5568;   /* Steel */
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-dm-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-syne), sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.font-data,
+[data-mono] {
+  font-family: var(--font-dm-mono), ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/*
+ * Dark-mode overrides for page-level Tailwind utility classes.
+ * Plain CSS (no @layer) has higher cascade priority than Tailwind's layered utilities.
+ */
+
+/* backgrounds */
+.dark .bg-white                   { background-color: #131929; }
+.dark .bg-slate-50                { background-color: #0F1623; }
+.dark .hover\:bg-slate-50:hover   { background-color: #131929; }
+.dark .hover\:bg-slate-100:hover  { background-color: #1E2840; }
+
+/* borders */
+.dark .border-slate-100  { border-color: #1E2840; }
+.dark .border-slate-200  { border-color: #1E2840; }
+.dark .border-slate-300  { border-color: #2A3A54; }
+.dark .border-dashed     { border-color: #2A3A54; }
+
+/* dividers */
+.dark .divide-slate-100 > * + *  { border-color: #1E2840; }
+.dark .divide-y > * + *          { border-color: #1E2840; }
+
+/* neutral text */
+.dark .text-slate-800  { color: #F1F5F9; }
+.dark .text-slate-700  { color: #E2E8F0; }
+.dark .text-slate-600  { color: #CBD5E1; }
+.dark .text-slate-500  { color: #94A3B8; }
+.dark .text-slate-400  { color: #64748B; }
+.dark .text-slate-300  { color: #475569; }
+
+/* blue accent — "today's round" card + links */
+.dark .bg-blue-50                    { background-color: rgba(61,142,245,0.1); }
+.dark .bg-blue-200                   { background-color: rgba(61,142,245,0.18); }
+.dark .hover\:bg-blue-100:hover      { background-color: rgba(61,142,245,0.2); }
+.dark .border-blue-200               { border-color: rgba(61,142,245,0.3); }
+.dark .text-blue-900                 { color: #93C5FD; }
+.dark .text-blue-700                 { color: #60A5FA; }
+.dark .text-blue-600                 { color: #3D8EF5; }
+.dark .text-blue-400                 { color: #3D8EF5; }
+
+/* status colours */
+.dark .text-green-700  { color: #4ade80; }
+.dark .text-red-600    { color: #f87171; }
+.dark .text-amber-500  { color: #fbbf24; }
+.dark .text-indigo-500 { color: #a78bfa; }
+
+/* scrollbar */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 9999px; }
+.dark ::-webkit-scrollbar-thumb { background: #1E2840; }
+
+/* Areas strip */
+.areas-scroll::-webkit-scrollbar { display: none; }
+.areas-scroll { -ms-overflow-style: none; scrollbar-width: none; }

@@ -1,0 +1,36 @@
+<svg width="600" height="220" viewBox="0 0 600 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="600" height="220" fill="#0A0E1A"/>
+
+  <!-- Midnight -->
+  <rect x="20" y="20" width="100" height="100" rx="8" fill="#0A0E1A" stroke="#3D3F4A" stroke-width="1"/>
+  <text x="20" y="142" font-family="monospace" font-size="11" font-weight="500" fill="#F8FAFF">Midnight</text>
+  <text x="20" y="158" font-family="monospace" font-size="10" fill="#4A5568">#0A0E1A</text>
+  <text x="20" y="174" font-family="monospace" font-size="10" fill="#4A5568">Primary bg</text>
+
+  <!-- Signal -->
+  <rect x="136" y="20" width="100" height="100" rx="8" fill="#3D8EF5"/>
+  <text x="136" y="142" font-family="monospace" font-size="11" font-weight="500" fill="#F8FAFF">Signal</text>
+  <text x="136" y="158" font-family="monospace" font-size="10" fill="#4A5568">#3D8EF5</text>
+  <text x="136" y="174" font-family="monospace" font-size="10" fill="#4A5568">Accent / CTA</text>
+
+  <!-- Slate -->
+  <rect x="252" y="20" width="100" height="100" rx="8" fill="#131929"/>
+  <text x="252" y="142" font-family="monospace" font-size="11" font-weight="500" fill="#F8FAFF">Slate</text>
+  <text x="252" y="158" font-family="monospace" font-size="10" fill="#4A5568">#131929</text>
+  <text x="252" y="174" font-family="monospace" font-size="10" fill="#4A5568">Surface / cards</text>
+
+  <!-- Steel -->
+  <rect x="368" y="20" width="100" height="100" rx="8" fill="#4A5568"/>
+  <text x="368" y="142" font-family="monospace" font-size="11" font-weight="500" fill="#F8FAFF">Steel</text>
+  <text x="368" y="158" font-family="monospace" font-size="10" fill="#4A5568">#4A5568</text>
+  <text x="368" y="174" font-family="monospace" font-size="10" fill="#4A5568">Muted / labels</text>
+
+  <!-- Cloud -->
+  <rect x="484" y="20" width="100" height="100" rx="8" fill="#F8FAFF"/>
+  <text x="484" y="142" font-family="monospace" font-size="11" font-weight="500" fill="#F8FAFF">Cloud</text>
+  <text x="484" y="158" font-family="monospace" font-size="10" fill="#4A5568">#F8FAFF</text>
+  <text x="484" y="174" font-family="monospace" font-size="10" fill="#4A5568">Primary text</text>
+
+  <!-- Signal dark variant label -->
+  <text x="136" y="196" font-family="monospace" font-size="10" fill="#4A5568">Dark variant: #2170D8</text>
+</svg>

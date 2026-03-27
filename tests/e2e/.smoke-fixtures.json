@@ -1,0 +1,13 @@
+{
+  "password": "SmokeTest123!",
+  "tenantA": {
+    "email": "smoke-owner-a@example.com",
+    "customerId": 1789,
+    "workDayId": 18,
+    "expectedNextDueLabel": "Thu 23 Apr 2026"
+  },
+  "tenantB": {
+    "email": "smoke-owner-b@example.com",
+    "customerId": 1790
+  }
+}

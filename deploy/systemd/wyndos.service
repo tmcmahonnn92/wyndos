@@ -1,0 +1,21 @@
+[Unit]
+Description=Wyndos Next.js application
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=wyndos
+Group=wyndos
+WorkingDirectory=/opt/wyndos/current
+EnvironmentFile=/opt/wyndos/shared/.env.production
+ExecStart=/usr/bin/npm run start -- --hostname 127.0.0.1 --port 3000
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+StandardOutput=append:/var/log/wyndos/app.log
+StandardError=append:/var/log/wyndos/app-error.log
+
+[Install]
+WantedBy=multi-user.target
