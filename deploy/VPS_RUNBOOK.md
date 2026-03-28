@@ -144,7 +144,15 @@ journalctl -u wyndos -n 100 --no-pager
 Expected health response:
 
 ```json
-{"status":"ok","database":"ok","timestamp":"2026-03-26T12:00:00.000Z"}
+{
+	"status":"ok",
+	"database":"ok",
+	"timestamp":"2026-03-26T12:00:00.000Z",
+	"release": {
+		"commit": "7c6f152f65492a17a7c9b245439384e09d294852",
+		"builtAt": "2026-03-28T04:23:10Z"
+	}
+}
 ```
 
 Manual smoke checks:
