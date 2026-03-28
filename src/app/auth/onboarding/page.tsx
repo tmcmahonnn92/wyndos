@@ -1,16 +1,19 @@
 import { auth } from "@/auth";
+import prisma from "@/lib/db";
 import { OnboardingForm } from "./onboarding-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function OnboardingPage() {
   const session = await auth();
+  const tenant = session?.user?.tenantId
+    ? await prisma.tenant.findFirst({ where: { id: session.user.tenantId }, select: { name: true } })
+    : null;
 
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
       <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-2xl items-center justify-center">
         <div className="w-full rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl sm:p-8 lg:p-10">
-
           <div className="mb-6 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-[0.35em] text-blue-400">
               Welcome, {session?.user?.name?.split(" ")[0] ?? "there"}!
@@ -23,7 +26,7 @@ export default async function OnboardingPage() {
           </div>
 
           <OnboardingForm
-            initialCompanyName={session?.user?.name ? `${session.user.name}'s Window Cleaning` : ""}
+            initialCompanyName={tenant?.name ?? session?.user?.name ?? ""}
             initialOwnerName={session?.user?.name ?? ""}
           />
         </div>

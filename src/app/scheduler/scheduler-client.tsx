@@ -1234,6 +1234,7 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
               const isPayingThis = payingJobId === job.id;
               const previousDebt = getPreviousDebt(job);
               const currentBalance = getOutstandingBalance(job);
+              const canLogPayment = job.status === "COMPLETE" && !isPaid;
               return (
                 <div key={job.id} className={cn(
                   "rounded-xl border p-2.5 space-y-1.5 transition-colors",
@@ -1254,20 +1255,20 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 border border-green-200 text-[10px] font-bold text-green-700 flex-shrink-0 whitespace-nowrap">
                         <CheckCircle2 size={10} /> Paid
                       </span>
-                    ) : (
+                    ) : canLogPayment ? (
                       <button
                         onClick={() => { setPayingJobId(isPayingThis ? null : job.id); setPayAmount(job.price.toFixed(2)); setPayMethod("CASH"); }}
                         className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700 hover:bg-amber-100 transition-colors flex-shrink-0 whitespace-nowrap"
                       >
                         <CreditCard size={10} /> Log payment
                       </button>
-                    )}
+                    ) : null}
                   </div>
                   {!isSkipped && isPaid && payInfo && (
                     <p className="text-[11px] text-green-700">Latest payment: £{payInfo.amount.toFixed(2)} via {payInfo.method}</p>
                   )}
                   {/* Inline payment form */}
-                  {isPayingThis && !isSkipped && !isPaid && (
+                  {isPayingThis && canLogPayment && (
                     <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100 flex-wrap">
                       {previousDebt > 0 && (
                         <>
@@ -1278,7 +1279,7 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
                             This clean
                           </button>
                           <button
-                            onClick={() => setPayAmount((currentBalance + previousDebt).toFixed(2))}
+                            onClick={() => setPayAmount(currentBalance.toFixed(2))}
                             className="px-2 py-1 rounded-lg border border-amber-200 bg-white text-[11px] font-semibold text-amber-700 hover:border-amber-400"
                           >
                             Including debt

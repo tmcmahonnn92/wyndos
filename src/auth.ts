@@ -76,9 +76,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
      * Runs every time a JWT is created or refreshed.
      * Re-reads from the DB so role/tenant changes are reflected promptly.
      */
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user?.id) {
         token.sub = user.id;
+      }
+
+      if (trigger === "update" && session) {
+        if (typeof session.name === "string") {
+          token.name = session.name;
+        }
+        if (typeof session.onboardingComplete === "boolean") {
+          token.onboardingComplete = session.onboardingComplete;
+        }
       }
 
       if (token.sub) {

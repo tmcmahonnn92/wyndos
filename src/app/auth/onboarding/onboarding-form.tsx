@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { completeOwnerOnboarding } from "@/lib/auth-actions";
 
 export function OnboardingForm({
@@ -10,6 +11,7 @@ export function OnboardingForm({
   initialCompanyName: string;
   initialOwnerName: string;
 }) {
+  const { update } = useSession();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -33,8 +35,10 @@ export function OnboardingForm({
         return;
       }
 
-      // The server action drops a short-lived cookie so middleware can let the
-      // first post-onboarding navigation through while the session token refreshes.
+      await update({
+        name: (fd.get("ownerName") as string) || initialOwnerName,
+        onboardingComplete: true,
+      });
       window.location.assign("/");
     } finally {
       setLoading(false);
@@ -115,9 +119,9 @@ export function OnboardingForm({
       <div className="rounded-xl border border-slate-700 bg-slate-800/30 p-4 text-sm text-slate-400">
         <p className="font-medium text-slate-300">What happens next?</p>
         <ul className="mt-2 space-y-1">
-          <li>• Your round dashboard will be ready immediately</li>
-          <li>• You can add areas and customers from the <strong className="text-slate-200">Areas</strong> and <strong className="text-slate-200">Customers</strong> pages</li>
-          <li>• Invite workers from <strong className="text-slate-200">Settings ? Team</strong></li>
+          <li>Your round dashboard will be ready immediately</li>
+          <li>You can add areas and customers from the <strong className="text-slate-200">Areas</strong> and <strong className="text-slate-200">Customers</strong> pages</li>
+          <li>Invite workers from <strong className="text-slate-200">Settings / Team</strong></li>
         </ul>
       </div>
 
@@ -126,7 +130,7 @@ export function OnboardingForm({
         disabled={loading}
         className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:opacity-60"
       >
-        {loading ? "Saving…" : "Finish setup and go to dashboard"}
+        {loading ? "Saving..." : "Finish setup and go to dashboard"}
       </button>
     </form>
   );

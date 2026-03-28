@@ -97,6 +97,89 @@ function calculateCustomerDebt(jobs: BalanceJobLike[], payments: Array<{ amount:
   return { totalPaid, breakdown, debt };
 }
 
+async function allocateCustomerDebtPayments(data: {
+  tenantId: number;
+  customerId: number;
+  amount: number;
+  method: "CASH" | "BACS" | "CARD";
+  notes?: string;
+  paidAt?: Date;
+}) {
+  const customer = await prisma.customer.findFirst({
+    where: { id: data.customerId, tenantId: data.tenantId },
+    include: {
+      jobs: {
+        where: { status: "COMPLETE" },
+        include: { workDay: true },
+        orderBy: [{ workDay: { date: "asc" } }, { createdAt: "asc" }],
+      },
+      payments: { select: { amount: true } },
+    },
+  });
+
+  if (!customer) {
+    throw new Error("Customer not found");
+  }
+
+  const totalPaid = customer.payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const breakdown = buildJobDebtBreakdown(customer.jobs, totalPaid).filter((job) => job.due > 0.005);
+  const paidAt = data.paidAt ?? new Date();
+  let remaining = Number(data.amount.toFixed(2));
+
+  if (remaining <= 0) {
+    return { allocatedAmount: 0, unallocatedAmount: 0 };
+  }
+
+  const paymentCreates: Array<ReturnType<typeof prisma.payment.create>> = [];
+
+  for (const job of breakdown) {
+    if (remaining <= 0.005) break;
+    const applied = Number(Math.min(remaining, job.due).toFixed(2));
+    if (applied <= 0) continue;
+
+    paymentCreates.push(
+      prisma.payment.create({
+        data: {
+          tenantId: data.tenantId,
+          customerId: data.customerId,
+          jobId: job.id,
+          amount: applied,
+          method: data.method,
+          notes: data.notes ?? null,
+          paidAt,
+        },
+      })
+    );
+
+    remaining = Number((remaining - applied).toFixed(2));
+  }
+
+  if (remaining > 0.005) {
+    paymentCreates.push(
+      prisma.payment.create({
+        data: {
+          tenantId: data.tenantId,
+          customerId: data.customerId,
+          jobId: null,
+          amount: remaining,
+          method: data.method,
+          notes: data.notes ?? null,
+          paidAt,
+        },
+      })
+    );
+  }
+
+  if (paymentCreates.length > 0) {
+    await prisma.$transaction(paymentCreates);
+  }
+
+  return {
+    allocatedAmount: Number((data.amount - Math.max(0, remaining)).toFixed(2)),
+    unallocatedAmount: remaining > 0.005 ? remaining : 0,
+  };
+}
+
 /**
  * Calculate the next run date for an area after a given date.
  *  - WEEKLY:  fromDate + frequencyWeeks
@@ -1821,6 +1904,11 @@ export async function updateCompletedWorkDayDate(workDayId: number, isoDate: str
     data: { date: newDate },
   });
 
+  await prisma.job.updateMany({
+    where: { tenantId, workDayId, status: "COMPLETE" },
+    data: { completedAt: newDate },
+  });
+
   if (workDay.area) {
     const latestCompleted = await prisma.workDay.findFirst({ where: { tenantId, areaId: workDay.area.id, status: "COMPLETE" },
       orderBy: { date: "desc" },
@@ -1836,7 +1924,7 @@ export async function updateCompletedWorkDayDate(workDayId: number, isoDate: str
 
     await prisma.customer.updateMany({
       where: { tenantId, areaId: workDay.area.id, active: true },
-      data: { nextDueDate: nextDue },
+      data: { lastCompletedDate: lastCompleted, nextDueDate: nextDue },
     });
 
     const targetNextWorkDay = await prisma.workDay.upsert({
@@ -1925,6 +2013,20 @@ export async function logPayment(data: {
   ]);
   if (job && job.customerId !== customer.id) {
     throw new Error("Job does not belong to the selected customer");
+  }
+
+  if (!job) {
+    await allocateCustomerDebtPayments({
+      tenantId,
+      customerId: customer.id,
+      amount: data.amount,
+      method: data.method,
+      notes: data.notes,
+      paidAt: data.paidAt,
+    });
+    revalidatePath("/payments");
+    revalidatePath(`/customers/${data.customerId}`);
+    return null;
   }
 
   const payment = await prisma.payment.create({ data: { tenantId,
@@ -2324,6 +2426,17 @@ export async function updateBusinessSettings(data: {
   const user = await requireAuth();
   const canManageProviderSettings = user.role === "OWNER" || user.role === "SUPER_ADMIN";
   const updateData: Record<string, unknown> = { ...data };
+  const businessName = typeof updateData.businessName === "string" ? updateData.businessName.trim() : undefined;
+  const ownerName = typeof updateData.ownerName === "string" ? updateData.ownerName.trim() : undefined;
+  const phone = typeof updateData.phone === "string" ? updateData.phone.trim() : undefined;
+  const email = typeof updateData.email === "string" ? updateData.email.trim().toLowerCase() : undefined;
+  const address = typeof updateData.address === "string" ? updateData.address.trim() : undefined;
+
+  if (businessName !== undefined) updateData.businessName = businessName;
+  if (ownerName !== undefined) updateData.ownerName = ownerName;
+  if (phone !== undefined) updateData.phone = phone;
+  if (email !== undefined) updateData.email = email;
+  if (address !== undefined) updateData.address = address;
 
   if (!canManageProviderSettings) {
     for (const field of OWNER_PROVIDER_FIELDS) {
@@ -2338,9 +2451,37 @@ export async function updateBusinessSettings(data: {
     }
   }
 
-  await prisma.tenantSettings.upsert({ where: { tenantId },
-    create: { tenantId, ...updateData },
-    update: updateData,
+  await prisma.$transaction(async (tx) => {
+    await tx.tenantSettings.upsert({ where: { tenantId },
+      create: { tenantId, ...updateData },
+      update: updateData,
+    });
+
+    const tenantUpdate: Record<string, unknown> = {};
+    if (businessName !== undefined) tenantUpdate.name = businessName;
+    if (phone !== undefined) tenantUpdate.phone = phone;
+    if (address !== undefined) tenantUpdate.address = address;
+
+    if (Object.keys(tenantUpdate).length > 0) {
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: tenantUpdate,
+      });
+    }
+
+    if ((user.role === "OWNER" || user.role === "SUPER_ADMIN") && ownerName !== undefined && ownerName.length > 0) {
+      const owner = await tx.user.findFirst({
+        where: { tenantId, role: "OWNER" },
+        select: { id: true },
+      });
+
+      if (owner) {
+        await tx.user.update({
+          where: { id: owner.id },
+          data: { name: ownerName },
+        });
+      }
+    }
   });
   revalidatePath("/settings");
 }
@@ -2532,7 +2673,7 @@ export async function updateJobCompletedAt(jobId: number, isoDate: string) {
 
   const job = await prisma.job.findFirst({
     where: { id: jobId, tenantId },
-    include: { customer: true },
+    include: { customer: true, workDay: { select: { areaId: true } } },
   });
   if (!job) throw new Error("Job not found");
 
@@ -2548,12 +2689,39 @@ export async function updateJobCompletedAt(jobId: number, isoDate: string) {
 
   await prisma.customer.update({
     where: { id: job.customerId },
-    data: { lastCompletedDate: latestCompleted?.completedAt ?? d },
+    data: {
+      lastCompletedDate: latestCompleted?.completedAt ?? d,
+      nextDueDate: calcNextDue(latestCompleted?.completedAt ?? d, job.customer.frequencyWeeks),
+    },
   });
+
+  if (job.workDay.areaId) {
+    const area = await prisma.area.findFirst({
+      where: { id: job.workDay.areaId, tenantId },
+      select: { id: true, scheduleType: true, frequencyWeeks: true, monthlyDay: true },
+    });
+
+    if (area) {
+      const latestCompletedDay = await prisma.workDay.findFirst({
+        where: { tenantId, areaId: area.id, status: "COMPLETE" },
+        orderBy: { date: "desc" },
+        select: { date: true },
+      });
+
+      if (latestCompletedDay) {
+        const nextDue = nextRunAfter(area, latestCompletedDay.date);
+        await prisma.area.update({
+          where: { id: area.id },
+          data: { lastCompletedDate: latestCompletedDay.date, nextDueDate: nextDue },
+        });
+      }
+    }
+  }
 
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath(`/customers/${job.customerId}`);
   revalidatePath("/days");
+  revalidatePath("/scheduler");
 }
 
 // â”€â”€â”€ Holidays â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

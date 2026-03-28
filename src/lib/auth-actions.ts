@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 
 import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
@@ -32,13 +32,16 @@ function toSlug(name: string): string {
 }
 
 /** Ensure a slug is unique by appending a numeric suffix if needed. */
-async function uniqueSlug(base: string): Promise<string> {
+async function uniqueSlug(base: string, currentTenantId?: number): Promise<string> {
   let slug = base;
   let suffix = 2;
-  while (await db.tenant.findUnique({ where: { slug } })) {
+  while (true) {
+    const existing = await db.tenant.findUnique({ where: { slug }, select: { id: true } });
+    if (!existing || existing.id === currentTenantId) {
+      return slug;
+    }
     slug = `${base}-${suffix++}`;
   }
-  return slug;
 }
 
 function createPasswordResetToken() {
@@ -50,7 +53,7 @@ function hashPasswordResetToken(token: string) {
 }
 
 // -----------------------------------------------------------------------------
-// Owner registration â€” creates Tenant + User + system area + TenantSettings
+// Owner registration ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â creates Tenant + User + system area + TenantSettings
 // -----------------------------------------------------------------------------
 
 export type RegisterOwnerInput = {
@@ -107,6 +110,7 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
           tenantId: tenant.id,
           businessName: companyName,
           ownerName: name,
+          email,
         },
       });
 
@@ -132,7 +136,7 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
 }
 
 // -----------------------------------------------------------------------------
-// Owner onboarding â€” save company details after first sign-in
+// Owner onboarding ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â save company details after first sign-in
 // -----------------------------------------------------------------------------
 
 export type OnboardingInput = {
@@ -153,34 +157,50 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
     const tenantId = user.tenantId;
     if (!tenantId) return { ok: false, error: "No tenant found for your account." };
 
+    const companyName = input.companyName.trim();
+    const ownerName = input.ownerName.trim();
+    const phone = input.phone.trim();
+    const address = input.address.trim();
+    const website = input.website.trim();
+    const email = user.email?.trim().toLowerCase() ?? "";
+
     await db.$transaction(async (tx: any) => {
       await tx.tenant.update({
         where: { id: tenantId },
         data: {
-          name: input.companyName.trim(),
-          phone: input.phone.trim(),
-          address: input.address.trim(),
-          website: input.website.trim(),
-          slug: await uniqueSlug(toSlug(input.companyName.trim())),
+          name: companyName,
+          phone,
+          address,
+          website,
+          slug: await uniqueSlug(toSlug(companyName), tenantId),
         },
       });
 
       await tx.tenantSettings.upsert({
         where: { tenantId },
         update: {
-          businessName: input.companyName.trim(),
-          ownerName: input.ownerName.trim(),
+          businessName: companyName,
+          ownerName,
+          phone,
+          address,
+          email,
         },
         create: {
           tenantId,
-          businessName: input.companyName.trim(),
-          ownerName: input.ownerName.trim(),
+          businessName: companyName,
+          ownerName,
+          phone,
+          address,
+          email,
         },
       });
 
       await tx.user.update({
         where: { id: user.id },
-        data: { onboardingComplete: true },
+        data: {
+          name: ownerName,
+          onboardingComplete: true,
+        },
       });
     });
 
@@ -201,7 +221,7 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
 }
 
 // -----------------------------------------------------------------------------
-// Invite system â€” OWNER ? WORKER
+// Invite system ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â OWNER ? WORKER
 // -----------------------------------------------------------------------------
 
 export type CreateInviteResult =
@@ -256,7 +276,7 @@ export async function createInvite(
 }
 
 // -----------------------------------------------------------------------------
-// Accept an invite â€” creates a WORKER account
+// Accept an invite ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â creates a WORKER account
 // -----------------------------------------------------------------------------
 
 export type InviteInfo = {
@@ -335,7 +355,7 @@ export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInvi
 }
 
 // -----------------------------------------------------------------------------
-// Team management â€” OWNER views their workers and pending invites
+// Team management ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â OWNER views their workers and pending invites
 // -----------------------------------------------------------------------------
 
 export type TeamMember = {
@@ -403,7 +423,7 @@ export async function revokeInvite(inviteId: number): Promise<void> {
   await db.invite.deleteMany({ where: { id: inviteId, tenantId } });
 }
 
-/** Remove a worker from the tenant (OWNER only â€” cannot remove self or OWNER). */
+/** Remove a worker from the tenant (OWNER only ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â cannot remove self or OWNER). */
 export async function removeTeamMember(memberId: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const caller = await requireOwnerOrAdmin();
@@ -595,7 +615,7 @@ export async function requestPasswordReset(email: string): Promise<RequestResetR
       }
     }
 
-    // No SMTP or send failed â€” return the link for display in the UI
+    // No SMTP or send failed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â return the link for display in the UI
     return { ok: true, emailSent: false, resetLink };
   } catch (err: any) {
     console.error("[requestPasswordReset]", err);
