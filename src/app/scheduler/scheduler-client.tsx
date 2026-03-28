@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useRef, useTransition, useCallback, useEffect, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
@@ -75,6 +75,7 @@ type Area = {
   nextDueDate: Date | string | null;
   lastCompletedDate: Date | string | null;
   estimatedValue: number;
+  outstandingDebt: number;
   _count: { customers: number };
 };
 
@@ -125,6 +126,18 @@ function getPreviousDebt(job: FullJob) {
     .reduce((sum, entry) => sum + entry.price, 0);
   const totalPaid = (job.customer?.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0);
   return Math.max(0, Number((previousCompletedTotal - totalPaid).toFixed(2)));
+}
+
+function getOutstandingBalance(job: FullJob) {
+  const previousCompletedTotal = (job.customer?.jobs ?? [])
+    .filter((entry) => entry.id !== job.id)
+    .reduce((sum, entry) => sum + entry.price, 0);
+  const totalPaid = (job.customer?.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0);
+  return Math.max(0, Number((previousCompletedTotal + job.price - totalPaid).toFixed(2)));
+}
+
+function isJobSettled(job: FullJob) {
+  return getOutstandingBalance(job) <= 0;
 }
 
 function splitCollectedAmount(totalCollected: number, currentJobAmount: number) {
@@ -899,6 +912,11 @@ function AreaPanelCard({ area, onDragStart, overdueWorkDay }: {
           {dueBadge}
           <FreqBadge scheduleType={area.scheduleType} frequencyWeeks={area.frequencyWeeks} />
           <span className="inline-flex items-center gap-1 text-[10px] text-slate-400"><Users size={9} />{area._count.customers} · £{area.estimatedValue.toFixed(0)}</span>
+          {area.outstandingDebt > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+              <AlertCircle size={9} />£{area.outstandingDebt.toFixed(0)} owed
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -1152,7 +1170,7 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
   const dateISO = displayDate.toISOString().split("T")[0];
   const jobs = (fullDay?.jobs ?? workDay.jobs) as FullJob[];
   const totalValue = jobs.reduce((s, j) => s + j.price, 0);
-  const paidCount = fullDay ? fullDay.jobs.filter((j) => (j as FullJob).payments?.length > 0).length : 0;
+  const paidCount = fullDay ? jobs.filter((job) => isJobSettled(job)).length : 0;
 
   return (
     <Modal open={true} onClose={onClose} title={`✓ ${workDay.area?.name ?? "Completed Day"}`}>
@@ -1210,14 +1228,16 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
         {!loadingFull && (
           <div className="space-y-2">
             {jobs.map((job) => {
-              const isPaid = (job.payments?.length ?? 0) > 0;
-              const payInfo = isPaid ? job.payments[0] : null;
+              const isSkipped = job.status === "SKIPPED";
+              const isPaid = isJobSettled(job);
+              const payInfo = job.payments?.[0] ?? null;
               const isPayingThis = payingJobId === job.id;
               const previousDebt = getPreviousDebt(job);
+              const currentBalance = getOutstandingBalance(job);
               return (
                 <div key={job.id} className={cn(
                   "rounded-xl border p-2.5 space-y-1.5 transition-colors",
-                  isPaid ? "bg-green-50/60 border-green-200" : "bg-white border-slate-200"
+                  isSkipped ? "bg-slate-50 border-slate-200" : isPaid ? "bg-green-50/60 border-green-200" : "bg-white border-slate-200"
                 )}>
                   <div className="flex items-center gap-2">
                     <div className="flex-1 min-w-0">
@@ -1226,9 +1246,13 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
                       <p className="text-xs text-slate-400 truncate">{job.customer?.address ?? ""}</p>
                     </div>
                     <span className="text-xs font-bold text-slate-700 flex-shrink-0">£{job.price.toFixed(2)}</span>
-                    {isPaid ? (
+                    {isSkipped ? (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-600 flex-shrink-0 whitespace-nowrap">
+                        <CalendarOff size={10} /> Skipped
+                      </span>
+                    ) : isPaid ? (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 border border-green-200 text-[10px] font-bold text-green-700 flex-shrink-0 whitespace-nowrap">
-                        <CheckCircle2 size={10} /> £{payInfo!.amount.toFixed(2)} · {payInfo!.method}
+                        <CheckCircle2 size={10} /> Paid
                       </span>
                     ) : (
                       <button
@@ -1239,8 +1263,11 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
                       </button>
                     )}
                   </div>
+                  {!isSkipped && isPaid && payInfo && (
+                    <p className="text-[11px] text-green-700">Latest payment: £{payInfo.amount.toFixed(2)} via {payInfo.method}</p>
+                  )}
                   {/* Inline payment form */}
-                  {isPayingThis && !isPaid && (
+                  {isPayingThis && !isSkipped && !isPaid && (
                     <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100 flex-wrap">
                       {previousDebt > 0 && (
                         <>
@@ -1251,7 +1278,7 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
                             This clean
                           </button>
                           <button
-                            onClick={() => setPayAmount((job.price + previousDebt).toFixed(2))}
+                            onClick={() => setPayAmount((currentBalance + previousDebt).toFixed(2))}
                             className="px-2 py-1 rounded-lg border border-amber-200 bg-white text-[11px] font-semibold text-amber-700 hover:border-amber-400"
                           >
                             Including debt

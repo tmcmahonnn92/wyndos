@@ -54,11 +54,20 @@ Required values:
 - APP_URL
 - NODE_ENV=production
 - PORT=3000
+- PLATFORM_SMTP_HOST
+- PLATFORM_SMTP_PORT
+- PLATFORM_SMTP_SECURE
+- PLATFORM_SMTP_USER
+- PLATFORM_SMTP_PASS
+- PLATFORM_SMTP_FROM_NAME
+- PLATFORM_SMTP_FROM_EMAIL
 
 Important:
+- Quote env values that contain spaces, for example `PLATFORM_SMTP_FROM_NAME="Wyndos Support"`.
 - Set AUTH_URL, NEXTAUTH_URL, and APP_URL to the same public HTTPS origin.
 - AUTH_TRUST_HOST=true is required behind Nginx.
 - Invite and password-reset links still use NEXTAUTH_URL or APP_URL in app code.
+- Configure PLATFORM_SMTP_* for platform emails such as super-admin password resets when tenant SMTP is not available.
 
 ## 4. Deploy app code
 
@@ -66,11 +75,21 @@ From the VPS:
 
 ```bash
 cd /opt/wyndos/current
-npm ci --legacy-peer-deps
-npm run db:generate:postgres
-npm run db:migrate:deploy:postgres
-npm run build
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+sudo ./deploy/deploy-vps.sh
 ```
+
+The deploy script performs the server-safe release steps:
+
+- restores ownership to `wyndos:wyndos`
+- links `/opt/wyndos/shared/.env.production` into the active release as `.env.production`
+- clears the previous `.next` output
+- runs dependency install, Prisma generate, Prisma migrate deploy, and `next build` as the `wyndos` user
+- restarts `wyndos` and checks the local health endpoint
+
+Do not build the release as `root`, and do not leave `/opt/wyndos/current` world-writable.
 
 Optional one-time baseline path for a blank database:
 
@@ -79,7 +98,7 @@ npm run db:baseline:postgres > /tmp/postgres-baseline.sql
 psql "$DATABASE_URL" -f /tmp/postgres-baseline.sql
 ```
 
-Use the baseline SQL only for the first empty PostgreSQL deployment. After that, use npm run db:migrate:deploy:postgres.
+Use the baseline SQL only for the first empty PostgreSQL deployment. After that, use `npm run db:migrate:deploy:postgres`.
 
 ## 5. Install systemd service
 
@@ -148,7 +167,17 @@ Rollback outline:
 - If schema changed incompatibly, restore PostgreSQL from last known-good backup
 - Start wyndos and re-check /api/health
 
-## 10. Current verification note
+## 10. Release workflow
+
+Use this repository as the single source of truth:
+
+1. Validate and commit locally.
+2. Push to GitHub `main`.
+3. Pull the exact commit on the VPS.
+4. Run `sudo ./deploy/deploy-vps.sh`.
+5. Verify `/api/health` locally and publicly.
+
+## 11. Current verification note
 
 This repository has been validated locally for:
 - PostgreSQL schema generation and baseline SQL generation

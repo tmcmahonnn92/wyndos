@@ -1,7 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useRouter } from "next/navigation";
-import { Search, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +32,8 @@ export function CustomerFilters({
 }) {
   const router = useRouter();
   const [q, setQ] = useState(currentQ ?? "");
+  const [filtersOpen, setFiltersOpen] = useState(Boolean(currentAreas.length || currentTags.length || currentInactive || currentOneOff));
+  const activeFilterCount = currentAreas.length + currentTags.length + (currentInactive ? 1 : 0) + (currentOneOff ? 1 : 0);
 
   const buildUrl = (areaIds: number[], tagIds: number[], newQ?: string, newInactive?: boolean, newOneOff?: boolean) => {
     const sp = new URLSearchParams();
@@ -67,7 +69,6 @@ export function CustomerFilters({
 
   return (
     <div className="space-y-2">
-      {/* Search + inactive toggle + clear */}
       <form onSubmit={handleSearch} className="flex gap-2">
         <div className="relative flex-1">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -102,70 +103,82 @@ export function CustomerFilters({
         )}
       </form>
 
-      {/* Area filters — wrapping multi-select pills */}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex items-center justify-between gap-2">
         <button
-          onClick={() => router.push(buildUrl([], currentTags, undefined, undefined, false))}
-          className={cn(
-            "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
-            currentAreas.length === 0 && !currentOneOff
-              ? "bg-blue-600 text-white border-blue-600"
-              : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
-          )}
+          type="button"
+          onClick={() => setFiltersOpen((open) => !open)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50"
         >
-          All areas
+          {filtersOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
         </button>
-        {/* One-off customer filter */}
-        <button
-          onClick={() => router.push(buildUrl([], currentTags, undefined, undefined, !currentOneOff))}
-          className={cn(
-            "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
-            currentOneOff
-              ? "bg-purple-600 text-white border-purple-600"
-              : "bg-white text-purple-600 border-purple-300 hover:bg-purple-50"
-          )}
-        >
-          One-off
-        </button>
-        {areas.map((a) => {
-          const active = currentAreas.includes(a.id);
-          const color = a.color || "#3B82F6";
-          return (
-            <button
-              key={a.id}
-              onClick={() => toggleArea(a.id)}
-              className="px-3 py-1.5 rounded-full text-xs font-medium border transition-all"
-              style={active
-                ? { backgroundColor: color, borderColor: color, color: "white" }
-                : { borderColor: color + "60", color, backgroundColor: "white" }
-              }
-            >
-              {a.name}
-            </button>
-          );
-        })}
       </div>
 
-      {/* Tag filters */}
-      {tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {tags.map((tag) => {
-            const active = currentTags.includes(tag.id);
-            return (
-              <button
-                key={tag.id}
-                onClick={() => toggleTag(tag.id)}
-                className="px-3 py-1.5 rounded-full text-xs font-medium border transition-all"
-                style={active
-                  ? { backgroundColor: tag.color, borderColor: tag.color, color: "white" }
-                  : { borderColor: tag.color + "60", color: tag.color, backgroundColor: "white" }
-                }
-              >
-                {tag.name}
-              </button>
-            );
-          })}
-        </div>
+      {filtersOpen && (
+        <>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => router.push(buildUrl([], currentTags, undefined, undefined, false))}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
+                currentAreas.length === 0 && !currentOneOff
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
+              )}
+            >
+              All areas
+            </button>
+            <button
+              onClick={() => router.push(buildUrl([], currentTags, undefined, undefined, !currentOneOff))}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
+                currentOneOff
+                  ? "bg-purple-600 text-white border-purple-600"
+                  : "bg-white text-purple-600 border-purple-300 hover:bg-purple-50"
+              )}
+            >
+              One-off
+            </button>
+            {areas.map((area) => {
+              const active = currentAreas.includes(area.id);
+              const color = area.color || "#3B82F6";
+              return (
+                <button
+                  key={area.id}
+                  onClick={() => toggleArea(area.id)}
+                  className="px-3 py-1.5 rounded-full text-xs font-medium border transition-all"
+                  style={active
+                    ? { backgroundColor: color, borderColor: color, color: "white" }
+                    : { borderColor: `${color}60`, color, backgroundColor: "white" }
+                  }
+                >
+                  {area.name}
+                </button>
+              );
+            })}
+          </div>
+
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map((tag) => {
+                const active = currentTags.includes(tag.id);
+                return (
+                  <button
+                    key={tag.id}
+                    onClick={() => toggleTag(tag.id)}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium border transition-all"
+                    style={active
+                      ? { backgroundColor: tag.color, borderColor: tag.color, color: "white" }
+                      : { borderColor: `${tag.color}60`, color: tag.color, backgroundColor: "white" }
+                    }
+                  >
+                    {tag.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

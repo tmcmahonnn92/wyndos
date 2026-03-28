@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
@@ -50,7 +50,7 @@ function hashPasswordResetToken(token: string) {
 }
 
 // -----------------------------------------------------------------------------
-// Owner registration — creates Tenant + User + system area + TenantSettings
+// Owner registration â€” creates Tenant + User + system area + TenantSettings
 // -----------------------------------------------------------------------------
 
 export type RegisterOwnerInput = {
@@ -132,7 +132,7 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
 }
 
 // -----------------------------------------------------------------------------
-// Owner onboarding — save company details after first sign-in
+// Owner onboarding â€” save company details after first sign-in
 // -----------------------------------------------------------------------------
 
 export type OnboardingInput = {
@@ -201,7 +201,7 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
 }
 
 // -----------------------------------------------------------------------------
-// Invite system — OWNER ? WORKER
+// Invite system â€” OWNER ? WORKER
 // -----------------------------------------------------------------------------
 
 export type CreateInviteResult =
@@ -256,7 +256,7 @@ export async function createInvite(
 }
 
 // -----------------------------------------------------------------------------
-// Accept an invite — creates a WORKER account
+// Accept an invite â€” creates a WORKER account
 // -----------------------------------------------------------------------------
 
 export type InviteInfo = {
@@ -335,7 +335,7 @@ export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInvi
 }
 
 // -----------------------------------------------------------------------------
-// Team management — OWNER views their workers and pending invites
+// Team management â€” OWNER views their workers and pending invites
 // -----------------------------------------------------------------------------
 
 export type TeamMember = {
@@ -403,7 +403,7 @@ export async function revokeInvite(inviteId: number): Promise<void> {
   await db.invite.deleteMany({ where: { id: inviteId, tenantId } });
 }
 
-/** Remove a worker from the tenant (OWNER only — cannot remove self or OWNER). */
+/** Remove a worker from the tenant (OWNER only â€” cannot remove self or OWNER). */
 export async function removeTeamMember(memberId: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const caller = await requireOwnerOrAdmin();
@@ -463,6 +463,82 @@ const SMTP_PRESETS: Record<string, { host: string; port: number }> = {
   microsoft365: { host: "smtp.office365.com", port: 587 },
 };
 
+type SmtpDeliveryConfig = {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  fromName: string;
+  fromEmail: string;
+};
+
+function normalizeSmtpPort(value: unknown, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getTenantSmtpDeliveryConfig(smtpSettings: any): SmtpDeliveryConfig | null {
+  if (!smtpSettings?.smtpUser || !smtpSettings?.smtpPass) return null;
+
+  const preset = SMTP_PRESETS[smtpSettings.smtpProvider ?? "gmail"];
+  const host = String(smtpSettings.smtpHost || preset?.host || "").trim();
+  const port = normalizeSmtpPort(smtpSettings.smtpPort, preset?.port ?? 587);
+  const user = String(smtpSettings.smtpUser || "").trim();
+  const pass = String(smtpSettings.smtpPass || "");
+
+  if (!host || !user || !pass) return null;
+
+  return {
+    host,
+    port,
+    secure: port === 465,
+    user,
+    pass,
+    fromName: String(smtpSettings.smtpFromName || smtpSettings.businessName || "Wyndos").trim() || "Wyndos",
+    fromEmail: user,
+  };
+}
+
+function getPlatformSmtpDeliveryConfig(): SmtpDeliveryConfig | null {
+  const host = String(process.env.PLATFORM_SMTP_HOST ?? "").trim();
+  const user = String(process.env.PLATFORM_SMTP_USER ?? "").trim();
+  const pass = String(process.env.PLATFORM_SMTP_PASS ?? "");
+
+  if (!host || !user || !pass) return null;
+
+  const port = normalizeSmtpPort(process.env.PLATFORM_SMTP_PORT, 587);
+  const secureSetting = String(process.env.PLATFORM_SMTP_SECURE ?? "").trim().toLowerCase();
+  const secure = secureSetting ? secureSetting === "true" : port === 465;
+
+  return {
+    host,
+    port,
+    secure,
+    user,
+    pass,
+    fromName: String(process.env.PLATFORM_SMTP_FROM_NAME ?? "Wyndos Support").trim() || "Wyndos Support",
+    fromEmail: String(process.env.PLATFORM_SMTP_FROM_EMAIL ?? user).trim() || user,
+  };
+}
+
+async function sendPasswordResetEmail(config: SmtpDeliveryConfig, to: string, resetLink: string) {
+  const transporter = nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: { user: config.user, pass: config.pass },
+  });
+
+  await transporter.sendMail({
+    from: `"${config.fromName}" <${config.fromEmail}>`,
+    to,
+    subject: "Reset your Wyndos password",
+    html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px"><h2 style="margin:0 0 16px">Reset your password</h2><p style="margin:0 0 20px;color:#475569">Click the button below to set a new password. This link expires in 24 hours.</p><a href="${resetLink}" style="display:inline-block;background:#2563EB;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px">Reset password</a><p style="margin:24px 0 0;color:#94a3b8;font-size:12px">If you didn't request this, you can safely ignore this email.</p></div>`,
+    text: `Reset your password: ${resetLink}\n\nThis link expires in 24 hours.`,
+  });
+}
+
 export type RequestResetResult =
   | { ok: true; emailSent: true }
   | { ok: true; emailSent: false; resetLink: string }
@@ -505,29 +581,21 @@ export async function requestPasswordReset(email: string): Promise<RequestResetR
       smtpSettings = await db.tenantSettings.findFirst({ where: { tenantId: user.tenantId } });
     }
 
-    if (smtpSettings?.smtpUser && smtpSettings?.smtpPass) {
-      try {
-        const preset = SMTP_PRESETS[smtpSettings.smtpProvider ?? "gmail"];
-        const host = smtpSettings.smtpHost || preset?.host || "";
-        const port = smtpSettings.smtpPort || preset?.port || 587;
-        const fromName = smtpSettings.smtpFromName || smtpSettings.businessName || "Wyndos";
+    const smtpDeliveryOptions = [
+      getTenantSmtpDeliveryConfig(smtpSettings),
+      getPlatformSmtpDeliveryConfig(),
+    ].filter(Boolean) as SmtpDeliveryConfig[];
 
-        const transporter = nodemailer.createTransport({ host, port, secure: false, auth: { user: smtpSettings.smtpUser, pass: smtpSettings.smtpPass } });
-        await transporter.sendMail({
-          from: `"${fromName}" <${smtpSettings.smtpUser}>`,
-          to: normEmail,
-          subject: "Reset your Wyndos password",
-          html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px"><h2 style="margin:0 0 16px">Reset your password</h2><p style="margin:0 0 20px;color:#475569">Click the button below to set a new password. This link expires in 24 hours.</p><a href="${resetLink}" style="display:inline-block;background:#2563EB;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px">Reset password</a><p style="margin:24px 0 0;color:#94a3b8;font-size:12px">If you didn't request this, you can safely ignore this email.</p></div>`,
-          text: `Reset your password: ${resetLink}\n\nThis link expires in 24 hours.`,
-        });
+    for (const smtpConfig of smtpDeliveryOptions) {
+      try {
+        await sendPasswordResetEmail(smtpConfig, normEmail, resetLink);
         return { ok: true, emailSent: true };
       } catch (emailErr) {
         console.error("[requestPasswordReset] email failed:", emailErr);
-        // Fall through to return link directly
       }
     }
 
-    // No SMTP or send failed — return the link for display in the UI
+    // No SMTP or send failed â€” return the link for display in the UI
     return { ok: true, emailSent: false, resetLink };
   } catch (err: any) {
     console.error("[requestPasswordReset]", err);
@@ -629,3 +697,4 @@ export async function listAllTenants(): Promise<TenantSummary[]> {
     userCount: t._count.users,
   }));
 }
+

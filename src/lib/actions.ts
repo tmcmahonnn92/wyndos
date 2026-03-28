@@ -118,7 +118,7 @@ function nextRunAfter(
   return addUtcDays(fromDate, (area.frequencyWeeks ?? 4) * 7);
 }
 
-// ─── Areas ─────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Areas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function createArea(data: {
   name: string;
@@ -177,7 +177,7 @@ export async function deleteArea(id: number) {
   const customerCount = await prisma.customer.count({ where: { tenantId, areaId: area.id } });
   if (customerCount > 0) {
     throw new Error(
-      `Cannot delete this area — ${customerCount} customer${customerCount === 1 ? "" : "s"} still assigned. Move them to another area first.`
+      `Cannot delete this area â€” ${customerCount} customer${customerCount === 1 ? "" : "s"} still assigned. Move them to another area first.`
     );
   }
   await prisma.area.delete({ where: { id: area.id } });
@@ -199,7 +199,24 @@ export async function getAreaSchedules() {
       _count: { select: { customers: true } },
       customers: {
         where: { active: true },
-        select: { id: true, name: true, address: true, price: true, sortOrder: true },
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          price: true,
+          sortOrder: true,
+          jobs: {
+            where: { status: "COMPLETE" },
+            select: {
+              id: true,
+              price: true,
+              completedAt: true,
+              createdAt: true,
+              workDay: { select: { date: true } },
+            },
+          },
+          payments: { select: { amount: true } },
+        },
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       },
     },
@@ -207,7 +224,10 @@ export async function getAreaSchedules() {
   });
   return areas.map((a) => ({
     ...a,
-    estimatedValue: a.customers.reduce((s, c) => s + c.price, 0),
+    estimatedValue: a.customers.reduce((sum, customer) => sum + customer.price, 0),
+    outstandingDebt: Number(
+      a.customers.reduce((sum, customer) => sum + calculateCustomerDebt(customer.jobs, customer.payments).debt, 0).toFixed(2)
+    ),
   }));
 }
 
@@ -247,7 +267,7 @@ export async function reorderAreaCustomers(areaId: number, orderedIds: number[])
   revalidatePath("/days");
 }
 
-/** Parse a YYYY-MM-DD string as UTC midnight — unambiguous, timezone-proof. */
+/** Parse a YYYY-MM-DD string as UTC midnight â€” unambiguous, timezone-proof. */
 function isoToUTC(dateISO: string): Date {
   const d = new Date(dateISO + "T00:00:00.000Z");
   if (isNaN(d.getTime())) throw new Error(`Invalid date: ${dateISO}`);
@@ -266,7 +286,7 @@ export async function scheduleAreaRun(areaId: number, dateISO: string) {
 
   const [, eligibleCustomers] = await Promise.all([
     area,
-    // All active area customers always ride the area schedule — no nextDueDate filter
+    // All active area customers always ride the area schedule â€” no nextDueDate filter
     prisma.customer.findMany({ where: { tenantId, areaId, active: true },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     }),
@@ -325,7 +345,7 @@ export async function createOneOffJob(data: {
 }) {
   const tenantId = await getActiveTenantId();
   const d = utcDay(data.date);
-  if (isNaN(d.getTime())) throw new Error("Invalid date — please select a valid date.");
+  if (isNaN(d.getTime())) throw new Error("Invalid date â€” please select a valid date.");
 
   const customer = await requireTenantCustomer(tenantId, data.customerId);
 
@@ -356,7 +376,7 @@ export async function createOneOffJob(data: {
   return { workDay, job, alreadyExisted: false };
 }
 
-// ─── Customers ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Customers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getCustomers(areaIds?: number[], search?: string, includeInactive = false, tagIds?: number[], onlyOneOff = false) {
   const tenantId = await getActiveTenantId();
@@ -408,7 +428,7 @@ export async function bulkImportCustomers(
     address: string;
     price: number;
     areaId?: number;           // undefined when areaName is provided for creation
-    areaName?: string;         // raw area name — used when createMissingAreas is true
+    areaName?: string;         // raw area name â€” used when createMissingAreas is true
     areaColor?: string;        // colour to apply when creating the new area
     areaFrequencyWeeks?: number; // frequency to set on the new area
     email?: string;
@@ -431,10 +451,10 @@ export async function bulkImportCustomers(
   let created = 0;
   let updated = 0;
   const areasCreated: string[] = [];
-  // Cache newly-created area names → ids so we don't duplicate within one import
+  // Cache newly-created area names â†’ ids so we don't duplicate within one import
   const areaNameCache = new Map<string, number>();
 
-  // Colour palette — assigned cyclically to every new area created during this import
+  // Colour palette â€” assigned cyclically to every new area created during this import
   const AREA_COLOURS = [
     "#3B82F6", // blue
     "#10B981", // emerald
@@ -456,7 +476,7 @@ export async function bulkImportCustomers(
   for (let i = 0; i < records.length; i++) {
     const r = records[i];
     try {
-      // ── Resolve areaId ──────────────────────────────────────────────────────
+      // â”€â”€ Resolve areaId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       let resolvedAreaId = r.areaId;
       if (!resolvedAreaId && r.areaName && options.createMissingAreas) {
         const trimmed = r.areaName.trim();
@@ -498,7 +518,7 @@ export async function bulkImportCustomers(
         nextDueDate: r.nextDueDate ? new Date(r.nextDueDate + "T00:00:00.000Z") : null,
       };
 
-      // ── Create or update ────────────────────────────────────────────────────
+      // â”€â”€ Create or update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       if (options.updateExisting) {
         const matchField = options.matchField ?? "name";
         const existing = await prisma.customer.findFirst({
@@ -581,7 +601,7 @@ export async function bulkImportJobHistory(
   const tenantId = await getActiveTenantId();
   const errors: Array<{ row: number; message: string }> = [];
   let created = 0;
-  // Cache "areaId:dateStr" → workDayId so we don't create duplicate work days
+  // Cache "areaId:dateStr" â†’ workDayId so we don't create duplicate work days
   const workDayCache = new Map<string, number>();
 
   for (let i = 0; i < records.length; i++) {
@@ -653,7 +673,7 @@ export async function bulkImportJobHistory(
 /**
  * Internal: ensures the customer has a PENDING job on every PLANNED or
  * IN_PROGRESS work day for their area where they are eligible.
- * Safe to call multiple times — never creates duplicates.
+ * Safe to call multiple times â€” never creates duplicates.
  */
 async function autoAddToScheduledDays(tenantId: number, customerId: number, areaId: number) {
   const customer = await prisma.customer.findFirst({
@@ -662,7 +682,7 @@ async function autoAddToScheduledDays(tenantId: number, customerId: number, area
   });
   if (!customer?.active) return;
 
-  // All active area customers are always included — no nextDueDate eligibility filter
+  // All active area customers are always included â€” no nextDueDate eligibility filter
   const futureDays = await prisma.workDay.findMany({ where: { tenantId, areaId, status: { in: ["PLANNED", "IN_PROGRESS"] } },
   });
 
@@ -834,7 +854,7 @@ export async function rescheduleCustomer(id: number, newDate: Date) {
   revalidatePath("/");
 }
 
-// ─── Work Days ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Work Days â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getWorkDays() {
   const tenantId = await getActiveTenantId();
@@ -872,11 +892,20 @@ export async function getWorkDay(id: number) {
           customer: {
             include: {
               area: true,
-              // COMPLETE jobs only — debt = sum(these prices) - sum(customer.payments)
-              // OUTSTANDING means "windows not done this visit" — NOT a debt status
+              // COMPLETE jobs only â€” debt = sum(these prices) - sum(customer.payments)
+              // OUTSTANDING means "windows not done this visit" â€” NOT a debt status
               jobs: {
                 where: { status: "COMPLETE" },
-                select: { id: true, price: true },
+                select: {
+                  id: true,
+                  name: true,
+                  price: true,
+                  isOneOff: true,
+                  completedAt: true,
+                  createdAt: true,
+                  workDay: { select: { date: true } },
+                },
+                orderBy: [{ workDay: { date: "asc" } }, { createdAt: "asc" }],
               },
               payments: { select: { amount: true } },
             },
@@ -962,7 +991,7 @@ export async function addOneOffJobToDay(
       });
       revalidatePath(`/days/${homeAreaPendingJob.workDayId}`);
     } else {
-      // No home-area run scheduled yet — flag so it auto-skips when created
+      // No home-area run scheduled yet â€” flag so it auto-skips when created
       await prisma.customer.update({
         where: { id: customerId },
         data: { skipNextAreaRun: true },
@@ -1011,7 +1040,7 @@ export async function addJobFromOtherArea(targetWorkDayId: number, customerId: n
     });
     revalidatePath(`/days/${homeAreaPendingJob.workDayId}`);
   } else {
-    // No home-area run scheduled yet — flag so it auto-skips when created
+    // No home-area run scheduled yet â€” flag so it auto-skips when created
     await prisma.customer.update({
       where: { id: customer.id },
       data: { skipNextAreaRun: true },
@@ -1130,7 +1159,7 @@ export async function createOneOffCustomerAndBookByDate(
 ) {
   const tenantId = await getActiveTenantId();
   const d = utcDay(date);
-  if (isNaN(d.getTime())) throw new Error("Invalid date — please select a valid date.");
+  if (isNaN(d.getTime())) throw new Error("Invalid date â€” please select a valid date.");
 
   let areaId: number;
   let freqWeeks: number;
@@ -1307,7 +1336,7 @@ export async function moveCustomerToArea(
     requireTenantArea(tenantId, newAreaId),
     addToWorkDayId ? requireTenantWorkDay(tenantId, addToWorkDayId) : Promise.resolve(null),
   ]);
-  // Clear skip flag — moving to a new area is a clean slate
+  // Clear skip flag â€” moving to a new area is a clean slate
   await prisma.customer.updateMany({ where: { tenantId, id: customerId }, data: { areaId: newAreaId, skipNextAreaRun: false } });
   revalidatePath("/customers");
 
@@ -1328,7 +1357,7 @@ export async function bulkMoveCustomersToArea(customerIds: number[], newAreaId: 
   if (customers.length !== customerIds.length) throw new Error("One or more customers were not found");
   await prisma.customer.updateMany({
     where: { tenantId, id: { in: customerIds } },
-    // Clear skip flag — moving to a new area is a clean slate
+    // Clear skip flag â€” moving to a new area is a clean slate
     data: { areaId: newAreaId, frequencyWeeks: area.frequencyWeeks, skipNextAreaRun: false },
   });
   for (const id of customerIds) {
@@ -1378,7 +1407,7 @@ export async function markJobPaid(data: {
   revalidatePath("/payments");
 }
 
-// ─── Jobs ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function completeJob(jobId: number) {
   const tenantId = await getActiveTenantId();
@@ -1394,7 +1423,7 @@ export async function completeJob(jobId: number) {
     data: { status: "COMPLETE", completedAt: now },
   });
 
-  // Auto-start the work day if still PLANNED — removes the need to tap "Start Area" separately
+  // Auto-start the work day if still PLANNED â€” removes the need to tap "Start Area" separately
   await prisma.workDay.updateMany({
     where: { id: job.workDayId, tenantId, status: "PLANNED" },
     data: { status: "IN_PROGRESS" },
@@ -1502,8 +1531,8 @@ export async function moveJobToDay(jobId: number, newWorkDayId: number) {
 
 /**
  * Move a work day to a new date.
- * mode "one-off"   → just moves this work day. Area nextDueDate unchanged.
- * mode "recurring" → shifts this work day AND all future non-completed work days
+ * mode "one-off"   â†’ just moves this work day. Area nextDueDate unchanged.
+ * mode "recurring" â†’ shifts this work day AND all future non-completed work days
  *                    for the same area by the same day delta, then recalculates
  *                    area.nextDueDate from the last shifted run.
  * newDateISO: YYYY-MM-DD string (local calendar date from the client).
@@ -1596,7 +1625,7 @@ export async function getWorkDaysInRange(from: Date, to: Date) {
   });
 }
 
-// ─── Complete Day ───────────────────────────────────────────────────────────
+// â”€â”€â”€ Complete Day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Resolve all outstanding PENDING jobs and mark the day COMPLETE.
@@ -1678,7 +1707,7 @@ export async function completeDay(
       create: { tenantId, date: nextDue, areaId: workDay.area.id },
     });
 
-    // All active area customers are always included in every run — no nextDueDate filter
+    // All active area customers are always included in every run â€” no nextDueDate filter
     const eligibleCustomers = await prisma.customer.findMany({ where: { tenantId, areaId: workDay.area.id, active: true },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     });
@@ -1740,7 +1769,7 @@ export async function updateWorkDayNotes(workDayId: number, notes: string) {
   revalidatePath("/");
 }
 
-// ─── Split / copy area (creates "Name - Day 2" clone without customers) ──────
+// â”€â”€â”€ Split / copy area (creates "Name - Day 2" clone without customers) â”€â”€â”€â”€â”€â”€
 
 export async function splitArea(areaId: number) {
   const tenantId = await getActiveTenantId();
@@ -1776,7 +1805,7 @@ export async function splitArea(areaId: number) {
   return { ...created, estimatedValue: 0 };
 }
 
-// ─── Update completed work day date ─────────────────────────────────────────
+// â”€â”€â”€ Update completed work day date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function updateCompletedWorkDayDate(workDayId: number, isoDate: string) {
   const tenantId = await getActiveTenantId();
@@ -1793,7 +1822,6 @@ export async function updateCompletedWorkDayDate(workDayId: number, isoDate: str
   });
 
   if (workDay.area) {
-    // Recalculate from the latest completed workday for this area (accounting for the update above)
     const latestCompleted = await prisma.workDay.findFirst({ where: { tenantId, areaId: workDay.area.id, status: "COMPLETE" },
       orderBy: { date: "desc" },
       select: { date: true },
@@ -1810,6 +1838,68 @@ export async function updateCompletedWorkDayDate(workDayId: number, isoDate: str
       where: { tenantId, areaId: workDay.area.id, active: true },
       data: { nextDueDate: nextDue },
     });
+
+    const targetNextWorkDay = await prisma.workDay.upsert({
+      where: { tenantId_date_areaId: { tenantId, date: nextDue, areaId: workDay.area.id } },
+      update: {},
+      create: { tenantId, date: nextDue, areaId: workDay.area.id },
+    });
+
+    const sourceNextWorkDay = await prisma.workDay.findFirst({
+      where: {
+        tenantId,
+        areaId: workDay.area.id,
+        status: { not: "COMPLETE" },
+        id: { notIn: [workDayId, targetNextWorkDay.id] },
+      },
+      include: { jobs: { select: { id: true, customerId: true } } },
+      orderBy: { date: "asc" },
+    });
+
+    const targetJobs = await prisma.job.findMany({
+      where: { tenantId, workDayId: targetNextWorkDay.id },
+      select: { customerId: true },
+    });
+    const targetCustomerIds = new Set(targetJobs.map((job) => job.customerId));
+
+    if (sourceNextWorkDay && sourceNextWorkDay.id !== targetNextWorkDay.id) {
+      for (const sourceJob of sourceNextWorkDay.jobs) {
+        if (targetCustomerIds.has(sourceJob.customerId)) {
+          await prisma.job.delete({ where: { id: sourceJob.id } });
+          continue;
+        }
+        await prisma.job.update({
+          where: { id: sourceJob.id },
+          data: { workDayId: targetNextWorkDay.id },
+        });
+        targetCustomerIds.add(sourceJob.customerId);
+      }
+
+      const remainingJobs = await prisma.job.count({ where: { tenantId, workDayId: sourceNextWorkDay.id } });
+      if (remainingJobs === 0) {
+        await prisma.workDay.delete({ where: { id: sourceNextWorkDay.id } });
+      }
+    }
+
+    const eligibleCustomers = await prisma.customer.findMany({ where: { tenantId, areaId: workDay.area.id, active: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    });
+    const newJobs = eligibleCustomers.filter((customer) => !targetCustomerIds.has(customer.id));
+    if (newJobs.length > 0) {
+      await prisma.job.createMany({ data: newJobs.map((customer) => ({ tenantId,
+          workDayId: targetNextWorkDay.id,
+          customerId: customer.id,
+          price: customer.price,
+          name: customer.jobName || "Window Cleaning",
+          status: customer.skipNextAreaRun ? "SKIPPED" : "PENDING",
+          notes: customer.skipNextAreaRun ? "Completed via another area run" : null,
+        })),
+      });
+      const toReset = newJobs.filter((customer) => customer.skipNextAreaRun).map((customer) => customer.id);
+      if (toReset.length > 0) {
+        await prisma.customer.updateMany({ where: { tenantId, id: { in: toReset } }, data: { skipNextAreaRun: false } });
+      }
+    }
   }
 
   revalidatePath(`/days/${workDayId}`);
@@ -1818,7 +1908,7 @@ export async function updateCompletedWorkDayDate(workDayId: number, isoDate: str
   revalidatePath("/");
 }
 
-// ─── Payments ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Payments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function logPayment(data: {
   customerId: number;
@@ -1914,7 +2004,7 @@ export async function deletePayment(id: number, customerId: number) {
   revalidatePath(`/customers/${payment.customerId ?? customerId}`);
 }
 
-// ─── Dashboard data ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Dashboard data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getDashboardData() {
   const tenantId = await getActiveTenantId();
@@ -2074,14 +2164,46 @@ export async function getCustomerBalance(customerId: number) {
   return calculateCustomerDebt(customer.jobs, customer.payments).debt;
 }
 
-// ── Business Settings ────────────────────────────────────────────────────────
+// â”€â”€ Business Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getBusinessSettings() {
   const tenantId = await getActiveTenantId();
   let settings = await prisma.tenantSettings.findFirst({ where: { tenantId } });
+
+  const [tenant, owner] = await Promise.all([
+    prisma.tenant.findFirst({ where: { id: tenantId }, select: { name: true, phone: true, address: true } }),
+    prisma.user.findFirst({ where: { tenantId, role: "OWNER" }, select: { name: true, email: true } }),
+  ]);
+
+  const seededValues = {
+    businessName: settings?.businessName?.trim() || tenant?.name || "My Window Cleaning",
+    ownerName: settings?.ownerName?.trim() || owner?.name?.trim() || "",
+    email: settings?.email?.trim() || owner?.email || "",
+    phone: settings?.phone?.trim() || tenant?.phone || "",
+    address: settings?.address?.trim() || tenant?.address || "",
+  };
+
   if (!settings) {
-    settings = await prisma.tenantSettings.create({ data: { tenantId } });
+    settings = await prisma.tenantSettings.create({ data: { tenantId, ...seededValues } });
+    return settings;
   }
+
+  const updateData = Object.fromEntries(
+    Object.entries(seededValues).filter(([key, value]) => {
+      const currentEntry = (settings as Record<string, unknown> | null)?.[key];
+      const currentValue = typeof currentEntry === "string" ? currentEntry.trim() : currentEntry;
+      return (
+        (typeof currentValue !== "string" || currentValue.length === 0) &&
+        typeof value === "string" &&
+        value.length > 0
+      );
+    })
+  );
+
+  if (Object.keys(updateData).length > 0) {
+    settings = await prisma.tenantSettings.update({ where: { tenantId }, data: updateData });
+  }
+
   return settings;
 }
 
@@ -2233,7 +2355,7 @@ export async function claimNextInvoiceNumber(): Promise<string> {
   return `${settings.invoicePrefix}-${String(num).padStart(4, "0")}`;
 }
 
-// ── Tags ─────────────────────────────────────────────────────────────────────
+// â”€â”€ Tags â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getTags() {
   const tenantId = await getActiveTenantId();
@@ -2253,7 +2375,7 @@ export async function deleteTag(id: number) {
   revalidatePath("/settings");
 }
 
-// ─── Job ordering & notes ──────────────────────────────────────────────────
+// â”€â”€â”€ Job ordering & notes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Persist a custom job order within a work day.
@@ -2338,19 +2460,19 @@ export async function setCustomerTags(customerId: number, tagIds: number[]) {
   revalidatePath("/customers");
 }
 
-// ─── Unfinished Jobs (for scheduler rescheduling) ──────────────────────────
+// â”€â”€â”€ Unfinished Jobs (for scheduler rescheduling) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Returns all PENDING or IN_PROGRESS jobs whose work day date is on or before
  * today. These are jobs that were scheduled but not completed or explicitly
- * skipped — they can be dragged onto a new day in the scheduler.
+ * skipped â€” they can be dragged onto a new day in the scheduler.
  */
 export async function getPendingUnfinishedJobs() {
   const tenantId = await getActiveTenantId();
   const today = utcDay(new Date());
   return prisma.job.findMany({ where: { tenantId,
       status: "PENDING",
-      workDay: { date: { lt: today } },  // strictly before today — today's jobs are still in-progress
+      workDay: { date: { lt: today } },  // strictly before today â€” today's jobs are still in-progress
     },
     include: {
       customer: { include: { area: true } },
@@ -2386,7 +2508,7 @@ export async function rescheduleJobToDate(jobId: number, dateISO: string) {
       create: { tenantId, date: d, areaId },
     });
   } else {
-    // Standalone day — find any existing standalone day on that date or create
+    // Standalone day â€” find any existing standalone day on that date or create
     const existing = await prisma.workDay.findFirst({ where: { tenantId, date: d, areaId: null },
     });
     targetWorkDay = existing ?? (await prisma.workDay.create({ data: { tenantId, date: d } }));
@@ -2402,7 +2524,7 @@ export async function rescheduleJobToDate(jobId: number, dateISO: string) {
   revalidatePath("/");
 }
 
-// ─── Update job completedAt date ─────────────────────────────────────────────
+// â”€â”€â”€ Update job completedAt date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function updateJobCompletedAt(jobId: number, isoDate: string) {
   const tenantId = await getActiveTenantId();
@@ -2434,7 +2556,7 @@ export async function updateJobCompletedAt(jobId: number, isoDate: string) {
   revalidatePath("/days");
 }
 
-// ─── Holidays ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Holidays â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getHolidays() {
   const tenantId = await getActiveTenantId();
@@ -2487,3 +2609,5 @@ export async function deleteHoliday(id: number) {
   await prisma.holiday.delete({ where: { id: holiday.id } });
   revalidatePath("/scheduler");
 }
+
+

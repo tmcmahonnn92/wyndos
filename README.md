@@ -74,9 +74,10 @@ Notes:
 
 - `AUTH_SECRET` is required in production. The app now fails fast if it is missing.
 - `DATABASE_URL` is now used by runtime and seed bootstrapping instead of a hardcoded `dev.db` path.
-- Provider credentials for email and messaging are treated as write-only in the settings UI and should not be considered launch-ready while delivery features remain disabled.
+- Tenant SMTP settings remain available in the settings UI, but platform-level auth mail can use `PLATFORM_SMTP_*` when tenant SMTP is not configured.
 - Set `AUTH_URL`, `NEXTAUTH_URL`, and `APP_URL` to the same public HTTPS origin on the VPS.
 - `AUTH_TRUST_HOST=true` is required when the app runs behind Nginx.
+- Use `PLATFORM_SMTP_SECURE=true` for SSL SMTP on port `465`; leave it `false` for STARTTLS on port `587`.
 
 ## Health check
 
@@ -99,6 +100,8 @@ If the database connection fails, the endpoint returns HTTP `503`.
 Use the repo runbook and deploy assets for VPS rollout:
 
 - .env.production.example
+- deploy/deploy-vps.sh
+- deploy/RELEASE_WORKFLOW.md
 - deploy/VPS_RUNBOOK.md
 - deploy/nginx/wyndos.conf
 - deploy/systemd/wyndos.service
@@ -109,10 +112,18 @@ Recommended VPS deploy order:
 1. Provision Ubuntu, Node, PostgreSQL, Nginx, and UFW.
 2. Create the PostgreSQL role and database.
 3. Create /opt/wyndos/shared/.env.production from .env.production.example.
-4. Run npm ci --legacy-peer-deps, npm run db:generate:postgres, npm run db:migrate:deploy:postgres, and npm run build.
+4. Pull the target GitHub commit on the VPS and run sudo ./deploy/deploy-vps.sh.
 5. Install the systemd unit and Nginx site.
 6. Verify /api/health locally and through the public HTTPS URL.
 7. Run the manual smoke checks documented in deploy/VPS_RUNBOOK.md.
+
+Recommended release workflow:
+
+1. Validate locally with npm run build.
+2. Commit and push to GitHub main.
+3. On the VPS, run git fetch, git checkout main, git pull --ff-only origin main.
+4. Run sudo ./deploy/deploy-vps.sh.
+5. Verify systemctl status wyndos and both local and public /api/health.
 
 Current limitation:
 
@@ -131,4 +142,5 @@ Current limitation:
 ## Stack
 
 Next.js 16, React 19, Tailwind CSS v4, Prisma 7, NextAuth v5 beta, date-fns, lucide-react
+
 

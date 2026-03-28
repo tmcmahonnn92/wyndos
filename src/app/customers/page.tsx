@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { ChevronRight, Plus, Search, TableProperties, Upload } from "lucide-react";
 import { getCustomers, getAreas, getTags } from "@/lib/actions";
 import { requirePermission } from "@/lib/tenant-context";
@@ -53,8 +53,8 @@ export default async function CustomersPage({ searchParams }: Props) {
   const otherCustomers = ungrouped.filter((c) => !c.area?.isSystemArea);
 
   return (
-    <div className="px-4 py-5 max-w-2xl mx-auto space-y-5">
-      <div className="flex items-center justify-between">
+    <div className="px-4 py-5 max-w-6xl mx-auto space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold text-slate-800">Customers</h1>
         <div className="flex items-center gap-2">
           <Link
@@ -202,7 +202,7 @@ function CustomerRow({
           </div>
           <ChevronRight size={15} className={cn("ml-2 flex-shrink-0", isInactive ? "text-red-300" : "text-slate-300")} />
         </Link>
-        {/* Active toggle — sits outside Link so it doesn't navigate */}
+        {/* Active toggle â€” sits outside Link so it doesn't navigate */}
         <div className="pr-3 flex-shrink-0">
           <CustomerActiveToggle customerId={customer.id} active={customer.active} />
         </div>
@@ -210,3 +210,4 @@ function CustomerRow({
     </li>
   );
 }
+
