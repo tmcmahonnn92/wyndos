@@ -11,6 +11,10 @@ ENV_FILE="$SHARED_DIR/.env.production"
 LOG_DIR="/var/log/wyndos"
 
 run_as_app() {
+  runuser -u "$APP_USER" -- bash -lc "cd '$RELEASE_DIR' && $*"
+}
+
+run_as_app_with_env() {
   runuser -u "$APP_USER" -- bash -lc "set -a; source '$ENV_FILE'; set +a; cd '$RELEASE_DIR' && $*"
 }
 
@@ -38,10 +42,10 @@ chown -h "$APP_USER:$APP_GROUP" "$RELEASE_DIR/.env.production" || true
 
 rm -rf "$RELEASE_DIR/.next"
 
-run_as_app "npm ci --legacy-peer-deps"
-run_as_app "npm run db:generate:postgres"
-run_as_app "npm run db:migrate:deploy:postgres"
-run_as_app "npm run build"
+run_as_app "npm ci --include=dev --legacy-peer-deps"
+run_as_app_with_env "npm run db:generate:postgres"
+run_as_app_with_env "npm run db:migrate:deploy:postgres"
+run_as_app_with_env "npm run build"
 
 systemctl daemon-reload
 systemctl restart "$APP_SERVICE"
