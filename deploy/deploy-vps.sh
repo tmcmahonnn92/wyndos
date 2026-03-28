@@ -11,7 +11,7 @@ ENV_FILE="$SHARED_DIR/.env.production"
 LOG_DIR="/var/log/wyndos"
 
 run_as_app() {
-  runuser -u "$APP_USER" -- bash -lc "cd '$RELEASE_DIR' && $*"
+  runuser -u "$APP_USER" -- bash -lc "set -a; source '$ENV_FILE'; set +a; cd '$RELEASE_DIR' && $*"
 }
 
 if [[ "${EUID}" -ne 0 ]]; then
