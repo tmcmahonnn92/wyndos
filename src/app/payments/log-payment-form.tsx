@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Banknote, CheckSquare, Plus, Square } from "lucide-react";
-import { logPayment, logPaymentForSelectedJobs } from "@/lib/actions";
+import { recordPayment } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { cn, fmtCurrency, fmtDate } from "@/lib/utils";
@@ -49,8 +49,6 @@ export function LogPaymentForm({
   const today = new Date().toISOString().slice(0, 10);
 
   const [customerId, setCustomerId] = useState("");
-  const [mode, setMode] = useState<"selected-jobs" | "amount-only">("selected-jobs");
-  const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<"CASH" | "BACS" | "CARD">("CASH");
   const [notes, setNotes] = useState("");
   const [paidAt, setPaidAt] = useState(today);
@@ -75,8 +73,6 @@ export function LogPaymentForm({
     const id = nextCustomerId ? String(nextCustomerId) : "";
     const customer = customers.find((entry) => entry.id === nextCustomerId) ?? null;
     setCustomerId(id);
-    setMode("selected-jobs");
-    setAmount(customer ? customer.debt.toFixed(2) : "");
     setMethod("CASH");
     setNotes("");
     setPaidAt(today);
@@ -91,7 +87,6 @@ export function LogPaymentForm({
   const handleCustomerChange = (nextId: string) => {
     setCustomerId(nextId);
     const customer = customers.find((entry) => String(entry.id) === nextId) ?? null;
-    setAmount(customer ? customer.debt.toFixed(2) : "");
     setSelectedJobIds(new Set(customer?.unpaidJobs.map((job) => job.id) ?? []));
   };
 
@@ -107,23 +102,20 @@ export function LogPaymentForm({
   const handleSubmit = () => {
     if (!selectedCustomer) return;
     startTransition(async () => {
-      if (mode === "selected-jobs") {
-        await logPaymentForSelectedJobs({
-          customerId: selectedCustomer.id,
-          jobIds: Array.from(selectedJobIds),
-          method,
-          notes: notes || undefined,
-          paidAt: new Date(paidAt),
-        });
-      } else {
-        await logPayment({
-          customerId: selectedCustomer.id,
-          amount: Number(amount),
-          method,
-          notes: notes || undefined,
-          paidAt: new Date(paidAt),
-        });
-      }
+      const allocations = selectedCustomer.unpaidJobs
+        .filter((job) => selectedJobIds.has(job.id))
+        .map((job) => ({ jobId: job.id, amount: job.due }))
+        .filter((allocation) => allocation.amount > 0);
+      if (allocations.length === 0) return;
+
+      await recordPayment({
+        customerId: selectedCustomer.id,
+        allocations,
+        method,
+        notes: notes || undefined,
+        paidAt: new Date(paidAt),
+      });
+
       setOpen(false);
       resetForm(initialCustomerId);
       router.refresh();
@@ -134,9 +126,7 @@ export function LogPaymentForm({
   const submitDisabled =
     isPending ||
     !selectedCustomer ||
-    (mode === "selected-jobs"
-      ? jobsSelected === 0 || selectedJobTotal <= 0
-      : !amount || Number(amount) <= 0);
+    jobsSelected === 0 || selectedJobTotal <= 0;
 
   return (
     <>
@@ -179,40 +169,6 @@ export function LogPaymentForm({
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">How to log this payment</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMode("selected-jobs")}
-                    className={cn(
-                      "py-2 rounded-lg border text-sm font-medium transition-colors",
-                      mode === "selected-jobs"
-                        ? "border-blue-600 bg-blue-600 text-white"
-                        : "border-slate-200 text-slate-600 hover:border-blue-300"
-                    )}
-                  >
-                    Specific jobs
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode("amount-only");
-                      setAmount(selectedCustomer.debt.toFixed(2));
-                    }}
-                    className={cn(
-                      "py-2 rounded-lg border text-sm font-medium transition-colors",
-                      mode === "amount-only"
-                        ? "border-blue-600 bg-blue-600 text-white"
-                        : "border-slate-200 text-slate-600 hover:border-blue-300"
-                    )}
-                  >
-                    Amount only
-                  </button>
-                </div>
-              </div>
-
-              {mode === "selected-jobs" ? (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="block text-sm font-medium text-slate-700">Which jobs are being paid</label>
@@ -282,23 +238,6 @@ export function LogPaymentForm({
                     <p className="text-sm font-bold text-slate-800">{fmtCurrency(selectedJobTotal)}</p>
                   </div>
                 </div>
-              ) : (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Amount (£)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="e.g. 15.00"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <p className="text-xs text-slate-400 mt-1">
-                    Use this when you just want to log an amount without choosing jobs.
-                  </p>
-                </div>
-              )}
             </>
           )}
 
@@ -347,11 +286,7 @@ export function LogPaymentForm({
           <div className="flex gap-2 pt-1">
             <Button onClick={handleSubmit} disabled={submitDisabled} className="flex-1">
               <Banknote size={14} />
-              {isPending
-                ? "Logging..."
-                : mode === "selected-jobs"
-                  ? `Mark Paid · ${fmtCurrency(selectedJobTotal)}`
-                  : `Log Payment · ${fmtCurrency(Number(amount) || 0)}`}
+              {isPending ? "Logging..." : `Mark Paid · ${fmtCurrency(selectedJobTotal)}`}
             </Button>
             <Button variant="outline" onClick={() => setOpen(false)} className="flex-1">
               Cancel

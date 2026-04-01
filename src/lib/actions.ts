@@ -58,128 +58,6 @@ async function requireTenantHoliday(tenantId: number, holidayId: number) {
   return holiday;
 }
 
-type BalanceJobLike = {
-  id: number;
-  price: number;
-  name?: string;
-  isOneOff?: boolean;
-  completedAt?: Date | null;
-  createdAt?: Date;
-  workDay?: { date: Date } | null;
-};
-
-function buildJobDebtBreakdown<T extends BalanceJobLike>(jobs: T[], totalPaid: number) {
-  const ordered = [...jobs].sort((a, b) => {
-    const aTime = a.completedAt?.getTime() ?? a.workDay?.date?.getTime() ?? a.createdAt?.getTime() ?? 0;
-    const bTime = b.completedAt?.getTime() ?? b.workDay?.date?.getTime() ?? b.createdAt?.getTime() ?? 0;
-    if (aTime !== bTime) return aTime - bTime;
-    return a.id - b.id;
-  });
-
-  let remainingPaid = Math.max(0, totalPaid);
-
-  return ordered.map((job) => {
-    const applied = Math.min(remainingPaid, job.price);
-    remainingPaid -= applied;
-    const due = Math.max(0, Number((job.price - applied).toFixed(2)));
-    return {
-      ...job,
-      applied: Number(applied.toFixed(2)),
-      due,
-    };
-  });
-}
-
-function calculateCustomerDebt(jobs: BalanceJobLike[], payments: Array<{ amount: number }>) {
-  const totalPaid = payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const breakdown = buildJobDebtBreakdown(jobs, totalPaid);
-  const debt = Number(breakdown.reduce((sum, job) => sum + job.due, 0).toFixed(2));
-  return { totalPaid, breakdown, debt };
-}
-
-async function allocateCustomerDebtPayments(data: {
-  tenantId: number;
-  customerId: number;
-  amount: number;
-  method: "CASH" | "BACS" | "CARD";
-  notes?: string;
-  paidAt?: Date;
-}) {
-  const customer = await prisma.customer.findFirst({
-    where: { id: data.customerId, tenantId: data.tenantId },
-    include: {
-      jobs: {
-        where: { status: "COMPLETE" },
-        include: { workDay: true },
-        orderBy: [{ workDay: { date: "asc" } }, { createdAt: "asc" }],
-      },
-      payments: { select: { amount: true } },
-    },
-  });
-
-  if (!customer) {
-    throw new Error("Customer not found");
-  }
-
-  const totalPaid = customer.payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const breakdown = buildJobDebtBreakdown(customer.jobs, totalPaid).filter((job) => job.due > 0.005);
-  const paidAt = data.paidAt ?? new Date();
-  let remaining = Number(data.amount.toFixed(2));
-
-  if (remaining <= 0) {
-    return { allocatedAmount: 0, unallocatedAmount: 0 };
-  }
-
-  const paymentCreates: Array<ReturnType<typeof prisma.payment.create>> = [];
-
-  for (const job of breakdown) {
-    if (remaining <= 0.005) break;
-    const applied = Number(Math.min(remaining, job.due).toFixed(2));
-    if (applied <= 0) continue;
-
-    paymentCreates.push(
-      prisma.payment.create({
-        data: {
-          tenantId: data.tenantId,
-          customerId: data.customerId,
-          jobId: job.id,
-          amount: applied,
-          method: data.method,
-          notes: data.notes ?? null,
-          paidAt,
-        },
-      })
-    );
-
-    remaining = Number((remaining - applied).toFixed(2));
-  }
-
-  if (remaining > 0.005) {
-    paymentCreates.push(
-      prisma.payment.create({
-        data: {
-          tenantId: data.tenantId,
-          customerId: data.customerId,
-          jobId: null,
-          amount: remaining,
-          method: data.method,
-          notes: data.notes ?? null,
-          paidAt,
-        },
-      })
-    );
-  }
-
-  if (paymentCreates.length > 0) {
-    await prisma.$transaction(paymentCreates);
-  }
-
-  return {
-    allocatedAmount: Number((data.amount - Math.max(0, remaining)).toFixed(2)),
-    unallocatedAmount: remaining > 0.005 ? remaining : 0,
-  };
-}
-
 /**
  * Calculate the next run date for an area after a given date.
  *  - WEEKLY:  fromDate + frequencyWeeks
@@ -293,12 +171,12 @@ export async function getAreaSchedules() {
             select: {
               id: true,
               price: true,
-              completedAt: true,
-              createdAt: true,
-              workDay: { select: { date: true } },
+              allocations: {
+                where: { payment: { voidedAt: null } },
+                select: { amount: true },
+              },
             },
           },
-          payments: { select: { amount: true } },
         },
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       },
@@ -309,7 +187,12 @@ export async function getAreaSchedules() {
     ...a,
     estimatedValue: a.customers.reduce((sum, customer) => sum + customer.price, 0),
     outstandingDebt: Number(
-      a.customers.reduce((sum, customer) => sum + calculateCustomerDebt(customer.jobs, customer.payments).debt, 0).toFixed(2)
+      a.customers.reduce((sum, customer) =>
+        sum + customer.jobs.reduce((jobSum, j) => {
+          const paid = j.allocations.reduce((s, al) => s + al.amount, 0);
+          return jobSum + Math.max(0, j.price - paid);
+        }, 0)
+      , 0).toFixed(2)
     ),
   }));
 }
@@ -481,8 +364,16 @@ export async function getCustomers(areaIds?: number[], search?: string, includeI
     include: {
       area: true,
       tags: { include: { tag: true } },
-      jobs: { where: { status: "COMPLETE" }, select: { price: true } },
-      payments: { select: { amount: true } },
+      jobs: {
+        where: { status: "COMPLETE" },
+        select: {
+          price: true,
+          allocations: {
+            where: { payment: { voidedAt: null } },
+            select: { amount: true },
+          },
+        },
+      },
     },
     orderBy: [{ area: { sortOrder: "asc" } }, { name: "asc" }],
   });
@@ -496,11 +387,21 @@ export async function getCustomer(id: number) {
       area: true,
       tags: { include: { tag: true } },
       jobs: {
-        include: { workDay: true, payments: true },
+        include: {
+          workDay: true,
+          allocations: {
+            where: { payment: { voidedAt: null } },
+            select: { amount: true },
+          },
+        },
         orderBy: { createdAt: "desc" },
         take: 100,
       },
-      payments: { orderBy: { paidAt: "desc" }, take: 50 },
+      payments: {
+        include: { allocations: true },
+        orderBy: { paidAt: "desc" },
+        take: 50,
+      },
     },
   });
 }
@@ -732,13 +633,13 @@ export async function bulkImportJobHistory(
         const method = validMethods.includes((r.paymentMethod ?? "").toUpperCase())
           ? (r.paymentMethod!.toUpperCase() as "CASH" | "BACS" | "CARD")
           : "CASH";
-        await prisma.payment.create({ data: { tenantId,
-            customerId: customer.id,
-            jobId: job.id,
-            amount: r.paid,
-            method,
-            paidAt: workDate,
-          },
+        await prisma.$transaction(async (tx) => {
+          const payment = await tx.payment.create({
+            data: { tenantId, customerId: customer.id, amount: r.paid!, method, paidAt: workDate },
+          });
+          await tx.paymentAllocation.create({
+            data: { tenantId, paymentId: payment.id, jobId: job.id, amount: r.paid! },
+          });
         });
       }
 
@@ -972,11 +873,14 @@ export async function getWorkDay(id: number) {
       area: true,
       jobs: {
         include: {
+          allocations: {
+            where: { payment: { voidedAt: null } },
+            select: { amount: true },
+          },
           customer: {
             include: {
               area: true,
-              // COMPLETE jobs only â€” debt = sum(these prices) - sum(customer.payments)
-              // OUTSTANDING means "windows not done this visit" â€” NOT a debt status
+              // COMPLETE jobs only — used to compute per-job outstanding balance
               jobs: {
                 where: { status: "COMPLETE" },
                 select: {
@@ -984,16 +888,16 @@ export async function getWorkDay(id: number) {
                   name: true,
                   price: true,
                   isOneOff: true,
-                  completedAt: true,
-                  createdAt: true,
                   workDay: { select: { date: true } },
+                  allocations: {
+                    where: { payment: { voidedAt: null } },
+                    select: { amount: true },
+                  },
                 },
                 orderBy: [{ workDay: { date: "asc" } }, { createdAt: "asc" }],
               },
-              payments: { select: { amount: true } },
             },
           },
-          payments: true,
         },
         orderBy: [{ sortOrder: "asc" }, { customer: { name: "asc" } }],
       },
@@ -1451,44 +1355,6 @@ export async function bulkMoveCustomersToArea(customerIds: number[], newAreaId: 
   revalidatePath("/days");
 }
 
-/**
- * Log a payment against an already-completed job.
- * Convenience wrapper used from the day view "Mark as Paid" flow.
- */
-export async function markJobPaid(data: {
-  jobId: number;
-  customerId: number;
-  workDayId: number;
-  amount: number;
-  method: "CASH" | "BACS" | "CARD";
-  notes?: string;
-}) {
-  const tenantId = await getActiveTenantId();
-  const [job, customer, workDay] = await Promise.all([
-    requireTenantJob(tenantId, data.jobId),
-    requireTenantCustomer(tenantId, data.customerId),
-    requireTenantWorkDay(tenantId, data.workDayId),
-  ]);
-  if (job.customerId !== customer.id || job.workDayId !== workDay.id) {
-    throw new Error("Job does not match the selected customer or work day");
-  }
-  if (job.status !== "COMPLETE") {
-    throw new Error("Only completed jobs can be marked as paid");
-  }
-
-  await prisma.payment.create({ data: { tenantId,
-      customerId: customer.id,
-      jobId: job.id,
-      amount: data.amount,
-      method: data.method,
-      notes: data.notes ?? null,
-      paidAt: new Date(),
-    },
-  });
-  revalidatePath(`/days/${data.workDayId}`);
-  revalidatePath(`/customers/${data.customerId}`);
-  revalidatePath("/payments");
-}
 
 // â”€â”€â”€ Jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -1998,137 +1864,102 @@ export async function updateCompletedWorkDayDate(workDayId: number, isoDate: str
 
 // â”€â”€â”€ Payments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-export async function logPayment(data: {
+/**
+ * Record a payment event with explicit per-job allocations.
+ * Creates one Payment row and N PaymentAllocation rows in a single transaction.
+ */
+export async function recordPayment(data: {
   customerId: number;
-  jobId?: number;
-  amount: number;
+  allocations: Array<{ jobId: number; amount: number }>;
   method: "CASH" | "BACS" | "CARD";
   notes?: string;
   paidAt?: Date;
 }) {
   const tenantId = await getActiveTenantId();
-  const [customer, job] = await Promise.all([
-    requireTenantCustomer(tenantId, data.customerId),
-    data.jobId ? requireTenantJob(tenantId, data.jobId) : Promise.resolve(null),
-  ]);
-  if (job && job.customerId !== customer.id) {
-    throw new Error("Job does not belong to the selected customer");
+  await requireTenantCustomer(tenantId, data.customerId);
+
+  const allocationData = data.allocations.filter((a) => a.amount > 0.005);
+  if (allocationData.length === 0) {
+    throw new Error("At least one allocation with amount > 0 is required");
   }
 
-  if (!job) {
-    await allocateCustomerDebtPayments({
-      tenantId,
-      customerId: customer.id,
-      amount: data.amount,
-      method: data.method,
-      notes: data.notes,
-      paidAt: data.paidAt,
-    });
-    revalidatePath("/payments");
-    revalidatePath(`/customers/${data.customerId}`);
-    return null;
-  }
-
-  const payment = await prisma.payment.create({ data: { tenantId,
-      customerId: customer.id,
-      jobId: job?.id ?? null,
-      amount: data.amount,
-      method: data.method,
-      notes: data.notes ?? null,
-      paidAt: data.paidAt ?? new Date(),
-    },
+  const totalAmount = Number(allocationData.reduce((sum, a) => sum + a.amount, 0).toFixed(2));
+  const jobIds = allocationData.map((a) => a.jobId);
+  const jobs = await prisma.job.findMany({
+    where: { id: { in: jobIds }, tenantId, customerId: data.customerId },
+    select: { id: true },
   });
-  revalidatePath("/payments");
-  revalidatePath(`/customers/${data.customerId}`);
-  return payment;
-}
+  if (jobs.length !== jobIds.length) {
+    throw new Error("One or more jobs not found or do not belong to this customer");
+  }
 
-export async function logPaymentForSelectedJobs(data: {
-  customerId: number;
-  jobIds: number[];
-  method: "CASH" | "BACS" | "CARD";
-  notes?: string;
-  paidAt?: Date;
-}) {
-  const tenantId = await getActiveTenantId();
-  const uniqueJobIds = Array.from(new Set(data.jobIds.filter(Boolean)));
-  if (uniqueJobIds.length === 0) throw new Error("Select at least one job to mark as paid.");
-
-  const customer = await prisma.customer.findFirst({
-    where: { id: data.customerId, tenantId },
-    include: {
-      jobs: {
-        where: { status: "COMPLETE" },
-        include: { workDay: true },
-        orderBy: [{ workDay: { date: "asc" } }, { createdAt: "asc" }],
+  await prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.create({
+      data: {
+        tenantId,
+        customerId: data.customerId,
+        amount: totalAmount,
+        method: data.method,
+        notes: data.notes ?? null,
+        paidAt: data.paidAt ?? new Date(),
       },
-      payments: { select: { amount: true } },
-    },
+    });
+    await tx.paymentAllocation.createMany({
+      data: allocationData.map((a) => ({
+        tenantId,
+        paymentId: payment.id,
+        jobId: a.jobId,
+        amount: Number(a.amount.toFixed(2)),
+      })),
+    });
   });
-  if (!customer) throw new Error("Customer not found");
-
-  const totalPaid = customer.payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const breakdown = buildJobDebtBreakdown(customer.jobs, totalPaid);
-  const selectedJobs = breakdown.filter((job) => uniqueJobIds.includes(job.id) && job.due > 0.005);
-
-  if (selectedJobs.length === 0) {
-    throw new Error("Selected jobs are already fully paid.");
-  }
-
-  await prisma.$transaction(
-    selectedJobs.map((job) =>
-      prisma.payment.create({ data: { tenantId,
-          customerId: data.customerId,
-          jobId: job.id,
-          amount: job.due,
-          method: data.method,
-          notes: data.notes ?? null,
-          paidAt: data.paidAt ?? new Date(),
-        },
-      })
-    )
-  );
 
   revalidatePath("/payments");
   revalidatePath(`/customers/${data.customerId}`);
-
-  return {
-    count: selectedJobs.length,
-    amount: Number(selectedJobs.reduce((sum, job) => sum + job.due, 0).toFixed(2)),
-  };
 }
 
-export async function updatePayment(
-  id: number,
-  customerId: number,
+export async function voidPayment(paymentId: number, reason?: string) {
+  const tenantId = await getActiveTenantId();
+  const payment = await requireTenantPayment(tenantId, paymentId);
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: { voidedAt: new Date(), voidReason: reason ?? null },
+  });
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${payment.customerId}`);
+}
+
+export async function restorePayment(paymentId: number) {
+  const tenantId = await getActiveTenantId();
+  const payment = await requireTenantPayment(tenantId, paymentId);
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: { voidedAt: null, voidReason: null },
+  });
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${payment.customerId}`);
+}
+
+export async function updatePaymentMeta(
+  paymentId: number,
   data: {
-    amount: number;
-    method: "CASH" | "BACS" | "CARD";
-    paidAt: Date;
+    method?: "CASH" | "BACS" | "CARD";
+    paidAt?: Date;
     notes?: string;
   }
 ) {
   const tenantId = await getActiveTenantId();
-  const payment = await requireTenantPayment(tenantId, id);
+  const payment = await requireTenantPayment(tenantId, paymentId);
   await prisma.payment.update({
     where: { id: payment.id },
     data: {
-      amount: data.amount,
-      method: data.method,
-      paidAt: data.paidAt,
-      notes: data.notes ?? null,
+      ...(data.method !== undefined && { method: data.method }),
+      ...(data.paidAt !== undefined && { paidAt: data.paidAt }),
+      ...(data.notes !== undefined && { notes: data.notes || null }),
     },
   });
   revalidatePath("/payments");
-  revalidatePath(`/customers/${payment.customerId ?? customerId}`);
-}
-
-export async function deletePayment(id: number, customerId: number) {
-  const tenantId = await getActiveTenantId();
-  const payment = await requireTenantPayment(tenantId, id);
-  await prisma.payment.delete({ where: { id: payment.id } });
-  revalidatePath("/payments");
-  revalidatePath(`/customers/${payment.customerId ?? customerId}`);
+  revalidatePath(`/customers/${payment.customerId}`);
 }
 
 // â”€â”€â”€ Dashboard data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2156,12 +1987,12 @@ export async function getDashboardData() {
       take: 7,
     }),
     prisma.customer.aggregate({ where: { tenantId, active: true }, _sum: { price: true } }),
-    prisma.payment.aggregate({ where: { tenantId }, _sum: { amount: true } }),
+    prisma.payment.aggregate({ where: { tenantId, voidedAt: null }, _sum: { amount: true } }),
     prisma.customer.count({ where: { tenantId, active: true } }),
     prisma.area.count({ where: { tenantId, nextDueDate: { lt: today } } }),
     prisma.job.aggregate({ where: { tenantId, status: "COMPLETE" }, _sum: { price: true } }),
     prisma.payment.findMany({
-      where: { tenantId },
+      where: { tenantId, voidedAt: null },
       include: { customer: true },
       orderBy: { paidAt: "desc" },
       take: 5,
@@ -2174,9 +2005,14 @@ export async function getDashboardData() {
         address: true,
         jobs: {
           where: { status: "COMPLETE" },
-          select: { id: true, price: true, completedAt: true, createdAt: true, workDay: { select: { date: true } } },
+          select: {
+            price: true,
+            allocations: {
+              where: { payment: { voidedAt: null } },
+              select: { amount: true },
+            },
+          },
         },
-        payments: { select: { amount: true } },
       },
     }),
   ]);
@@ -2186,7 +2022,12 @@ export async function getDashboardData() {
       id: customer.id,
       name: customer.name,
       address: customer.address,
-      debt: calculateCustomerDebt(customer.jobs, customer.payments).debt,
+      debt: Number(
+        customer.jobs.reduce((sum, j) => {
+          const paid = j.allocations.reduce((s, a) => s + a.amount, 0);
+          return sum + Math.max(0, j.price - paid);
+        }, 0).toFixed(2)
+      ),
     }))
     .filter((customer) => customer.debt > 0.005)
     .sort((a, b) => b.debt - a.debt)
@@ -2209,7 +2050,10 @@ export async function getPaymentsPage() {
   const [payments, customers] = await Promise.all([
     prisma.payment.findMany({
       where: { tenantId },
-      include: { customer: true, job: { include: { workDay: true } } },
+      include: {
+        customer: true,
+        allocations: { include: { job: { include: { workDay: true } } } },
+      },
       orderBy: { paidAt: "desc" },
       take: 50,
     }),
@@ -2219,10 +2063,15 @@ export async function getPaymentsPage() {
         area: true,
         jobs: {
           where: { status: "COMPLETE" },
-          include: { workDay: true },
+          include: {
+            workDay: true,
+            allocations: {
+              where: { payment: { voidedAt: null } },
+              select: { amount: true },
+            },
+          },
           orderBy: [{ workDay: { date: "asc" } }, { createdAt: "asc" }],
         },
-        payments: { select: { amount: true } },
       },
       orderBy: { name: "asc" },
     }),
@@ -2230,20 +2079,23 @@ export async function getPaymentsPage() {
 
   const debtors = customers
     .map((customer) => {
-      const totalPaid = customer.payments.reduce((sum, payment) => sum + payment.amount, 0);
-      const jobBreakdown = buildJobDebtBreakdown(customer.jobs, totalPaid);
-      const unpaidJobs = jobBreakdown
-        .filter((job) => job.due > 0.005)
-        .map((job) => ({
-          id: job.id,
-          name: job.name,
-          price: job.price,
-          paid: job.applied,
-          due: job.due,
-          isOneOff: job.isOneOff,
-          date: job.workDay?.date,
-        }));
-      const debt = Number(unpaidJobs.reduce((sum, job) => sum + job.due, 0).toFixed(2));
+      const unpaidJobs = customer.jobs
+        .map((j) => {
+          const paid = j.allocations.reduce((s, a) => s + a.amount, 0);
+          const due = Number(Math.max(0, j.price - paid).toFixed(2));
+          return {
+            id: j.id,
+            name: j.name,
+            price: j.price,
+            paid: Number(paid.toFixed(2)),
+            due,
+            isOneOff: j.isOneOff,
+            date: j.workDay?.date,
+          };
+        })
+        .filter((j) => j.due > 0.005);
+
+      const debt = Number(unpaidJobs.reduce((sum, j) => sum + j.due, 0).toFixed(2));
 
       return {
         id: customer.id,
@@ -2254,7 +2106,7 @@ export async function getPaymentsPage() {
         areaId: customer.areaId,
         areaName: customer.area?.name ?? "",
         debt,
-        jobIds: unpaidJobs.map((job) => job.id),
+        jobIds: unpaidJobs.map((j) => j.id),
         unpaidJobs,
       };
     })
@@ -2277,18 +2129,22 @@ export async function getOutstandingJobs() {
 
 export async function getCustomerBalance(customerId: number) {
   const tenantId = await getActiveTenantId();
-  const customer = await prisma.customer.findFirst({
-    where: { id: customerId, tenantId },
+  const jobs = await prisma.job.findMany({
+    where: { customerId, tenantId, status: "COMPLETE" },
     select: {
-      jobs: {
-        where: { status: "COMPLETE" },
-        select: { id: true, price: true, completedAt: true, createdAt: true, workDay: { select: { date: true } } },
+      price: true,
+      allocations: {
+        where: { payment: { voidedAt: null } },
+        select: { amount: true },
       },
-      payments: { select: { amount: true } },
     },
   });
-  if (!customer) throw new Error("Customer not found");
-  return calculateCustomerDebt(customer.jobs, customer.payments).debt;
+  return Number(
+    jobs.reduce((sum, j) => {
+      const paid = j.allocations.reduce((s, a) => s + a.amount, 0);
+      return sum + Math.max(0, j.price - paid);
+    }, 0).toFixed(2)
+  );
 }
 
 // â”€â”€ Business Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

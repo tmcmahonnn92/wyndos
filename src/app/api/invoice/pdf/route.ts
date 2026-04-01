@@ -30,7 +30,13 @@ export async function POST(req: NextRequest) {
       getBusinessSettings(),
       prisma.job.findMany({
         where: { id: { in: requestedJobIds }, customerId, tenantId },
-        include: { workDay: true, payments: true },
+        include: {
+          workDay: true,
+          allocations: {
+            where: { payment: { voidedAt: null } },
+            select: { amount: true },
+          },
+        },
         orderBy: { workDay: { date: "asc" } },
       }),
     ]);
@@ -63,7 +69,7 @@ export async function POST(req: NextRequest) {
         email: customer.email,
       },
       jobs: jobs.map((job) => {
-        const paid = job.payments.reduce((s, p) => s + p.amount, 0);
+        const paid = job.allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
         return {
           id: job.id,
           date: fmtDate(job.workDay.date),
@@ -73,9 +79,9 @@ export async function POST(req: NextRequest) {
         };
       }),
       subtotal: jobs.reduce((s, j) => s + j.price, 0),
-      totalPaid: jobs.reduce((s, j) => s + j.payments.reduce((ps, p) => ps + p.amount, 0), 0),
+      totalPaid: jobs.reduce((sum, job) => sum + job.allocations.reduce((paid, allocation) => paid + allocation.amount, 0), 0),
       amountDue: jobs.reduce((s, j) => {
-        const paid = j.payments.reduce((ps, p) => ps + p.amount, 0);
+        const paid = j.allocations.reduce((paidSum, allocation) => paidSum + allocation.amount, 0);
         return s + Math.max(0, j.price - paid);
       }, 0),
     };

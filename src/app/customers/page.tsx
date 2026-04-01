@@ -47,9 +47,11 @@ export default async function CustomersPage({ searchParams }: Props) {
   today.setHours(0, 0, 0, 0);
   const overdueCustomers = activeCustomers.filter((customer) => customer.nextDueDate && new Date(customer.nextDueDate) < today).length;
   const totalDebt = customers.reduce((sum, customer) => {
-    const billedTotal = customer.jobs.reduce((jobSum, job) => jobSum + job.price, 0);
-    const paidTotal = customer.payments.reduce((paymentSum, payment) => paymentSum + payment.amount, 0);
-    return sum + Math.max(0, billedTotal - paidTotal);
+    const outstandingTotal = customer.jobs.reduce((jobSum, job) => {
+      const paid = job.allocations.reduce((paidSum, allocation) => paidSum + allocation.amount, 0);
+      return jobSum + Math.max(0, job.price - paid);
+    }, 0);
+    return sum + outstandingTotal;
   }, 0);
 
   return (
@@ -154,9 +156,10 @@ function CustomerRow({
   const isOverdue =
     customer.nextDueDate && new Date(customer.nextDueDate) < new Date(new Date().setHours(0, 0, 0, 0));
   const isInactive = !customer.active;
-  const billedTotal = customer.jobs.reduce((sum, job) => sum + job.price, 0);
-  const paidTotal = customer.payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const outstandingDebt = Math.max(0, billedTotal - paidTotal);
+  const outstandingDebt = customer.jobs.reduce((sum, job) => {
+    const paid = job.allocations.reduce((paidSum, allocation) => paidSum + allocation.amount, 0);
+    return sum + Math.max(0, job.price - paid);
+  }, 0);
   const areaName = customer.area?.isSystemArea ? "One-off" : customer.area?.name ?? "Unassigned";
   const areaColor = customer.area?.color || (customer.area?.isSystemArea ? "#A855F7" : "#3B82F6");
 

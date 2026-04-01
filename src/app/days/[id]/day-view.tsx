@@ -37,9 +37,7 @@ import {
   completeJob,
   uncompleteJob,
   skipJob,
-  logPayment,
-  logPaymentForSelectedJobs,
-  markJobPaid,
+  recordPayment,
   moveCustomerToArea,
   addCustomerToDay,
   startDay,
@@ -65,36 +63,6 @@ import { fmtDate, fmtShortDate, fmtCurrency, cn } from "@/lib/utils";
 type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
 type FutureDay = Awaited<ReturnType<typeof getWorkDays>>[0];
 type Job = Day["jobs"][0];
-
-function getPreviousDebt(job: Job) {
-  const previousCompletedTotal = (job.customer.jobs ?? [])
-    .filter((entry) => entry.id !== job.id)
-    .reduce((sum: number, entry: { price: number }) => sum + entry.price, 0);
-  const totalPaid = ((job.customer as { payments?: { amount: number }[] }).payments ?? [])
-    .reduce((sum: number, payment: { amount: number }) => sum + payment.amount, 0);
-  return Math.max(0, Number((previousCompletedTotal - totalPaid).toFixed(2)));
-}
-
-function getOutstandingBalance(job: Job) {
-  const previousCompletedTotal = (job.customer.jobs ?? [])
-    .filter((entry) => entry.id !== job.id)
-    .reduce((sum: number, entry: { price: number }) => sum + entry.price, 0);
-  const totalPaid = ((job.customer as { payments?: { amount: number }[] }).payments ?? [])
-    .reduce((sum: number, payment: { amount: number }) => sum + payment.amount, 0);
-  return Math.max(0, Number((previousCompletedTotal + job.price - totalPaid).toFixed(2)));
-}
-
-function isJobSettled(job: Job) {
-  return getOutstandingBalance(job) <= 0;
-}
-function splitCollectedAmount(totalCollected: number, currentJobAmount: number) {
-  const current = Math.min(Math.max(0, totalCollected), Math.max(0, currentJobAmount));
-  const extra = Math.max(0, totalCollected - current);
-  return {
-    currentJobAmount: Number(current.toFixed(2)),
-    extraDebtAmount: Number(extra.toFixed(2)),
-  };
-}
 
 function getJobTitle(job: { name?: string | null }) {
   return job.name?.trim() || "Window Cleaning";
@@ -457,22 +425,17 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
                     }
                     onQuickPay={(includeDebt: boolean) =>
                       startTransition(async () => {
-                        const previousDebt = getPreviousDebt(job);
                         await completeJob(job.id);
-                        await logPayment({
-                          customerId: job.customerId,
-                          jobId: job.id,
-                          amount: job.price,
-                          method: "CASH",
-                        });
-                        if (includeDebt && previousDebt > 0) {
-                          await logPayment({
-                            customerId: job.customerId,
-                            amount: previousDebt,
-                            method: "CASH",
-                            notes: "Previous balance collected on day run",
-                          });
+                        const allocations: Array<{jobId: number; amount: number}> = [{ jobId: job.id, amount: job.price }];
+                        if (includeDebt) {
+                          const prevJobs = (job.customer.jobs ?? []).filter((j) => j.id !== job.id);
+                          for (const pj of prevJobs) {
+                            const paid = (pj.allocations ?? []).reduce((s: number, a: {amount: number}) => s + a.amount, 0);
+                            const due = Number(Math.max(0, pj.price - paid).toFixed(2));
+                            if (due > 0.005) allocations.push({ jobId: pj.id, amount: due });
+                          }
                         }
+                        await recordPayment({ customerId: job.customerId, allocations, method: "CASH" });
                         router.refresh();
                       })
                     }
@@ -678,73 +641,40 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
           });
         }}
 
-        onDoneAndPaid={async (visitPrice, jobAmount, extraDebtAmount, method, notes) => {
+        onDoneAndPaid={async (visitPrice, allocations, method, notes) => {
           if (!selectedJob) return;
           startTransition(async () => {
             if (notes?.trim()) await updateJobNotes(selectedJob.id, notes.trim());
             if (visitPrice !== selectedJob.price) await updateJobPrice(selectedJob.id, visitPrice);
             await completeJob(selectedJob.id);
-            if (jobAmount > 0) {
-              await logPayment({
-                customerId: selectedJob.customerId,
-                jobId: selectedJob.id,
-                amount: jobAmount,
-                method,
-                notes,
-              });
-            }
-            if (extraDebtAmount > 0) {
-              await logPayment({
-                customerId: selectedJob.customerId,
-                amount: extraDebtAmount,
-                method,
-                notes: notes ? `${notes} ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· previous balance` : "Previous balance collected on day run",
-              });
-            }
+            await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
             setSelectedJob(null);
             router.refresh();
           });
         }}
-        onMarkPaidJobs={(jobIds, method, notes) => {
+        onMarkPaidJobs={(allocations, method, notes) => {
           if (!selectedJob) return;
           startTransition(async () => {
-            await logPaymentForSelectedJobs({ customerId: selectedJob.customerId, jobIds, method, notes });
+            await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
             setSelectedJob(null);
             router.refresh();
           });
         }}
-        onDoneAndPaidJobs={(visitPrice, jobIds, method, notes) => {
+        onDoneAndPaidJobs={(visitPrice, allocations, method, notes) => {
           if (!selectedJob) return;
           startTransition(async () => {
             if (notes?.trim()) await updateJobNotes(selectedJob.id, notes.trim());
             if (visitPrice !== selectedJob.price) await updateJobPrice(selectedJob.id, visitPrice);
             await completeJob(selectedJob.id);
-            await logPaymentForSelectedJobs({ customerId: selectedJob.customerId, jobIds, method, notes });
+            await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
             setSelectedJob(null);
             router.refresh();
           });
         }}
-        onMarkPaid={(jobAmount, extraDebtAmount, method, notes) => {
+        onMarkPaid={(allocations, method, notes) => {
           if (!selectedJob) return;
           startTransition(async () => {
-            if (jobAmount > 0) {
-              await markJobPaid({
-                jobId: selectedJob.id,
-                customerId: selectedJob.customerId,
-                workDayId: day.id,
-                amount: jobAmount,
-                method,
-                notes,
-              });
-            }
-            if (extraDebtAmount > 0) {
-              await logPayment({
-                customerId: selectedJob.customerId,
-                amount: extraDebtAmount,
-                method,
-                notes: notes ? `${notes} ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· previous balance` : "Previous balance collected on day run",
-              });
-            }
+            await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
             setSelectedJob(null);
             router.refresh();
           });
@@ -784,10 +714,10 @@ function JobActionModal({
   job: Job | null;
   onClose: () => void;
   onDone: (price: number, note: string) => void;
-  onDoneAndPaid: (visitPrice: number, jobAmount: number, extraDebtAmount: number, method: "CASH" | "BACS" | "CARD", notes?: string) => void;
-  onDoneAndPaidJobs: (visitPrice: number, jobIds: number[], method: "CASH" | "BACS" | "CARD", notes?: string) => void;
-  onMarkPaid: (jobAmount: number, extraDebtAmount: number, method: "CASH" | "BACS" | "CARD", notes?: string) => void;
-  onMarkPaidJobs: (jobIds: number[], method: "CASH" | "BACS" | "CARD", notes?: string) => void;
+  onDoneAndPaid: (visitPrice: number, allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string) => void;
+  onDoneAndPaidJobs: (visitPrice: number, allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string) => void;
+  onMarkPaid: (allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string) => void;
+  onMarkPaidJobs: (allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string) => void;
   onUndo: () => void;
   onSkip: (price: number, note: string) => void;
   isPending: boolean;
@@ -802,21 +732,17 @@ function JobActionModal({
   const [editingCompletedDate, setEditingCompletedDate] = useState(false);
   const [completedDateInput, setCompletedDateInput] = useState("");
 
-  // Unpaid completed jobs for "Specific jobs" mode
   const customerUnpaidJobs = useMemo(() => {
     if (!job) return [];
-    const totalPaid = job.customer.payments.reduce((sum, p) => sum + p.amount, 0);
-    const sorted = [...job.customer.jobs].sort((a, b) =>
-      new Date(a.workDay.date).getTime() - new Date(b.workDay.date).getTime() || a.id - b.id
-    );
-    let remaining = totalPaid;
-    return sorted.map((j) => {
-      const paid = Math.min(j.price, Math.max(0, remaining));
-      remaining = Math.max(0, remaining - paid);
-      const due = Math.max(0, Number((j.price - paid).toFixed(2)));
-      return { id: j.id, name: j.name ?? undefined, price: j.price, paid: Number(paid.toFixed(2)), due, date: j.workDay?.date ?? null, isOneOff: j.isOneOff ?? false };
-    }).filter((j) => j.due > 0);
-  }, [job]); // eslint-disable-line react-hooks/exhaustive-deps
+    return [...job.customer.jobs]
+      .sort((a, b) => new Date(a.workDay.date).getTime() - new Date(b.workDay.date).getTime() || a.id - b.id)
+      .map((j) => {
+        const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
+        const due = Number(Math.max(0, j.price - paid).toFixed(2));
+        return { id: j.id, name: j.name ?? undefined, price: j.price, paid: Number(paid.toFixed(2)), due, date: j.workDay?.date ?? null, isOneOff: j.isOneOff ?? false };
+      })
+      .filter((j) => j.due > 0.005);
+  }, [job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Worker note + price override ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â visible for all pending jobs before choosing an action
   const [workerNote, setWorkerNote] = useState("");
   const [priceInput, setPriceInput] = useState("");
@@ -840,9 +766,12 @@ function JobActionModal({
   const open = job !== null;
   const effectiveAmount = payAmount === "" ? 0 : parseFloat(payAmount);
   const currentVisitAmount = job ? (job.status === "PENDING" ? (parseFloat(priceInput) || job.price) : job.price) : 0;
-  const previousDebt = job ? getPreviousDebt(job) : 0;
-  const currentOutstanding = job ? getOutstandingBalance(job) : 0;
-  const isSettled = job ? isJobSettled(job) : false;
+  const previousDebt = job ? job.customer.jobs.reduce((sum, j) => {
+    const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
+    return sum + Math.max(0, j.price - paid);
+  }, 0) - Math.max(0, job.price - (job.allocations ?? []).reduce((s, a) => s + a.amount, 0)) : 0;
+  const currentOutstanding = job ? Math.max(0, job.price - (job.allocations ?? []).reduce((s, a) => s + a.amount, 0)) : 0;
+  const isSettled = currentOutstanding < 0.005;
   const cleanAndDebtAmount = Number((currentVisitAmount + previousDebt).toFixed(2));
 
   return (
@@ -1053,14 +982,14 @@ function JobActionModal({
                   <div className="flex gap-2">
                     <Button
                       disabled={isPending || (payMode === "amount" ? (isNaN(effectiveAmount) || effectiveAmount <= 0) : payJobIds.size === 0)}
-                      onClick={() => {
-                        if (payMode === "jobs") {
-                          onMarkPaidJobs(Array.from(payJobIds), payMethod, payNotes || undefined);
-                        } else {
-                          const split = splitCollectedAmount(effectiveAmount, currentVisitAmount);
-                          onMarkPaid(split.currentJobAmount, split.extraDebtAmount, payMethod, payNotes || undefined);
-                        }
-                      }}
+                        onClick={() => {
+                          if (payMode === "jobs") {
+                            const allocations = customerUnpaidJobs.filter((j) => payJobIds.has(j.id)).map((j) => ({ jobId: j.id, amount: j.due }));
+                            onMarkPaidJobs(allocations, payMethod, payNotes || undefined);
+                          } else {
+                            onMarkPaid([{ jobId: job.id, amount: effectiveAmount }], payMethod, payNotes || undefined);
+                          }
+                        }}
                       className="flex-1" size="sm">
                       {isPending ? "Saving..." : payMode === "jobs"
                         ? `Confirm - ${fmtCurrency(customerUnpaidJobs.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0))}`
@@ -1250,10 +1179,10 @@ function JobActionModal({
                           <Button disabled={isPending || (payMode === "amount" ? (isNaN(effectiveAmount) || effectiveAmount <= 0) : payJobIds.size === 0)}
                             onClick={() => {
                               if (payMode === "jobs") {
-                                onDoneAndPaidJobs(currentVisitAmount, Array.from(payJobIds), payMethod, payNotes || undefined);
+                                const allocations = allJobsForMode.filter(j => payJobIds.has(j.id)).map(j => ({ jobId: j.id, amount: j.due }));
+                                onDoneAndPaidJobs(currentVisitAmount, allocations, payMethod, payNotes || undefined);
                               } else {
-                                const split = splitCollectedAmount(effectiveAmount, currentVisitAmount);
-                                onDoneAndPaid(currentVisitAmount, split.currentJobAmount, split.extraDebtAmount, payMethod, payNotes || undefined);
+                                onDoneAndPaid(currentVisitAmount, [{ jobId: job.id, amount: effectiveAmount }], payMethod, payNotes || undefined);
                               }
                             }} className="flex-1" size="sm">
                             {isPending ? "Saving..." : payMode === "jobs"
@@ -1529,7 +1458,10 @@ function JobCard({
   const isDone = job.status === "COMPLETE";
   const isClickable = true; // All statuses are actionable via the modal
   const [showQuickPayChoices, setShowQuickPayChoices] = useState(false);
-  const previousDebt = getPreviousDebt(job);
+  const previousDebt = job.customer.jobs.reduce((sum, j) => {
+    const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
+    return sum + Math.max(0, j.price - paid);
+  }, 0) - Math.max(0, job.price - (job.allocations ?? []).reduce((s, a) => s + a.amount, 0));
 
   return (
     <div
@@ -1634,7 +1566,7 @@ function JobCard({
             </span>
           )}
           {job.status === "COMPLETE" && (() => {
-            const totalPaid = (job.payments ?? []).reduce((s: number, p: { amount: number }) => s + p.amount, 0);
+            const totalPaid = (job.allocations ?? []).reduce((sum, allocation) => sum + allocation.amount, 0);
             return totalPaid >= job.price - 0.005 ? (
               <span className="flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-300">
                 <Check size={10} />
@@ -1703,7 +1635,7 @@ function JobCard({
         </>
       )}
       {job.status === "COMPLETE" && (() => {
-        const totalPaid = (job.payments ?? []).reduce((s: number, p: { amount: number }) => s + p.amount, 0);
+        const totalPaid = (job.allocations ?? []).reduce((sum, allocation) => sum + allocation.amount, 0);
         return totalPaid < job.price - 0.005 ? (
           <div className="border-t border-amber-100">
             <button

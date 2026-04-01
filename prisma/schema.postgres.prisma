@@ -309,7 +309,7 @@ model Job {
   sortOrder   Int       @default(0)
   isOneOff    Boolean   @default(false)
   createdAt   DateTime  @default(now())
-  payments    Payment[]
+  allocations PaymentAllocation[]
 
   @@index([tenantId])
   @@index([tenantId, workDayId])
@@ -319,22 +319,38 @@ model Job {
 }
 
 model Payment {
-  id         Int           @id @default(autoincrement())
-  tenantId   Int
-  customerId Int
-  customer   Customer      @relation(fields: [customerId], references: [id])
-  jobId      Int?
-  job        Job?          @relation(fields: [jobId], references: [id])
-  amount     Float
-  method     PaymentMethod @default(CASH)
-  paidAt     DateTime      @default(now())
-  notes      String?
-  createdAt  DateTime      @default(now())
+  id          Int                 @id @default(autoincrement())
+  tenantId    Int
+  customerId  Int
+  customer    Customer            @relation(fields: [customerId], references: [id])
+  amount      Float
+  method      PaymentMethod       @default(CASH)
+  paidAt      DateTime            @default(now())
+  notes       String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  voidedAt    DateTime?
+  voidReason  String?
+  allocations PaymentAllocation[]
 
   @@index([tenantId])
   @@index([tenantId, customerId])
-  @@index([tenantId, jobId])
   @@index([paidAt])
+  @@index([voidedAt])
+}
+
+model PaymentAllocation {
+  id        Int     @id @default(autoincrement())
+  tenantId  Int
+  paymentId Int
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  jobId     Int
+  job       Job     @relation(fields: [jobId], references: [id])
+  amount    Float
+
+  @@index([tenantId])
+  @@index([paymentId])
+  @@index([jobId])
 }
 
 model Holiday {

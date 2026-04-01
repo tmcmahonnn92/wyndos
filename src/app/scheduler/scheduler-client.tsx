@@ -49,8 +49,7 @@ import {
   updateHoliday,
   deleteHoliday,
   getWorkDay,
-  markJobPaid,
-  logPayment,
+  recordPayment,
   updateCompletedWorkDayDate,
   addOneOffJobToDay,
   createCustomerAndAddToDay,
@@ -87,13 +86,13 @@ type Job = {
   notes: string | null;
   sortOrder: number | null;
   isOneOff: boolean;
+  allocations?: { amount: number }[];
   customer: {
     id: number;
     name: string;
     address: string;
     area: { id: number; name: string } | null;
-    jobs?: { id: number; price: number }[];
-    payments?: { amount: number }[];
+    jobs?: { id: number; price: number; allocations?: { amount: number }[] }[];
   } | null;
 };
 
@@ -116,37 +115,25 @@ type WorkDay = {
   jobs: Job[];
 };
 
-type PaymentRecord = { id: number; amount: number; method: string; paidAt: Date | string; notes: string | null };
-type FullJob = Job & { payments: PaymentRecord[] };
+type FullJob = Job;
 type FullWorkDay = Omit<WorkDay, "jobs"> & { jobs: FullJob[] };
 
 function getPreviousDebt(job: FullJob) {
-  const previousCompletedTotal = (job.customer?.jobs ?? [])
+  return (job.customer?.jobs ?? [])
     .filter((entry) => entry.id !== job.id)
-    .reduce((sum, entry) => sum + entry.price, 0);
-  const totalPaid = (job.customer?.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0);
-  return Math.max(0, Number((previousCompletedTotal - totalPaid).toFixed(2)));
+    .reduce((sum, entry) => {
+      const paid = (entry.allocations ?? []).reduce((paidSum, allocation) => paidSum + allocation.amount, 0);
+      return sum + Math.max(0, Number((entry.price - paid).toFixed(2)));
+    }, 0);
 }
 
 function getOutstandingBalance(job: FullJob) {
-  const previousCompletedTotal = (job.customer?.jobs ?? [])
-    .filter((entry) => entry.id !== job.id)
-    .reduce((sum, entry) => sum + entry.price, 0);
-  const totalPaid = (job.customer?.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0);
-  return Math.max(0, Number((previousCompletedTotal + job.price - totalPaid).toFixed(2)));
+  const paid = (job.allocations ?? []).reduce((sum, allocation) => sum + allocation.amount, 0);
+  return Math.max(0, Number((job.price - paid).toFixed(2)));
 }
 
 function isJobSettled(job: FullJob) {
-  return getOutstandingBalance(job) <= 0;
-}
-
-function splitCollectedAmount(totalCollected: number, currentJobAmount: number) {
-  const current = Math.min(Math.max(0, totalCollected), Math.max(0, currentJobAmount));
-  const extra = Math.max(0, totalCollected - current);
-  return {
-    currentJobAmount: Number(current.toFixed(2)),
-    extraDebtAmount: Number(extra.toFixed(2)),
-  };
+  return getOutstandingBalance(job) <= 0.005;
 }
 
 function getJobTitle(job: { name?: string | null }) {
@@ -1142,21 +1129,11 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
 
   const handleMarkPaid = (job: FullJob) => {
     if (!workDay || !job.customer) return;
-    const amount = parseFloat(payAmount);
+    const customerId = job.customer.id;
+    const amount = Math.min(parseFloat(payAmount), getOutstandingBalance(job));
     if (isNaN(amount) || amount <= 0) return;
-    const split = splitCollectedAmount(amount, job.price);
     startSaving(async () => {
-      if (split.currentJobAmount > 0) {
-        await markJobPaid({ jobId: job.id, customerId: job.customer!.id, workDayId: workDay.id, amount: split.currentJobAmount, method: payMethod });
-      }
-      if (split.extraDebtAmount > 0) {
-        await logPayment({
-          customerId: job.customer!.id,
-          amount: split.extraDebtAmount,
-          method: payMethod,
-          notes: "Previous balance collected on completed day",
-        });
-      }
+      await recordPayment({ customerId, allocations: [{ jobId: job.id, amount }], method: payMethod });
       setPayingJobId(null);
       router.refresh();
       reload(workDay.id);
@@ -1230,7 +1207,7 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
             {jobs.map((job) => {
               const isSkipped = job.status === "SKIPPED";
               const isPaid = isJobSettled(job);
-              const payInfo = job.payments?.[0] ?? null;
+              const totalPaid = (job.allocations ?? []).reduce((sum, allocation) => sum + allocation.amount, 0);
               const isPayingThis = payingJobId === job.id;
               const previousDebt = getPreviousDebt(job);
               const currentBalance = getOutstandingBalance(job);
@@ -1264,8 +1241,8 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
                       </button>
                     ) : null}
                   </div>
-                  {!isSkipped && isPaid && payInfo && (
-                    <p className="text-[11px] text-green-700">Latest payment: £{payInfo.amount.toFixed(2)} via {payInfo.method}</p>
+                  {!isSkipped && isPaid && totalPaid > 0 && (
+                    <p className="text-[11px] text-green-700">Paid total: £{totalPaid.toFixed(2)}</p>
                   )}
                   {/* Inline payment form */}
                   {isPayingThis && canLogPayment && (
@@ -1273,16 +1250,10 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
                       {previousDebt > 0 && (
                         <>
                           <button
-                            onClick={() => setPayAmount(job.price.toFixed(2))}
+                            onClick={() => setPayAmount(currentBalance.toFixed(2))}
                             className="px-2 py-1 rounded-lg border border-blue-200 bg-white text-[11px] font-semibold text-blue-700 hover:border-blue-400"
                           >
                             This clean
-                          </button>
-                          <button
-                            onClick={() => setPayAmount(currentBalance.toFixed(2))}
-                            className="px-2 py-1 rounded-lg border border-amber-200 bg-white text-[11px] font-semibold text-amber-700 hover:border-amber-400"
-                          >
-                            Including debt
                           </button>
                           <span className="text-[11px] text-amber-700 font-medium">Owes £{previousDebt.toFixed(2)} older balance</span>
                         </>
@@ -1546,21 +1517,11 @@ function DayDetailModal({ workDay, onClose }: { workDay: WorkDay | null; onClose
 
   const handleDayDetailMarkPaid = (job: FullJob) => {
     if (!workDay || !job.customer) return;
-    const amount = parseFloat(ddPayAmount);
+    const customerId = job.customer.id;
+    const amount = Math.min(parseFloat(ddPayAmount), getOutstandingBalance(job));
     if (isNaN(amount) || amount <= 0) return;
-    const split = splitCollectedAmount(amount, job.price);
     startSaving(async () => {
-      if (split.currentJobAmount > 0) {
-        await markJobPaid({ jobId: job.id, customerId: job.customer!.id, workDayId: workDay.id, amount: split.currentJobAmount, method: ddPayMethod });
-      }
-      if (split.extraDebtAmount > 0) {
-        await logPayment({
-          customerId: job.customer!.id,
-          amount: split.extraDebtAmount,
-          method: ddPayMethod,
-          notes: "Previous balance collected on scheduler day view",
-        });
-      }
+      await recordPayment({ customerId, allocations: [{ jobId: job.id, amount }], method: ddPayMethod });
       setPayingJobId(null);
       await refreshFromServer(workDay.id);
       router.refresh();
@@ -1697,7 +1658,7 @@ function DayDetailModal({ workDay, onClose }: { workDay: WorkDay | null; onClose
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">✔ Done</span>
                           )}
                           {job.status === "COMPLETE" && (() => {
-                            const totalPaid = job.payments?.reduce((s, p) => s + p.amount, 0) ?? 0;
+                            const totalPaid = job.allocations?.reduce((sum, allocation) => sum + allocation.amount, 0) ?? 0;
                             if (totalPaid > 0 && totalPaid < job.price) return (
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">£{totalPaid.toFixed(2)} paid</span>
                             );
@@ -1715,7 +1676,7 @@ function DayDetailModal({ workDay, onClose }: { workDay: WorkDay | null; onClose
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {isDone && (() => {
-                      const totalPaid = job.payments?.reduce((s, p) => s + p.amount, 0) ?? 0;
+                      const totalPaid = job.allocations?.reduce((sum, allocation) => sum + allocation.amount, 0) ?? 0;
                       const isPaid = totalPaid > 0 && totalPaid >= job.price;
                       const isPayingThis = payingJobId === job.id;
                       return isPaid ? (
@@ -1803,7 +1764,7 @@ function DayDetailModal({ workDay, onClose }: { workDay: WorkDay | null; onClose
 
                 {/* Inline pay form for complete-but-unpaid jobs */}
                 {isDone && payingJobId === job.id && (() => {
-                  const totalPaid = job.payments?.reduce((s, p) => s + p.amount, 0) ?? 0;
+                  const totalPaid = job.allocations?.reduce((sum, allocation) => sum + allocation.amount, 0) ?? 0;
                   const previousDebt = getPreviousDebt(job);
                   if (totalPaid >= job.price && totalPaid > 0) return null;
                   return (
@@ -1811,16 +1772,10 @@ function DayDetailModal({ workDay, onClose }: { workDay: WorkDay | null; onClose
                       {previousDebt > 0 && (
                         <>
                           <button
-                            onClick={() => setDdPayAmount(job.price.toFixed(2))}
+                            onClick={() => setDdPayAmount(getOutstandingBalance(job).toFixed(2))}
                             className="px-2 py-1 rounded-lg border border-blue-200 bg-white text-[11px] font-semibold text-blue-700 hover:border-blue-400"
                           >
                             This clean
-                          </button>
-                          <button
-                            onClick={() => setDdPayAmount((job.price + previousDebt).toFixed(2))}
-                            className="px-2 py-1 rounded-lg border border-amber-200 bg-white text-[11px] font-semibold text-amber-700 hover:border-amber-400"
-                          >
-                            Including debt
                           </button>
                           <span className="text-[11px] text-amber-700 font-medium">Owes £{previousDebt.toFixed(2)} older balance</span>
                         </>
