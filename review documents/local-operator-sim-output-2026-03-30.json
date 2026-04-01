@@ -1,0 +1,35 @@
+{
+  "baseUrl": "http://127.0.0.1:3000",
+  "ownerEmail": "local-operator-review@example.com",
+  "workerEmail": "local-worker-493862@example.com",
+  "notes": [
+    "Signed in as owner local-operator-review@example.com.",
+    "Owner day screen showed Nothing scheduled today.",
+    "Overdue Walkley Friday run remained visible elsewhere on the page.",
+    "Scheduler holiday block not obviously visible.",
+    "Scheduler displayed the area cards and scheduled runs.",
+    "Customers page debt summary not found.",
+    "Customers page overdue count not found.",
+    "Created worker invite from Settings > Team for local-worker-493862@example.com.",
+    "Worker desktop nav: ",
+    "Worker mobile day screen also said Nothing scheduled today.",
+    "Worker could open the overdue day directly."
+  ],
+  "findings": [
+    {
+      "severity": "High",
+      "area": "Day planning",
+      "title": "Overdue active day is not surfaced in the primary Today section",
+      "detail": "The owner day view says Nothing scheduled today even though an overdue active Walkley Friday run exists in the calendar."
+    }
+  ],
+  "screenshots": [
+    "review documents/local-owner-days-before.png",
+    "review documents/local-owner-scheduler.png",
+    "review documents/local-owner-customers.png",
+    "review documents/local-worker-desktop-dashboard.png",
+    "review documents/local-worker-mobile-days.png",
+    "review documents/local-worker-mobile-day-view.png",
+    "review documents/local-owner-day-before-complete.png"
+  ]
+}

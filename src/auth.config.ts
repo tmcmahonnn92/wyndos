@@ -24,6 +24,7 @@ const authConfig = {
   },
   session: {
     strategy: "jwt",
+    maxAge: 8 * 60 * 60, // 8 hours — sessions expire after one working day
   },
   secret: getAuthSecret(),
   callbacks: {

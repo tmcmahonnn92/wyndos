@@ -268,6 +268,9 @@ export function ImportClient({ areas }: { areas: Area[] }) {
   const PAGE_SIZE = 50;
   const [previewPage, setPreviewPage] = useState(0);
   const [errorsOnly, setErrorsOnly] = useState(false);
+  // ── Inline row editing ────────────────────────────────────────────────────────
+  const [editingRowIndex, setEditingRowIndex] = useState<number | null>(null); // 1-based row index
+  const [editingRowData, setEditingRowData] = useState<Partial<PreviewRow>>({});
   const [historyPage, setHistoryPage] = useState(0);
   const [historyErrorsOnly, setHistoryErrorsOnly] = useState(false);
 
@@ -588,6 +591,33 @@ export function ImportClient({ areas }: { areas: Area[] }) {
     URL.revokeObjectURL(url);
   };
 
+  // ── Inline row edit helpers ───────────────────────────────────────────────────
+
+  const openRowEdit = (row: PreviewRow) => {
+    setEditingRowIndex(row.index);
+    setEditingRowData({ name: row.name, address: row.address, price: row.price, areaId: row.areaId, area: row.area });
+  };
+
+  const commitRowEdit = () => {
+    if (editingRowIndex === null) return;
+    setPreview((prev) => prev.map((row) => {
+      if (row.index !== editingRowIndex) return row;
+      const name = editingRowData.name ?? row.name;
+      const address = editingRowData.address ?? row.address;
+      const priceStr = editingRowData.price ?? row.price;
+      const areaId = editingRowData.areaId !== undefined ? editingRowData.areaId : row.areaId;
+      const area = editingRowData.area !== undefined ? editingRowData.area : row.area;
+      const errors: string[] = [];
+      if (!name.trim()) errors.push("Name is required");
+      if (!address.trim()) errors.push("Address is required");
+      const price = parseFloat(priceStr);
+      if (!priceStr.trim() || isNaN(price) || price < 0) errors.push("Invalid price");
+      if (!areaId && !row.areaIsNew) errors.push(`Area "${area}" not found`);
+      return { ...row, name, address, price: priceStr, areaId, area, errors };
+    }));
+    setEditingRowIndex(null);
+    setEditingRowData({});
+  };
   const validCount = preview.filter((r) => r.errors.length === 0).length;
   const newAreaCount = preview.filter((r) => r.errors.length === 0 && r.areaIsNew).length;
   const uniqueNewAreaCount = Object.keys(newAreaConfigs).length;
@@ -1177,17 +1207,72 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {pagedPreview.map((row) => (
+                {pagedPreview.map((row) => {
+                  const isEditing = editingRowIndex === row.index;
+                  return (
                   <tr key={row.index} className={cn(
                     row.errors.length > 0 ? "bg-red-50" : "bg-white hover:bg-slate-50"
                   )}>
                     <td className="px-3 py-2 text-slate-400">{row.index}</td>
-                    <td className="px-3 py-2 font-medium text-slate-800 max-w-[120px] truncate">{row.name || <span className="text-red-400 italic">missing</span>}</td>
-                    <td className="px-3 py-2 text-slate-600 max-w-[150px] truncate">{row.address || <span className="text-red-400 italic">missing</span>}</td>
-                    <td className="px-3 py-2 text-slate-700">{row.price ? `£${row.price}` : <span className="text-red-400 italic">—</span>}</td>
+                    <td className="px-3 py-2 font-medium text-slate-800 max-w-[120px]">
+                      {isEditing ? (
+                        <input
+                          autoFocus
+                          type="text"
+                          value={editingRowData.name ?? row.name}
+                          onChange={(e) => setEditingRowData((d) => ({ ...d, name: e.target.value }))}
+                          className="w-full border border-blue-400 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                      ) : (
+                        <span className="truncate block cursor-pointer hover:text-blue-700" onClick={() => openRowEdit(row)}>
+                          {row.name || <span className="text-red-400 italic">missing</span>}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-slate-600 max-w-[150px]">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editingRowData.address ?? row.address}
+                          onChange={(e) => setEditingRowData((d) => ({ ...d, address: e.target.value }))}
+                          className="w-full border border-blue-400 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                      ) : (
+                        <span className="truncate block cursor-pointer hover:text-blue-700" onClick={() => openRowEdit(row)}>
+                          {row.address || <span className="text-red-400 italic">missing</span>}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-slate-700">
+                      {isEditing ? (
+                        <input
+                          type="number" step="0.01" min="0"
+                          value={editingRowData.price ?? row.price}
+                          onChange={(e) => setEditingRowData((d) => ({ ...d, price: e.target.value }))}
+                          className="w-20 border border-blue-400 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                      ) : (
+                        <span className="cursor-pointer hover:text-blue-700" onClick={() => openRowEdit(row)}>
+                          {row.price ? `£${row.price}` : <span className="text-red-400 italic">—</span>}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2">
-                      {row.areaIsNew ? (
-                        <span className="flex items-center gap-1 text-amber-700 font-medium">
+                      {isEditing ? (
+                        <select
+                          value={editingRowData.areaId ?? row.areaId ?? ""}
+                          onChange={(e) => {
+                            const id = Number(e.target.value) || null;
+                            const name = areas.find((a) => a.id === id)?.name ?? "";
+                            setEditingRowData((d) => ({ ...d, areaId: id, area: name }));
+                          }}
+                          className="w-full border border-blue-400 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        >
+                          <option value="">— select area —</option>
+                          {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        </select>
+                      ) : row.areaIsNew ? (
+                        <span className="flex items-center gap-1 text-amber-700 font-medium cursor-pointer" onClick={() => openRowEdit(row)}>
                           <span
                             className="w-2 h-2 rounded-full flex-shrink-0"
                             style={{ backgroundColor: row.newAreaKey && newAreaConfigs[row.newAreaKey] ? newAreaConfigs[row.newAreaKey].color : "#F59E0B" }}
@@ -1196,20 +1281,26 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                           <span className="text-[10px] text-amber-500 font-normal">(new)</span>
                         </span>
                       ) : row.areaId ? (
-                        <span className="flex items-center gap-1">
+                        <span className="flex items-center gap-1 cursor-pointer hover:text-blue-700" onClick={() => openRowEdit(row)}>
                           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: areas.find(a => a.id === row.areaId)?.color || "#94a3b8" }} />
                           {row.area}
                         </span>
-                      ) : <span className="text-red-400 italic">{row.area || "missing"}</span>}
+                      ) : <span className="text-red-400 italic cursor-pointer" onClick={() => openRowEdit(row)}>{row.area || "missing"}</span>}
                     </td>
                     <td className="px-3 py-2 text-slate-500 max-w-[100px] truncate">{row.email || "—"}</td>
                     <td className="px-3 py-2 text-slate-500">{row.phone || "—"}</td>
                     <td className="px-3 py-2">
-                      {row.errors.length > 0 ? (
+                      {isEditing ? (
+                        <div className="flex gap-1">
+                          <button onClick={commitRowEdit} className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700">Save</button>
+                          <button onClick={() => { setEditingRowIndex(null); setEditingRowData({}); }} className="px-2 py-0.5 rounded border border-slate-200 text-[10px] text-slate-600 hover:bg-slate-100">Cancel</button>
+                        </div>
+                      ) : row.errors.length > 0 ? (
                         <div className="space-y-0.5">
                           {row.errors.map((e, i) => (
                             <p key={i} className="text-red-600 font-medium">{e}</p>
                           ))}
+                          <button onClick={() => openRowEdit(row)} className="text-[10px] text-blue-600 hover:underline mt-0.5">Edit row</button>
                         </div>
                       ) : (
                         <span className="text-green-600 font-semibold flex items-center gap-1">
@@ -1218,10 +1309,26 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
+
+          {previewPageCount > 1 && (
+            <div className="flex items-center justify-between text-xs text-slate-500 px-1 select-none">
+              <span>
+                Showing {previewPage * PAGE_SIZE + 1}–{Math.min((previewPage + 1) * PAGE_SIZE, filteredPreview.length)} of {filteredPreview.length}{errorsOnly ? " (errors only)" : ""}
+              </span>
+              <div className="flex items-center gap-1">
+                <button disabled={previewPage === 0} onClick={() => setPreviewPage(0)} className="px-2 py-1 rounded border disabled:opacity-30 hover:bg-slate-100">«</button>
+                <button disabled={previewPage === 0} onClick={() => setPreviewPage((p) => p - 1)} className="px-2 py-1 rounded border disabled:opacity-30 hover:bg-slate-100">‹</button>
+                <span className="px-2 font-medium">Page {previewPage + 1} / {previewPageCount}</span>
+                <button disabled={previewPage >= previewPageCount - 1} onClick={() => setPreviewPage((p) => p + 1)} className="px-2 py-1 rounded border disabled:opacity-30 hover:bg-slate-100">›</button>
+                <button disabled={previewPage >= previewPageCount - 1} onClick={() => setPreviewPage(previewPageCount - 1)} className="px-2 py-1 rounded border disabled:opacity-30 hover:bg-slate-100">»</button>
+              </div>
+            </div>
+          )}
 
           {importHistory && historyPreview.length > 0 && (
             <details className="border border-slate-200 rounded-xl overflow-hidden" open={historyErrorCount > 0}>

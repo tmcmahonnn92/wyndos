@@ -3,8 +3,8 @@
 import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, Edit2, CalendarDays, PoundSterling, CheckCircle2, SkipForward, FileText, Download, Mail, MapPin, Tag as TagIcon, MessageSquare, ArrowLeftRight } from "lucide-react";
-import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, logPayment, setCustomerTags, updateJobPrice } from "@/lib/actions";
+import { ChevronLeft, Edit2, CalendarDays, PoundSterling, CheckCircle2, SkipForward, FileText, Download, Mail, MapPin, Tag as TagIcon, MessageSquare, ArrowLeftRight, Pencil, Trash2 } from "lucide-react";
+import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, logPayment, setCustomerTags, updateJobPrice, updatePayment, deletePayment } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,6 +66,8 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
   const [showAllJobs, setShowAllJobs] = useState(false);
   const [editingJob, setEditingJob] = useState<Customer["jobs"][number] | null>(null);
   const [editingJobPrice, setEditingJobPrice] = useState("");
+  const [editingPayment, setEditingPayment] = useState<Customer["payments"][number] | null>(null);
+  const [editPayForm, setEditPayForm] = useState({ amount: "", method: "CASH" as "CASH" | "BACS" | "CARD", paidAt: "", notes: "" });
   const [isPending, startTransition] = useTransition();
   const [tagPending, startTagTransition] = useTransition();
   const router = useRouter();
@@ -267,6 +269,40 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
       await updateJobPrice(editingJob.id, Number(editingJobPrice));
       setEditingJob(null);
       setEditingJobPrice("");
+      router.refresh();
+    });
+  };
+
+  const openEditPayment = (p: Customer["payments"][number]) => {
+    setEditingPayment(p);
+    setEditPayForm({
+      amount: p.amount.toFixed(2),
+      method: p.method as "CASH" | "BACS" | "CARD",
+      paidAt: new Date(p.paidAt).toISOString().slice(0, 10),
+      notes: p.notes ?? "",
+    });
+  };
+
+  const handleSaveEditPayment = () => {
+    if (!editingPayment) return;
+    const amt = Number(editPayForm.amount);
+    if (isNaN(amt) || amt <= 0) return;
+    startTransition(async () => {
+      await updatePayment(editingPayment.id, customer.id, {
+        amount: amt,
+        method: editPayForm.method,
+        paidAt: new Date(editPayForm.paidAt),
+        notes: editPayForm.notes || undefined,
+      });
+      setEditingPayment(null);
+      router.refresh();
+    });
+  };
+
+  const handleDeletePayment = (paymentId: number) => {
+    if (!confirm("Delete this payment? This cannot be undone.")) return;
+    startTransition(async () => {
+      await deletePayment(paymentId, customer.id);
       router.refresh();
     });
   };
@@ -512,12 +548,26 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
             <CardContent className="p-0">
               <ul className="divide-y divide-slate-100">
                 {customer.payments.map((p) => (
-                  <li key={p.id} className="flex items-center justify-between px-4 py-3">
-                    <div>
+                  <li key={p.id} className="flex items-center gap-2 px-4 py-3">
+                    <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-700">{fmtDate(p.paidAt)}</p>
-                      <p className="text-xs text-slate-500">{p.method}{p.notes ? ` ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${p.notes}` : ""}</p>
+                      <p className="text-xs text-slate-500">{p.method}{p.notes ? ` · ${p.notes}` : ""}</p>
                     </div>
-                    <span className="text-sm font-semibold text-green-700">{hidePrices ? null : `+${fmtCurrency(p.amount)}`}</span>
+                    <span className="text-sm font-semibold text-green-700 flex-shrink-0">{hidePrices ? null : `+${fmtCurrency(p.amount)}`}</span>
+                    <button
+                      onClick={() => openEditPayment(p)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors flex-shrink-0"
+                      title="Edit payment"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleDeletePayment(p.id)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                      title="Undo / delete payment"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -730,6 +780,63 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
             >
               Cancel
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Payment Modal */}
+      <Modal open={!!editingPayment} onClose={() => setEditingPayment(null)} title="Edit Payment">
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Amount (£)</label>
+            <input
+              type="number" min="0.01" step="0.01"
+              value={editPayForm.amount}
+              onChange={(e) => setEditPayForm((f) => ({ ...f, amount: e.target.value }))}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Method</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(["CASH", "BACS", "CARD"] as const).map((m) => (
+                <button key={m} onClick={() => setEditPayForm((f) => ({ ...f, method: m }))}
+                  className={cn("py-2 rounded-lg border text-sm font-medium transition-colors",
+                    editPayForm.method === m ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 text-slate-600 hover:border-blue-300"
+                  )}>
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Date paid</label>
+            <input
+              type="date"
+              value={editPayForm.paidAt}
+              onChange={(e) => setEditPayForm((f) => ({ ...f, paidAt: e.target.value }))}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Notes (optional)</label>
+            <input
+              type="text"
+              value={editPayForm.notes}
+              onChange={(e) => setEditPayForm((f) => ({ ...f, notes: e.target.value }))}
+              placeholder="e.g. Paid at door"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button
+              onClick={handleSaveEditPayment}
+              disabled={isPending || !editPayForm.amount || Number(editPayForm.amount) <= 0 || !editPayForm.paidAt}
+              className="flex-1"
+            >
+              {isPending ? "Saving..." : "Save Changes"}
+            </Button>
+            <Button variant="outline" onClick={() => setEditingPayment(null)} className="flex-1">Cancel</Button>
           </div>
         </div>
       </Modal>

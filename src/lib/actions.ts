@@ -2098,6 +2098,31 @@ export async function logPaymentForSelectedJobs(data: {
   };
 }
 
+export async function updatePayment(
+  id: number,
+  customerId: number,
+  data: {
+    amount: number;
+    method: "CASH" | "BACS" | "CARD";
+    paidAt: Date;
+    notes?: string;
+  }
+) {
+  const tenantId = await getActiveTenantId();
+  const payment = await requireTenantPayment(tenantId, id);
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: {
+      amount: data.amount,
+      method: data.method,
+      paidAt: data.paidAt,
+      notes: data.notes ?? null,
+    },
+  });
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${payment.customerId ?? customerId}`);
+}
+
 export async function deletePayment(id: number, customerId: number) {
   const tenantId = await getActiveTenantId();
   const payment = await requireTenantPayment(tenantId, id);
