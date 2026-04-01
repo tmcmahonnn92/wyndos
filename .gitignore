@@ -53,3 +53,6 @@ prod.db
 . ~lock.*
 .~lock.*
 test-results/
+
+# Local-only dev tooling — never publish
+_devtools/
