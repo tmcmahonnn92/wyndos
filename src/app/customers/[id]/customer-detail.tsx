@@ -1,10 +1,10 @@
-"use client";
+﻿"use client";
 
 import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Edit2, CalendarDays, PoundSterling, CheckCircle2, SkipForward, FileText, Download, Mail, MapPin, Tag as TagIcon, MessageSquare, ArrowLeftRight, Pencil, Trash2 } from "lucide-react";
-import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, logPayment, setCustomerTags, updateJobPrice, updatePayment, deletePayment } from "@/lib/actions";
+import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, logPayment, logPaymentForSelectedJobs, setCustomerTags, updateJobPrice, updatePayment, deletePayment } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,6 +56,8 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
   const [changeAreaOpen, setChangeAreaOpen] = useState(false);
   const [reschedOpen, setReschedOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
+  const [logPayMode, setLogPayMode] = useState<"jobs" | "amount">("jobs");
+  const [logPayJobIds, setLogPayJobIds] = useState<Set<number>>(new Set());
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [smsOpen, setSmsOpen] = useState(false);
@@ -251,12 +253,22 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
 
   const handleLogPayment = () => {
     startTransition(async () => {
-      await logPayment({
-        customerId: customer.id,
-        amount: Number(payForm.amount),
-        method: payForm.method,
-        notes: payForm.notes || undefined,
-      });
+      if (logPayMode === "jobs") {
+        if (logPayJobIds.size === 0) return;
+        await logPaymentForSelectedJobs({
+          customerId: customer.id,
+          jobIds: Array.from(logPayJobIds),
+          method: payForm.method,
+          notes: payForm.notes || undefined,
+        });
+      } else {
+        await logPayment({
+          customerId: customer.id,
+          amount: Number(payForm.amount),
+          method: payForm.method,
+          notes: payForm.notes || undefined,
+        });
+      }
       setPayOpen(false);
       setPayForm({ amount: "0.00", method: "CASH", notes: "" });
       router.refresh();
@@ -355,7 +367,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                   <p className="text-xs text-slate-500">
                     {unpaidJobs.length} unpaid job{unpaidJobs.length !== 1 ? "s" : ""}
                   </p>
-                  <button onClick={() => setPayOpen(true)} className="text-xs text-blue-600 hover:underline">Log payment</button>
+                  <button onClick={() => { setLogPayMode("jobs"); setLogPayJobIds(new Set(unpaidJobIds)); setPayOpen(true); }} className="text-xs text-blue-600 hover:underline">Log payment</button>
                 </div>
               )}
             </CardContent>
@@ -454,7 +466,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
 
         {/* Action buttons */}
         <div className="flex gap-2">
-          <Button onClick={() => setPayOpen(true)} variant="outline" className="flex-1">
+          <Button onClick={() => { setLogPayMode("jobs"); setLogPayJobIds(new Set(unpaidJobIds)); setPayOpen(true); }} variant="outline" className="flex-1">
             <PoundSterling size={15} />
             Log Payment
           </Button>
@@ -708,11 +720,70 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               Balance owed: <strong>{fmtCurrency(balance)}</strong>
             </div>
           )}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Amount (ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£)</label>
-            <input type="number" min="0" step="0.50" value={payForm.amount} onChange={(e) => setPayForm(f => ({ ...f, amount: e.target.value }))}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          {/* Mode toggle */}
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => { setLogPayMode("jobs"); setLogPayJobIds(new Set(unpaidJobIds)); }}
+              className={cn("py-2 rounded-lg border text-sm font-medium transition-colors",
+                logPayMode === "jobs" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 text-slate-600 hover:border-blue-300")}>
+              Specific jobs
+            </button>
+            <button type="button" onClick={() => setLogPayMode("amount")}
+              className={cn("py-2 rounded-lg border text-sm font-medium transition-colors",
+                logPayMode === "amount" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 text-slate-600 hover:border-blue-300")}>
+              Amount only
+            </button>
           </div>
+          {logPayMode === "jobs" ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium text-slate-700">Which jobs are being paid</label>
+                <div className="flex gap-3 text-xs">
+                  <button type="button" onClick={() => setLogPayJobIds(new Set(unpaidJobIds))} className="text-blue-600 hover:underline">Select all</button>
+                  <button type="button" onClick={() => setLogPayJobIds(new Set())} className="text-slate-400 hover:underline">Clear</button>
+                </div>
+              </div>
+              {unpaidJobs.length === 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">No unpaid completed jobs found.</div>
+              ) : (
+                <div className="space-y-1 max-h-60 overflow-y-auto">
+                  {unpaidJobs.map((j) => {
+                    const checked = logPayJobIds.has(j.id);
+                    const due = jobBalanceMap.get(j.id)?.due ?? 0;
+                    return (
+                      <button key={j.id} type="button"
+                        onClick={() => setLogPayJobIds(prev => { const next = new Set(prev); next.has(j.id) ? next.delete(j.id) : next.add(j.id); return next; })}
+                        className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors",
+                          checked ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300 bg-white")}>
+                        {checked
+                          ? <CheckCircle2 size={16} className="text-blue-600 flex-shrink-0" />
+                          : <div className="w-4 h-4 rounded border-2 border-slate-300 flex-shrink-0" />}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-700 truncate">{(j as { name?: string }).name || "Window Cleaning"}</p>
+                          <p className="text-xs text-slate-400">{fmtDate(j.workDay.date)}{j.isOneOff ? " · one-off" : ""}</p>
+                        </div>
+                        {!hidePrices && (
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-xs text-slate-400">{fmtCurrency(j.price)}</p>
+                            <p className="text-sm font-semibold text-red-600">{fmtCurrency(due)} due</p>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center justify-between">
+                <p className="text-sm text-slate-600">{logPayJobIds.size} job{logPayJobIds.size !== 1 ? "s" : ""} selected</p>
+                {!hidePrices && <p className="text-sm font-bold text-slate-800">{fmtCurrency(unpaidJobs.filter(j => logPayJobIds.has(j.id)).reduce((s, j) => s + (jobBalanceMap.get(j.id)?.due ?? 0), 0))}</p>}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Amount (GBP)</label>
+              <input type="number" min="0" step="0.50" value={payForm.amount} onChange={(e) => setPayForm(f => ({ ...f, amount: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Method</label>
             <div className="grid grid-cols-3 gap-2">
@@ -732,7 +803,9 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div className="flex gap-2 pt-1">
-            <Button onClick={handleLogPayment} disabled={isPending || !payForm.amount || Number(payForm.amount) <= 0} className="flex-1">
+            <Button onClick={handleLogPayment}
+              disabled={isPending || (logPayMode === "jobs" ? logPayJobIds.size === 0 : (!payForm.amount || Number(payForm.amount) <= 0))}
+              className="flex-1">
               {isPending ? "Logging..." : "Log Payment"}
             </Button>
             <Button variant="outline" onClick={() => setPayOpen(false)} className="flex-1">Cancel</Button>
