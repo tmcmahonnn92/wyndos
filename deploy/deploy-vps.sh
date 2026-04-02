@@ -47,6 +47,7 @@ chown "$APP_USER:$APP_GROUP" "$RELEASE_META_FILE"
 rm -rf "$RELEASE_DIR/.next"
 
 run_as_app "npm ci --include=dev --legacy-peer-deps"
+run_as_app_with_env "npm run db:generate"
 run_as_app_with_env "npm run db:generate:postgres"
 run_as_app_with_env "npm run db:migrate:deploy:postgres"
 run_as_app_with_env "npm run build"

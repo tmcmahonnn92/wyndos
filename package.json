@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "tsx prisma/seed.ts",
+    "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:validate:postgres": "prisma validate --config prisma.config.postgres.ts",
