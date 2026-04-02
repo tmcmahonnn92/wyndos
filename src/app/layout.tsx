@@ -33,6 +33,9 @@ const dmMono = DM_Mono({
 export const metadata: Metadata = {
   title: "Wyndos.io – Route Management",
   description: "Window cleaning round management app",
+  verification: {
+    google: "Hw_XHoX_NS86rDAVSE7qL9PksCwlkcX-D0n-U05ie7A",
+  },
 };
 
 export const viewport: Viewport = {
