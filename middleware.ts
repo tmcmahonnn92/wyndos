@@ -5,7 +5,7 @@ import { ACTIVE_TENANT_COOKIE, SUPPORT_ACCESS_COOKIE } from "@/lib/auth-cookies"
 
 const { auth } = NextAuth(authConfig);
 const ONBOARDING_REFRESH_COOKIE = "wyndos_onboarding_refresh";
-const PUBLIC_ROUTES = new Set(["/auth/signin", "/auth/signup"]);
+const PUBLIC_ROUTES = new Set(["/auth/signin", "/auth/signup", "/home", "/privacy", "/terms"]);
 const PUBLIC_PREFIXES = ["/auth/invite/"];
 
 export default auth((req) => {
