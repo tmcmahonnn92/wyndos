@@ -26,11 +26,11 @@ From the VPS:
 
 ```bash
 cd /opt/wyndos/current
-git fetch origin
-git checkout main
-git pull --ff-only origin main
+./deploy/update-vps-source.sh main
 sudo ./deploy/deploy-vps.sh
 ```
+
+`deploy/update-vps-source.sh` cleans generated Prisma client output before the fast-forward pull, which prevents VPS deploys from getting stuck on locally generated changes under `src/generated/prisma*`.
 
 ## What the VPS deploy script does
 
@@ -43,6 +43,16 @@ sudo ./deploy/deploy-vps.sh
 - runs `next build` as the `wyndos` user
 - restarts the `wyndos` systemd service
 - checks `http://127.0.0.1:3000/api/health`
+
+## If a pull was already blocked
+
+Run this from the VPS release directory:
+
+```bash
+cd /opt/wyndos/current
+./deploy/update-vps-source.sh main
+sudo ./deploy/deploy-vps.sh
+```
 
 ## Operational rules
 

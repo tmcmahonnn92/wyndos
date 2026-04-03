@@ -75,11 +75,11 @@ From the VPS:
 
 ```bash
 cd /opt/wyndos/current
-git fetch origin
-git checkout main
-git pull --ff-only origin main
+./deploy/update-vps-source.sh main
 sudo ./deploy/deploy-vps.sh
 ```
+
+The update script resets only generated Prisma client output before pulling. This avoids the common VPS failure where `prisma generate` leaves `src/generated/prisma-postgres` dirty and blocks the next `git pull`.
 
 The deploy script performs the server-safe release steps:
 
@@ -184,6 +184,8 @@ Use this repository as the single source of truth:
 3. Pull the exact commit on the VPS.
 4. Run `sudo ./deploy/deploy-vps.sh`.
 5. Verify `/api/health` locally and publicly.
+
+If step 3 fails because generated Prisma files would be overwritten, run `./deploy/update-vps-source.sh main` instead of manual `git pull` commands.
 
 ## 11. Current verification note
 
