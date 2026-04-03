@@ -1,5 +1,14 @@
 import { DefaultSession } from "next-auth";
 
+type MembershipRole = "OWNER" | "WORKER";
+
+type CompanyMembership = {
+  tenantId: number;
+  tenantName: string;
+  role: MembershipRole;
+  permissions: string[];
+};
+
 declare module "next-auth" {
   interface Session {
     user: DefaultSession["user"] & {
@@ -13,6 +22,7 @@ declare module "next-auth" {
       /** Null for SUPER_ADMIN; set for OWNER and WORKER. */
       tenantId?: number | null;
       onboardingComplete?: boolean;
+      memberships?: CompanyMembership[];
       /**
        * For WORKER accounts: the list of permissions granted by the OWNER.
        * OWNER and SUPER_ADMIN always have full access (this will be []).
@@ -26,6 +36,17 @@ declare module "next-auth" {
     role?: "SUPER_ADMIN" | "OWNER" | "WORKER";
     tenantId?: number | null;
     onboardingComplete?: boolean;
+    memberships?: CompanyMembership[];
     permissions?: string[];
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    role?: "SUPER_ADMIN" | "OWNER" | "WORKER";
+    tenantId?: number | null;
+    onboardingComplete?: boolean;
+    workerPermissions?: string;
+    memberships?: string;
   }
 }

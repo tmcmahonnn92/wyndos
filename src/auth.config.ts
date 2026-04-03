@@ -1,4 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
+import { normalizeMemberships } from "@/lib/memberships";
 
 function getAuthSecret() {
   if (process.env.AUTH_SECRET) {
@@ -41,6 +42,7 @@ const authConfig = {
           : undefined;
         session.user.tenantId = typeof token.tenantId === "number" ? token.tenantId : null;
         session.user.onboardingComplete = Boolean(token.onboardingComplete);
+        session.user.memberships = normalizeMemberships(token.memberships);
         try {
           session.user.permissions = JSON.parse(
             typeof token.workerPermissions === "string" ? token.workerPermissions : "[]"

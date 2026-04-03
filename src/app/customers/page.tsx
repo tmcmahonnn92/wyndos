@@ -1,8 +1,7 @@
 ﻿import Link from "next/link";
 import { ChevronRight, Plus, Search, TableProperties, Upload } from "lucide-react";
 import { getCustomers, getAreas, getTags } from "@/lib/actions";
-import { requirePermission } from "@/lib/tenant-context";
-import { auth } from "@/auth";
+import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { fmtCurrency, fmtDate } from "@/lib/utils";
@@ -19,8 +18,8 @@ interface Props {
 
 export default async function CustomersPage({ searchParams }: Props) {
   await requirePermission("customers");
-  const session = await auth();
-  const hidePrices = session?.user?.role === "WORKER" && !(session.user.permissions ?? []).includes("viewprices");
+  const user = await getActiveUserContext();
+  const hidePrices = user.role === "WORKER" && !(user.permissions ?? []).includes("viewprices");
   const { areas: areasParam, tags: tagsParam, q, inactive, oneoff } = await searchParams;
   const showInactive = inactive === "1";
   const onlyOneOff = oneoff === "1";

@@ -275,6 +275,8 @@ export type UserWhereInput = {
   tenant?: Prisma.XOR<Prisma.TenantNullableScalarRelationFilter, Prisma.TenantWhereInput> | null
   accounts?: Prisma.AccountListRelationFilter
   sessions?: Prisma.SessionListRelationFilter
+  memberships?: Prisma.MembershipListRelationFilter
+  assignedWorkDays?: Prisma.WorkDayListRelationFilter
   supportAccessLogs?: Prisma.SupportAccessLogListRelationFilter
   endedSupportAccessLogs?: Prisma.SupportAccessLogListRelationFilter
 }
@@ -295,6 +297,8 @@ export type UserOrderByWithRelationInput = {
   tenant?: Prisma.TenantOrderByWithRelationInput
   accounts?: Prisma.AccountOrderByRelationAggregateInput
   sessions?: Prisma.SessionOrderByRelationAggregateInput
+  memberships?: Prisma.MembershipOrderByRelationAggregateInput
+  assignedWorkDays?: Prisma.WorkDayOrderByRelationAggregateInput
   supportAccessLogs?: Prisma.SupportAccessLogOrderByRelationAggregateInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogOrderByRelationAggregateInput
 }
@@ -318,6 +322,8 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   tenant?: Prisma.XOR<Prisma.TenantNullableScalarRelationFilter, Prisma.TenantWhereInput> | null
   accounts?: Prisma.AccountListRelationFilter
   sessions?: Prisma.SessionListRelationFilter
+  memberships?: Prisma.MembershipListRelationFilter
+  assignedWorkDays?: Prisma.WorkDayListRelationFilter
   supportAccessLogs?: Prisma.SupportAccessLogListRelationFilter
   endedSupportAccessLogs?: Prisma.SupportAccessLogListRelationFilter
 }, "id" | "email">
@@ -375,6 +381,8 @@ export type UserCreateInput = {
   tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
   accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayCreateNestedManyWithoutAssignedUserInput
   supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
 }
@@ -394,6 +402,8 @@ export type UserUncheckedCreateInput = {
   updatedAt?: Date | string
   accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutAssignedUserInput
   supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
 }
@@ -413,6 +423,8 @@ export type UserUpdateInput = {
   tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
   accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUpdateManyWithoutAssignedUserNestedInput
   supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
 }
@@ -432,6 +444,8 @@ export type UserUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedUpdateManyWithoutAssignedUserNestedInput
   supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
 }
@@ -607,6 +621,20 @@ export type NullableIntFieldUpdateOperationsInput = {
   divide?: number
 }
 
+export type UserCreateNestedOneWithoutMembershipsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutMembershipsInput, Prisma.UserUncheckedCreateWithoutMembershipsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutMembershipsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutMembershipsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutMembershipsInput, Prisma.UserUncheckedCreateWithoutMembershipsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutMembershipsInput
+  upsert?: Prisma.UserUpsertWithoutMembershipsInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutMembershipsInput, Prisma.UserUpdateWithoutMembershipsInput>, Prisma.UserUncheckedUpdateWithoutMembershipsInput>
+}
+
 export type UserCreateNestedOneWithoutAccountsInput = {
   create?: Prisma.XOR<Prisma.UserCreateWithoutAccountsInput, Prisma.UserUncheckedCreateWithoutAccountsInput>
   connectOrCreate?: Prisma.UserCreateOrConnectWithoutAccountsInput
@@ -665,6 +693,22 @@ export type UserUpdateOneWithoutEndedSupportAccessLogsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutEndedSupportAccessLogsInput, Prisma.UserUpdateWithoutEndedSupportAccessLogsInput>, Prisma.UserUncheckedUpdateWithoutEndedSupportAccessLogsInput>
 }
 
+export type UserCreateNestedOneWithoutAssignedWorkDaysInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutAssignedWorkDaysInput, Prisma.UserUncheckedCreateWithoutAssignedWorkDaysInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutAssignedWorkDaysInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneWithoutAssignedWorkDaysNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutAssignedWorkDaysInput, Prisma.UserUncheckedCreateWithoutAssignedWorkDaysInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutAssignedWorkDaysInput
+  upsert?: Prisma.UserUpsertWithoutAssignedWorkDaysInput
+  disconnect?: Prisma.UserWhereInput | boolean
+  delete?: Prisma.UserWhereInput | boolean
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutAssignedWorkDaysInput, Prisma.UserUpdateWithoutAssignedWorkDaysInput>, Prisma.UserUncheckedUpdateWithoutAssignedWorkDaysInput>
+}
+
 export type UserCreateWithoutTenantInput = {
   id?: string
   name?: string | null
@@ -679,6 +723,8 @@ export type UserCreateWithoutTenantInput = {
   updatedAt?: Date | string
   accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayCreateNestedManyWithoutAssignedUserInput
   supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
 }
@@ -697,6 +743,8 @@ export type UserUncheckedCreateWithoutTenantInput = {
   updatedAt?: Date | string
   accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutAssignedUserInput
   supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
 }
@@ -745,6 +793,102 @@ export type UserScalarWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"User"> | Date | string
 }
 
+export type UserCreateWithoutMembershipsInput = {
+  id?: string
+  name?: string | null
+  email: string
+  emailVerified?: Date | string | null
+  image?: string | null
+  passwordHash?: string | null
+  role?: $Enums.UserRole
+  onboardingComplete?: boolean
+  workerPermissions?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
+  accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
+  sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayCreateNestedManyWithoutAssignedUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
+}
+
+export type UserUncheckedCreateWithoutMembershipsInput = {
+  id?: string
+  name?: string | null
+  email: string
+  emailVerified?: Date | string | null
+  image?: string | null
+  passwordHash?: string | null
+  role?: $Enums.UserRole
+  tenantId?: number | null
+  onboardingComplete?: boolean
+  workerPermissions?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
+  sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutAssignedUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
+}
+
+export type UserCreateOrConnectWithoutMembershipsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutMembershipsInput, Prisma.UserUncheckedCreateWithoutMembershipsInput>
+}
+
+export type UserUpsertWithoutMembershipsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutMembershipsInput, Prisma.UserUncheckedUpdateWithoutMembershipsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutMembershipsInput, Prisma.UserUncheckedCreateWithoutMembershipsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutMembershipsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutMembershipsInput, Prisma.UserUncheckedUpdateWithoutMembershipsInput>
+}
+
+export type UserUpdateWithoutMembershipsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  emailVerified?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  image?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  onboardingComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  workerPermissions?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
+  accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
+  sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUpdateManyWithoutAssignedUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutMembershipsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  emailVerified?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  image?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  tenantId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  onboardingComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  workerPermissions?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
+  sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedUpdateManyWithoutAssignedUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
+}
+
 export type UserCreateWithoutAccountsInput = {
   id?: string
   name?: string | null
@@ -759,6 +903,8 @@ export type UserCreateWithoutAccountsInput = {
   updatedAt?: Date | string
   tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayCreateNestedManyWithoutAssignedUserInput
   supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
 }
@@ -777,6 +923,8 @@ export type UserUncheckedCreateWithoutAccountsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutAssignedUserInput
   supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
 }
@@ -811,6 +959,8 @@ export type UserUpdateWithoutAccountsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUpdateManyWithoutAssignedUserNestedInput
   supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
 }
@@ -829,6 +979,8 @@ export type UserUncheckedUpdateWithoutAccountsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedUpdateManyWithoutAssignedUserNestedInput
   supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
 }
@@ -847,6 +999,8 @@ export type UserCreateWithoutSessionsInput = {
   updatedAt?: Date | string
   tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
   accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayCreateNestedManyWithoutAssignedUserInput
   supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
 }
@@ -865,6 +1019,8 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutAssignedUserInput
   supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
 }
@@ -899,6 +1055,8 @@ export type UserUpdateWithoutSessionsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
   accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUpdateManyWithoutAssignedUserNestedInput
   supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
 }
@@ -917,6 +1075,8 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedUpdateManyWithoutAssignedUserNestedInput
   supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
 }
@@ -936,6 +1096,8 @@ export type UserCreateWithoutSupportAccessLogsInput = {
   tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
   accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayCreateNestedManyWithoutAssignedUserInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
 }
 
@@ -954,6 +1116,8 @@ export type UserUncheckedCreateWithoutSupportAccessLogsInput = {
   updatedAt?: Date | string
   accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutAssignedUserInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
 }
 
@@ -977,6 +1141,8 @@ export type UserCreateWithoutEndedSupportAccessLogsInput = {
   tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
   accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayCreateNestedManyWithoutAssignedUserInput
   supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
 }
 
@@ -995,6 +1161,8 @@ export type UserUncheckedCreateWithoutEndedSupportAccessLogsInput = {
   updatedAt?: Date | string
   accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutUserInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutAssignedUserInput
   supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
 }
 
@@ -1029,6 +1197,8 @@ export type UserUpdateWithoutSupportAccessLogsInput = {
   tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
   accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUpdateManyWithoutAssignedUserNestedInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
 }
 
@@ -1047,6 +1217,8 @@ export type UserUncheckedUpdateWithoutSupportAccessLogsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedUpdateManyWithoutAssignedUserNestedInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
 }
 
@@ -1076,6 +1248,8 @@ export type UserUpdateWithoutEndedSupportAccessLogsInput = {
   tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
   accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUpdateManyWithoutAssignedUserNestedInput
   supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
 }
 
@@ -1094,7 +1268,105 @@ export type UserUncheckedUpdateWithoutEndedSupportAccessLogsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedUpdateManyWithoutAssignedUserNestedInput
   supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
+}
+
+export type UserCreateWithoutAssignedWorkDaysInput = {
+  id?: string
+  name?: string | null
+  email: string
+  emailVerified?: Date | string | null
+  image?: string | null
+  passwordHash?: string | null
+  role?: $Enums.UserRole
+  onboardingComplete?: boolean
+  workerPermissions?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  tenant?: Prisma.TenantCreateNestedOneWithoutUsersInput
+  accounts?: Prisma.AccountCreateNestedManyWithoutUserInput
+  sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutEndedByUserInput
+}
+
+export type UserUncheckedCreateWithoutAssignedWorkDaysInput = {
+  id?: string
+  name?: string | null
+  email: string
+  emailVerified?: Date | string | null
+  image?: string | null
+  passwordHash?: string | null
+  role?: $Enums.UserRole
+  tenantId?: number | null
+  onboardingComplete?: boolean
+  workerPermissions?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  accounts?: Prisma.AccountUncheckedCreateNestedManyWithoutUserInput
+  sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutUserInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutSuperAdminUserInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutEndedByUserInput
+}
+
+export type UserCreateOrConnectWithoutAssignedWorkDaysInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutAssignedWorkDaysInput, Prisma.UserUncheckedCreateWithoutAssignedWorkDaysInput>
+}
+
+export type UserUpsertWithoutAssignedWorkDaysInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutAssignedWorkDaysInput, Prisma.UserUncheckedUpdateWithoutAssignedWorkDaysInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutAssignedWorkDaysInput, Prisma.UserUncheckedCreateWithoutAssignedWorkDaysInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutAssignedWorkDaysInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutAssignedWorkDaysInput, Prisma.UserUncheckedUpdateWithoutAssignedWorkDaysInput>
+}
+
+export type UserUpdateWithoutAssignedWorkDaysInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  emailVerified?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  image?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  onboardingComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  workerPermissions?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tenant?: Prisma.TenantUpdateOneWithoutUsersNestedInput
+  accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
+  sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutAssignedWorkDaysInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  emailVerified?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  image?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  tenantId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  onboardingComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  workerPermissions?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
+  sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutUserNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
+  endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
 }
 
 export type UserCreateManyTenantInput = {
@@ -1125,6 +1397,8 @@ export type UserUpdateWithoutTenantInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   accounts?: Prisma.AccountUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUpdateManyWithoutAssignedUserNestedInput
   supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutSuperAdminUserNestedInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutEndedByUserNestedInput
 }
@@ -1143,6 +1417,8 @@ export type UserUncheckedUpdateWithoutTenantInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   accounts?: Prisma.AccountUncheckedUpdateManyWithoutUserNestedInput
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutUserNestedInput
+  assignedWorkDays?: Prisma.WorkDayUncheckedUpdateManyWithoutAssignedUserNestedInput
   supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutSuperAdminUserNestedInput
   endedSupportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutEndedByUserNestedInput
 }
@@ -1169,6 +1445,8 @@ export type UserUncheckedUpdateManyWithoutTenantInput = {
 export type UserCountOutputType = {
   accounts: number
   sessions: number
+  memberships: number
+  assignedWorkDays: number
   supportAccessLogs: number
   endedSupportAccessLogs: number
 }
@@ -1176,6 +1454,8 @@ export type UserCountOutputType = {
 export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   accounts?: boolean | UserCountOutputTypeCountAccountsArgs
   sessions?: boolean | UserCountOutputTypeCountSessionsArgs
+  memberships?: boolean | UserCountOutputTypeCountMembershipsArgs
+  assignedWorkDays?: boolean | UserCountOutputTypeCountAssignedWorkDaysArgs
   supportAccessLogs?: boolean | UserCountOutputTypeCountSupportAccessLogsArgs
   endedSupportAccessLogs?: boolean | UserCountOutputTypeCountEndedSupportAccessLogsArgs
 }
@@ -1202,6 +1482,20 @@ export type UserCountOutputTypeCountAccountsArgs<ExtArgs extends runtime.Types.E
  */
 export type UserCountOutputTypeCountSessionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.SessionWhereInput
+}
+
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountMembershipsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.MembershipWhereInput
+}
+
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountAssignedWorkDaysArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.WorkDayWhereInput
 }
 
 /**
@@ -1235,6 +1529,8 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   tenant?: boolean | Prisma.User$tenantArgs<ExtArgs>
   accounts?: boolean | Prisma.User$accountsArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
+  memberships?: boolean | Prisma.User$membershipsArgs<ExtArgs>
+  assignedWorkDays?: boolean | Prisma.User$assignedWorkDaysArgs<ExtArgs>
   supportAccessLogs?: boolean | Prisma.User$supportAccessLogsArgs<ExtArgs>
   endedSupportAccessLogs?: boolean | Prisma.User$endedSupportAccessLogsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
@@ -1292,6 +1588,8 @@ export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   tenant?: boolean | Prisma.User$tenantArgs<ExtArgs>
   accounts?: boolean | Prisma.User$accountsArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
+  memberships?: boolean | Prisma.User$membershipsArgs<ExtArgs>
+  assignedWorkDays?: boolean | Prisma.User$assignedWorkDaysArgs<ExtArgs>
   supportAccessLogs?: boolean | Prisma.User$supportAccessLogsArgs<ExtArgs>
   endedSupportAccessLogs?: boolean | Prisma.User$endedSupportAccessLogsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
@@ -1309,6 +1607,8 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     tenant: Prisma.$TenantPayload<ExtArgs> | null
     accounts: Prisma.$AccountPayload<ExtArgs>[]
     sessions: Prisma.$SessionPayload<ExtArgs>[]
+    memberships: Prisma.$MembershipPayload<ExtArgs>[]
+    assignedWorkDays: Prisma.$WorkDayPayload<ExtArgs>[]
     supportAccessLogs: Prisma.$SupportAccessLogPayload<ExtArgs>[]
     endedSupportAccessLogs: Prisma.$SupportAccessLogPayload<ExtArgs>[]
   }
@@ -1728,6 +2028,8 @@ export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Typ
   tenant<T extends Prisma.User$tenantArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$tenantArgs<ExtArgs>>): Prisma.Prisma__TenantClient<runtime.Types.Result.GetResult<Prisma.$TenantPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   accounts<T extends Prisma.User$accountsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$accountsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AccountPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   sessions<T extends Prisma.User$sessionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$sessionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SessionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  memberships<T extends Prisma.User$membershipsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$membershipsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MembershipPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  assignedWorkDays<T extends Prisma.User$assignedWorkDaysArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$assignedWorkDaysArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$WorkDayPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   supportAccessLogs<T extends Prisma.User$supportAccessLogsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$supportAccessLogsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SupportAccessLogPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   endedSupportAccessLogs<T extends Prisma.User$endedSupportAccessLogsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$endedSupportAccessLogsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SupportAccessLogPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
@@ -2236,6 +2538,54 @@ export type User$sessionsArgs<ExtArgs extends runtime.Types.Extensions.InternalA
   take?: number
   skip?: number
   distinct?: Prisma.SessionScalarFieldEnum | Prisma.SessionScalarFieldEnum[]
+}
+
+/**
+ * User.memberships
+ */
+export type User$membershipsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the Membership
+   */
+  select?: Prisma.MembershipSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the Membership
+   */
+  omit?: Prisma.MembershipOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.MembershipInclude<ExtArgs> | null
+  where?: Prisma.MembershipWhereInput
+  orderBy?: Prisma.MembershipOrderByWithRelationInput | Prisma.MembershipOrderByWithRelationInput[]
+  cursor?: Prisma.MembershipWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.MembershipScalarFieldEnum | Prisma.MembershipScalarFieldEnum[]
+}
+
+/**
+ * User.assignedWorkDays
+ */
+export type User$assignedWorkDaysArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the WorkDay
+   */
+  select?: Prisma.WorkDaySelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the WorkDay
+   */
+  omit?: Prisma.WorkDayOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.WorkDayInclude<ExtArgs> | null
+  where?: Prisma.WorkDayWhereInput
+  orderBy?: Prisma.WorkDayOrderByWithRelationInput | Prisma.WorkDayOrderByWithRelationInput[]
+  cursor?: Prisma.WorkDayWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.WorkDayScalarFieldEnum | Prisma.WorkDayScalarFieldEnum[]
 }
 
 /**

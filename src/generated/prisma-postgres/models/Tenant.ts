@@ -249,6 +249,7 @@ export type TenantWhereInput = {
   createdAt?: Prisma.DateTimeFilter<"Tenant"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Tenant"> | Date | string
   users?: Prisma.UserListRelationFilter
+  memberships?: Prisma.MembershipListRelationFilter
   areas?: Prisma.AreaListRelationFilter
   customers?: Prisma.CustomerListRelationFilter
   workDays?: Prisma.WorkDayListRelationFilter
@@ -270,6 +271,7 @@ export type TenantOrderByWithRelationInput = {
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   users?: Prisma.UserOrderByRelationAggregateInput
+  memberships?: Prisma.MembershipOrderByRelationAggregateInput
   areas?: Prisma.AreaOrderByRelationAggregateInput
   customers?: Prisma.CustomerOrderByRelationAggregateInput
   workDays?: Prisma.WorkDayOrderByRelationAggregateInput
@@ -294,6 +296,7 @@ export type TenantWhereUniqueInput = Prisma.AtLeast<{
   createdAt?: Prisma.DateTimeFilter<"Tenant"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Tenant"> | Date | string
   users?: Prisma.UserListRelationFilter
+  memberships?: Prisma.MembershipListRelationFilter
   areas?: Prisma.AreaListRelationFilter
   customers?: Prisma.CustomerListRelationFilter
   workDays?: Prisma.WorkDayListRelationFilter
@@ -346,6 +349,7 @@ export type TenantCreateInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayCreateNestedManyWithoutTenantInput
@@ -367,6 +371,7 @@ export type TenantUncheckedCreateInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserUncheckedCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaUncheckedCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerUncheckedCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutTenantInput
@@ -387,6 +392,7 @@ export type TenantUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUpdateManyWithoutTenantNestedInput
@@ -408,6 +414,7 @@ export type TenantUncheckedUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUncheckedUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
@@ -567,6 +574,20 @@ export type TenantUpdateOneWithoutUsersNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.TenantUpdateToOneWithWhereWithoutUsersInput, Prisma.TenantUpdateWithoutUsersInput>, Prisma.TenantUncheckedUpdateWithoutUsersInput>
 }
 
+export type TenantCreateNestedOneWithoutMembershipsInput = {
+  create?: Prisma.XOR<Prisma.TenantCreateWithoutMembershipsInput, Prisma.TenantUncheckedCreateWithoutMembershipsInput>
+  connectOrCreate?: Prisma.TenantCreateOrConnectWithoutMembershipsInput
+  connect?: Prisma.TenantWhereUniqueInput
+}
+
+export type TenantUpdateOneRequiredWithoutMembershipsNestedInput = {
+  create?: Prisma.XOR<Prisma.TenantCreateWithoutMembershipsInput, Prisma.TenantUncheckedCreateWithoutMembershipsInput>
+  connectOrCreate?: Prisma.TenantCreateOrConnectWithoutMembershipsInput
+  upsert?: Prisma.TenantUpsertWithoutMembershipsInput
+  connect?: Prisma.TenantWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.TenantUpdateToOneWithWhereWithoutMembershipsInput, Prisma.TenantUpdateWithoutMembershipsInput>, Prisma.TenantUncheckedUpdateWithoutMembershipsInput>
+}
+
 export type TenantCreateNestedOneWithoutSupportAccessLogsInput = {
   create?: Prisma.XOR<Prisma.TenantCreateWithoutSupportAccessLogsInput, Prisma.TenantUncheckedCreateWithoutSupportAccessLogsInput>
   connectOrCreate?: Prisma.TenantCreateOrConnectWithoutSupportAccessLogsInput
@@ -661,6 +682,7 @@ export type TenantCreateWithoutSettingsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayCreateNestedManyWithoutTenantInput
@@ -681,6 +703,7 @@ export type TenantUncheckedCreateWithoutSettingsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserUncheckedCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaUncheckedCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerUncheckedCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutTenantInput
@@ -716,6 +739,7 @@ export type TenantUpdateWithoutSettingsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUpdateManyWithoutTenantNestedInput
@@ -736,6 +760,7 @@ export type TenantUncheckedUpdateWithoutSettingsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUncheckedUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
@@ -755,6 +780,7 @@ export type TenantCreateWithoutInvitesInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayCreateNestedManyWithoutTenantInput
@@ -775,6 +801,7 @@ export type TenantUncheckedCreateWithoutInvitesInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserUncheckedCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaUncheckedCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerUncheckedCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutTenantInput
@@ -810,6 +837,7 @@ export type TenantUpdateWithoutInvitesInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUpdateManyWithoutTenantNestedInput
@@ -830,6 +858,7 @@ export type TenantUncheckedUpdateWithoutInvitesInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUncheckedUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
@@ -848,6 +877,7 @@ export type TenantCreateWithoutUsersInput = {
   logoUrl?: string
   createdAt?: Date | string
   updatedAt?: Date | string
+  memberships?: Prisma.MembershipCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayCreateNestedManyWithoutTenantInput
@@ -868,6 +898,7 @@ export type TenantUncheckedCreateWithoutUsersInput = {
   logoUrl?: string
   createdAt?: Date | string
   updatedAt?: Date | string
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaUncheckedCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerUncheckedCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutTenantInput
@@ -903,6 +934,7 @@ export type TenantUpdateWithoutUsersInput = {
   logoUrl?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  memberships?: Prisma.MembershipUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUpdateManyWithoutTenantNestedInput
@@ -923,6 +955,105 @@ export type TenantUncheckedUpdateWithoutUsersInput = {
   logoUrl?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutTenantNestedInput
+  areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
+  customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
+  workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
+  tags?: Prisma.TagUncheckedUpdateManyWithoutTenantNestedInput
+  holidays?: Prisma.HolidayUncheckedUpdateManyWithoutTenantNestedInput
+  invites?: Prisma.InviteUncheckedUpdateManyWithoutTenantNestedInput
+  settings?: Prisma.TenantSettingsUncheckedUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedUpdateManyWithoutTenantNestedInput
+}
+
+export type TenantCreateWithoutMembershipsInput = {
+  name: string
+  slug: string
+  phone?: string
+  address?: string
+  website?: string
+  logoUrl?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  users?: Prisma.UserCreateNestedManyWithoutTenantInput
+  areas?: Prisma.AreaCreateNestedManyWithoutTenantInput
+  customers?: Prisma.CustomerCreateNestedManyWithoutTenantInput
+  workDays?: Prisma.WorkDayCreateNestedManyWithoutTenantInput
+  tags?: Prisma.TagCreateNestedManyWithoutTenantInput
+  holidays?: Prisma.HolidayCreateNestedManyWithoutTenantInput
+  invites?: Prisma.InviteCreateNestedManyWithoutTenantInput
+  settings?: Prisma.TenantSettingsCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogCreateNestedManyWithoutTenantInput
+}
+
+export type TenantUncheckedCreateWithoutMembershipsInput = {
+  id?: number
+  name: string
+  slug: string
+  phone?: string
+  address?: string
+  website?: string
+  logoUrl?: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  users?: Prisma.UserUncheckedCreateNestedManyWithoutTenantInput
+  areas?: Prisma.AreaUncheckedCreateNestedManyWithoutTenantInput
+  customers?: Prisma.CustomerUncheckedCreateNestedManyWithoutTenantInput
+  workDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutTenantInput
+  tags?: Prisma.TagUncheckedCreateNestedManyWithoutTenantInput
+  holidays?: Prisma.HolidayUncheckedCreateNestedManyWithoutTenantInput
+  invites?: Prisma.InviteUncheckedCreateNestedManyWithoutTenantInput
+  settings?: Prisma.TenantSettingsUncheckedCreateNestedOneWithoutTenantInput
+  supportAccessLogs?: Prisma.SupportAccessLogUncheckedCreateNestedManyWithoutTenantInput
+}
+
+export type TenantCreateOrConnectWithoutMembershipsInput = {
+  where: Prisma.TenantWhereUniqueInput
+  create: Prisma.XOR<Prisma.TenantCreateWithoutMembershipsInput, Prisma.TenantUncheckedCreateWithoutMembershipsInput>
+}
+
+export type TenantUpsertWithoutMembershipsInput = {
+  update: Prisma.XOR<Prisma.TenantUpdateWithoutMembershipsInput, Prisma.TenantUncheckedUpdateWithoutMembershipsInput>
+  create: Prisma.XOR<Prisma.TenantCreateWithoutMembershipsInput, Prisma.TenantUncheckedCreateWithoutMembershipsInput>
+  where?: Prisma.TenantWhereInput
+}
+
+export type TenantUpdateToOneWithWhereWithoutMembershipsInput = {
+  where?: Prisma.TenantWhereInput
+  data: Prisma.XOR<Prisma.TenantUpdateWithoutMembershipsInput, Prisma.TenantUncheckedUpdateWithoutMembershipsInput>
+}
+
+export type TenantUpdateWithoutMembershipsInput = {
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  phone?: Prisma.StringFieldUpdateOperationsInput | string
+  address?: Prisma.StringFieldUpdateOperationsInput | string
+  website?: Prisma.StringFieldUpdateOperationsInput | string
+  logoUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  users?: Prisma.UserUpdateManyWithoutTenantNestedInput
+  areas?: Prisma.AreaUpdateManyWithoutTenantNestedInput
+  customers?: Prisma.CustomerUpdateManyWithoutTenantNestedInput
+  workDays?: Prisma.WorkDayUpdateManyWithoutTenantNestedInput
+  tags?: Prisma.TagUpdateManyWithoutTenantNestedInput
+  holidays?: Prisma.HolidayUpdateManyWithoutTenantNestedInput
+  invites?: Prisma.InviteUpdateManyWithoutTenantNestedInput
+  settings?: Prisma.TenantSettingsUpdateOneWithoutTenantNestedInput
+  supportAccessLogs?: Prisma.SupportAccessLogUpdateManyWithoutTenantNestedInput
+}
+
+export type TenantUncheckedUpdateWithoutMembershipsInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  phone?: Prisma.StringFieldUpdateOperationsInput | string
+  address?: Prisma.StringFieldUpdateOperationsInput | string
+  website?: Prisma.StringFieldUpdateOperationsInput | string
+  logoUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  users?: Prisma.UserUncheckedUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
@@ -943,6 +1074,7 @@ export type TenantCreateWithoutSupportAccessLogsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayCreateNestedManyWithoutTenantInput
@@ -963,6 +1095,7 @@ export type TenantUncheckedCreateWithoutSupportAccessLogsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserUncheckedCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaUncheckedCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerUncheckedCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutTenantInput
@@ -998,6 +1131,7 @@ export type TenantUpdateWithoutSupportAccessLogsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUpdateManyWithoutTenantNestedInput
@@ -1018,6 +1152,7 @@ export type TenantUncheckedUpdateWithoutSupportAccessLogsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUncheckedUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
@@ -1037,6 +1172,7 @@ export type TenantCreateWithoutAreasInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayCreateNestedManyWithoutTenantInput
   tags?: Prisma.TagCreateNestedManyWithoutTenantInput
@@ -1057,6 +1193,7 @@ export type TenantUncheckedCreateWithoutAreasInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserUncheckedCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerUncheckedCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutTenantInput
   tags?: Prisma.TagUncheckedCreateNestedManyWithoutTenantInput
@@ -1092,6 +1229,7 @@ export type TenantUpdateWithoutAreasInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUpdateManyWithoutTenantNestedInput
   tags?: Prisma.TagUpdateManyWithoutTenantNestedInput
@@ -1112,6 +1250,7 @@ export type TenantUncheckedUpdateWithoutAreasInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUncheckedUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
   tags?: Prisma.TagUncheckedUpdateManyWithoutTenantNestedInput
@@ -1131,6 +1270,7 @@ export type TenantCreateWithoutTagsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayCreateNestedManyWithoutTenantInput
@@ -1151,6 +1291,7 @@ export type TenantUncheckedCreateWithoutTagsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserUncheckedCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaUncheckedCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerUncheckedCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutTenantInput
@@ -1186,6 +1327,7 @@ export type TenantUpdateWithoutTagsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUpdateManyWithoutTenantNestedInput
@@ -1206,6 +1348,7 @@ export type TenantUncheckedUpdateWithoutTagsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUncheckedUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
@@ -1225,6 +1368,7 @@ export type TenantCreateWithoutCustomersInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayCreateNestedManyWithoutTenantInput
   tags?: Prisma.TagCreateNestedManyWithoutTenantInput
@@ -1245,6 +1389,7 @@ export type TenantUncheckedCreateWithoutCustomersInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserUncheckedCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaUncheckedCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutTenantInput
   tags?: Prisma.TagUncheckedCreateNestedManyWithoutTenantInput
@@ -1280,6 +1425,7 @@ export type TenantUpdateWithoutCustomersInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUpdateManyWithoutTenantNestedInput
   tags?: Prisma.TagUpdateManyWithoutTenantNestedInput
@@ -1300,6 +1446,7 @@ export type TenantUncheckedUpdateWithoutCustomersInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUncheckedUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
   tags?: Prisma.TagUncheckedUpdateManyWithoutTenantNestedInput
@@ -1319,6 +1466,7 @@ export type TenantCreateWithoutWorkDaysInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerCreateNestedManyWithoutTenantInput
   tags?: Prisma.TagCreateNestedManyWithoutTenantInput
@@ -1339,6 +1487,7 @@ export type TenantUncheckedCreateWithoutWorkDaysInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserUncheckedCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaUncheckedCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerUncheckedCreateNestedManyWithoutTenantInput
   tags?: Prisma.TagUncheckedCreateNestedManyWithoutTenantInput
@@ -1374,6 +1523,7 @@ export type TenantUpdateWithoutWorkDaysInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUpdateManyWithoutTenantNestedInput
   tags?: Prisma.TagUpdateManyWithoutTenantNestedInput
@@ -1394,6 +1544,7 @@ export type TenantUncheckedUpdateWithoutWorkDaysInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUncheckedUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
   tags?: Prisma.TagUncheckedUpdateManyWithoutTenantNestedInput
@@ -1413,6 +1564,7 @@ export type TenantCreateWithoutHolidaysInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayCreateNestedManyWithoutTenantInput
@@ -1433,6 +1585,7 @@ export type TenantUncheckedCreateWithoutHolidaysInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   users?: Prisma.UserUncheckedCreateNestedManyWithoutTenantInput
+  memberships?: Prisma.MembershipUncheckedCreateNestedManyWithoutTenantInput
   areas?: Prisma.AreaUncheckedCreateNestedManyWithoutTenantInput
   customers?: Prisma.CustomerUncheckedCreateNestedManyWithoutTenantInput
   workDays?: Prisma.WorkDayUncheckedCreateNestedManyWithoutTenantInput
@@ -1468,6 +1621,7 @@ export type TenantUpdateWithoutHolidaysInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUpdateManyWithoutTenantNestedInput
@@ -1488,6 +1642,7 @@ export type TenantUncheckedUpdateWithoutHolidaysInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   users?: Prisma.UserUncheckedUpdateManyWithoutTenantNestedInput
+  memberships?: Prisma.MembershipUncheckedUpdateManyWithoutTenantNestedInput
   areas?: Prisma.AreaUncheckedUpdateManyWithoutTenantNestedInput
   customers?: Prisma.CustomerUncheckedUpdateManyWithoutTenantNestedInput
   workDays?: Prisma.WorkDayUncheckedUpdateManyWithoutTenantNestedInput
@@ -1504,6 +1659,7 @@ export type TenantUncheckedUpdateWithoutHolidaysInput = {
 
 export type TenantCountOutputType = {
   users: number
+  memberships: number
   areas: number
   customers: number
   workDays: number
@@ -1515,6 +1671,7 @@ export type TenantCountOutputType = {
 
 export type TenantCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   users?: boolean | TenantCountOutputTypeCountUsersArgs
+  memberships?: boolean | TenantCountOutputTypeCountMembershipsArgs
   areas?: boolean | TenantCountOutputTypeCountAreasArgs
   customers?: boolean | TenantCountOutputTypeCountCustomersArgs
   workDays?: boolean | TenantCountOutputTypeCountWorkDaysArgs
@@ -1539,6 +1696,13 @@ export type TenantCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Exten
  */
 export type TenantCountOutputTypeCountUsersArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.UserWhereInput
+}
+
+/**
+ * TenantCountOutputType without action
+ */
+export type TenantCountOutputTypeCountMembershipsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.MembershipWhereInput
 }
 
 /**
@@ -1602,6 +1766,7 @@ export type TenantSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   createdAt?: boolean
   updatedAt?: boolean
   users?: boolean | Prisma.Tenant$usersArgs<ExtArgs>
+  memberships?: boolean | Prisma.Tenant$membershipsArgs<ExtArgs>
   areas?: boolean | Prisma.Tenant$areasArgs<ExtArgs>
   customers?: boolean | Prisma.Tenant$customersArgs<ExtArgs>
   workDays?: boolean | Prisma.Tenant$workDaysArgs<ExtArgs>
@@ -1652,6 +1817,7 @@ export type TenantSelectScalar = {
 export type TenantOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "slug" | "phone" | "address" | "website" | "logoUrl" | "createdAt" | "updatedAt", ExtArgs["result"]["tenant"]>
 export type TenantInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   users?: boolean | Prisma.Tenant$usersArgs<ExtArgs>
+  memberships?: boolean | Prisma.Tenant$membershipsArgs<ExtArgs>
   areas?: boolean | Prisma.Tenant$areasArgs<ExtArgs>
   customers?: boolean | Prisma.Tenant$customersArgs<ExtArgs>
   workDays?: boolean | Prisma.Tenant$workDaysArgs<ExtArgs>
@@ -1669,6 +1835,7 @@ export type $TenantPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs
   name: "Tenant"
   objects: {
     users: Prisma.$UserPayload<ExtArgs>[]
+    memberships: Prisma.$MembershipPayload<ExtArgs>[]
     areas: Prisma.$AreaPayload<ExtArgs>[]
     customers: Prisma.$CustomerPayload<ExtArgs>[]
     workDays: Prisma.$WorkDayPayload<ExtArgs>[]
@@ -2083,6 +2250,7 @@ readonly fields: TenantFieldRefs;
 export interface Prisma__TenantClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   users<T extends Prisma.Tenant$usersArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Tenant$usersArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  memberships<T extends Prisma.Tenant$membershipsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Tenant$membershipsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MembershipPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   areas<T extends Prisma.Tenant$areasArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Tenant$areasArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AreaPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   customers<T extends Prisma.Tenant$customersArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Tenant$customersArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$CustomerPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   workDays<T extends Prisma.Tenant$workDaysArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Tenant$workDaysArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$WorkDayPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
@@ -2543,6 +2711,30 @@ export type Tenant$usersArgs<ExtArgs extends runtime.Types.Extensions.InternalAr
   take?: number
   skip?: number
   distinct?: Prisma.UserScalarFieldEnum | Prisma.UserScalarFieldEnum[]
+}
+
+/**
+ * Tenant.memberships
+ */
+export type Tenant$membershipsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the Membership
+   */
+  select?: Prisma.MembershipSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the Membership
+   */
+  omit?: Prisma.MembershipOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.MembershipInclude<ExtArgs> | null
+  where?: Prisma.MembershipWhereInput
+  orderBy?: Prisma.MembershipOrderByWithRelationInput | Prisma.MembershipOrderByWithRelationInput[]
+  cursor?: Prisma.MembershipWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.MembershipScalarFieldEnum | Prisma.MembershipScalarFieldEnum[]
 }
 
 /**

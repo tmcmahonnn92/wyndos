@@ -1,16 +1,22 @@
 import { getAreaSchedules, getWorkDays, getHolidays } from "@/lib/actions";
-import { requirePermission } from "@/lib/tenant-context";
+import { listTeamMembers } from "@/lib/auth-actions";
+import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { SchedulerClient } from "./scheduler-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function SchedulerPage() {
   await requirePermission("scheduler");
-  const [areas, workDays, holidays] = await Promise.all([
+  const viewer = await getActiveUserContext();
+  const [areas, workDays, holidays, team] = await Promise.all([
     getAreaSchedules(),
     getWorkDays(),
     getHolidays(),
+    listTeamMembers().catch(() => []),
   ]);
+  const workers = team
+    .filter((member) => member.role === "WORKER")
+    .map((member) => ({ id: member.id, name: member.name, email: member.email }));
 
   return (
     <>
@@ -23,7 +29,7 @@ export default async function SchedulerPage() {
         </div>
       </div>
       <div className="hidden md:block h-full">
-        <SchedulerClient areas={areas} workDays={workDays} holidays={holidays} />
+        <SchedulerClient areas={areas} workDays={workDays} holidays={holidays} workers={workers} viewerRole={viewer.role} />
       </div>
     </>
   );

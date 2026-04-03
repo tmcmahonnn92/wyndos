@@ -1,6 +1,7 @@
 import { getInviteInfo } from "@/lib/auth-actions";
 import { InviteAcceptForm } from "./invite-accept-form";
 import Link from "next/link";
+import { auth } from "@/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,8 @@ interface Props {
 export default async function InviteAcceptPage({ params }: Props) {
   const { token } = await params;
   const invite = await getInviteInfo(token);
+  const session = await auth();
+  const googleEnabled = Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);
 
   if (!invite) {
     return (
@@ -44,7 +47,7 @@ export default async function InviteAcceptPage({ params }: Props) {
             <h1 className="text-3xl font-bold text-white">Join {invite.tenantName}</h1>
             <p className="text-sm text-slate-400">
               You&apos;ve been invited to join <strong className="text-slate-200">{invite.tenantName}</strong> as a worker.
-              Create your password below to accept.
+              Use your existing account, Google, or create a new password to accept.
             </p>
           </div>
 
@@ -52,7 +55,12 @@ export default async function InviteAcceptPage({ params }: Props) {
             <span className="text-slate-500">Email: </span>{invite.email}
           </div>
 
-          <InviteAcceptForm token={token} email={invite.email} />
+          <InviteAcceptForm
+            token={token}
+            email={invite.email}
+            googleEnabled={googleEnabled}
+            signedInEmail={session?.user?.email ?? null}
+          />
         </div>
       </div>
     </div>

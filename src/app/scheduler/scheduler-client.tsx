@@ -32,6 +32,7 @@ import {
   Users,
 } from "lucide-react";
 import {
+  assignWorkDayWorker,
   createArea,
   scheduleAreaRun,
   rescheduleWorkDay,
@@ -102,6 +103,7 @@ type WorkDay = {
   status: string;
   notes: string | null;
   areaId: number | null;
+  assignedUser: { id: string; name: string | null; email: string | null } | null;
   area: {
     id: number;
     name: string;
@@ -117,6 +119,7 @@ type WorkDay = {
 
 type FullJob = Job;
 type FullWorkDay = Omit<WorkDay, "jobs"> & { jobs: FullJob[] };
+type WorkerOption = { id: string; name: string | null; email: string };
 
 function getPreviousDebt(job: FullJob) {
   return (job.customer?.jobs ?? [])
@@ -215,6 +218,24 @@ function addDays(d: Date, n: number): Date {
   const dt = new Date(d);
   dt.setDate(dt.getDate() + n);
   return dt;
+}
+
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function addMonths(d: Date, n: number): Date {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1);
+}
+
+function getMonthGridDates(month: Date): Date[] {
+  const first = startOfMonth(month);
+  const start = getMondayOfWeek(first);
+  return Array.from({ length: 42 }, (_, index) => addDays(start, index));
+}
+
+function formatMonthRange(month: Date): string {
+  return month.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
 function dayDiff(a: Date | string | null, b: Date): number {
@@ -656,7 +677,7 @@ function CalendarCell({
   date, workDays, isToday, dragState,
   onDragOver, onDragLeave, onDrop, isDragOver,
   isHoliday, holidayLabel, isExpectedForDrag,
-  onWorkDayDragStart, onNotesClick, onExpand, onRemove,
+  onWorkDayDragStart, onNotesClick, onExpand, onRemove, canManageSchedule,
 }: {
   date: Date;
   workDays: WorkDay[];
@@ -673,6 +694,7 @@ function CalendarCell({
   onNotesClick: (wd: WorkDay) => void;
   onExpand: (wd: WorkDay) => void;
   onRemove: (wd: WorkDay) => void;
+  canManageSchedule: boolean;
 }) {
   const dropColour: DropColour =
     !isHoliday && isDragOver && dragState?.type === "area"
@@ -694,9 +716,9 @@ function CalendarCell({
 
   return (
     <div
-      onDragOver={(e) => { e.preventDefault(); if (!isHoliday) onDragOver(date); }}
+      onDragOver={(e) => { e.preventDefault(); if (!isHoliday && canManageSchedule) onDragOver(date); }}
       onDragLeave={onDragLeave}
-      onDrop={(e) => { e.preventDefault(); if (!isHoliday) onDrop(date); }}
+      onDrop={(e) => { e.preventDefault(); if (!isHoliday && canManageSchedule) onDrop(date); }}
       className={cn(
         "relative min-h-[130px] rounded-xl border transition-all duration-150 flex flex-col gap-1 p-2",
         isHoliday ? "bg-red-50/60 border-red-200" : isToday ? "bg-blue-50 border-blue-200" : "bg-white border-slate-200",
@@ -736,12 +758,12 @@ function CalendarCell({
         return (
           <div
             key={wd.id}
-            draggable={wd.status !== "COMPLETE"}
-            onDragStart={(e) => { if (wd.status === "COMPLETE") { e.preventDefault(); return; } e.stopPropagation(); onWorkDayDragStart(wd); }}
+            draggable={canManageSchedule && wd.status !== "COMPLETE"}
+            onDragStart={(e) => { if (!canManageSchedule || wd.status === "COMPLETE") { e.preventDefault(); return; } e.stopPropagation(); onWorkDayDragStart(wd); }}
             className="relative group"
           >
             {/* Remove button — top-right, visible on hover, hidden for completed days */}
-            {wd.status !== "COMPLETE" && (
+            {canManageSchedule && wd.status !== "COMPLETE" && (
               <button
                 onClick={(e) => { e.stopPropagation(); onRemove(wd); }}
                 className="absolute -top-1 -right-1 z-20 w-4 h-4 rounded-full bg-white border border-slate-300 text-slate-400 hover:bg-red-500 hover:border-red-500 hover:text-white transition-colors hidden group-hover:flex items-center justify-center shadow-sm"
@@ -776,6 +798,12 @@ function CalendarCell({
                 <span className="font-bold truncate flex-1">{wd.area?.name ?? wd.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off"}</span>
                 {wd.status === "IN_PROGRESS" && <Clock size={10} className="flex-shrink-0 opacity-80" />}
               </div>
+              {wd.assignedUser && (
+                <div className="flex items-center gap-1 pl-3.5 opacity-90 text-[10px]">
+                  <Users size={8} className="flex-shrink-0" />
+                  <span className="truncate">{wd.assignedUser.name ?? wd.assignedUser.email ?? "Assigned worker"}</span>
+                </div>
+              )}
               {/* Row 2: job count + value */}
               <div className="flex items-center gap-1.5 pl-3.5 opacity-90">
                 <span>{total} job{total !== 1 ? "s" : ""}</span>
@@ -819,6 +847,75 @@ function CalendarCell({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function MonthCalendarCell({
+  date,
+  monthStart,
+  workDays,
+  isHoliday,
+  holidayLabel,
+  onExpand,
+}: {
+  date: Date;
+  monthStart: Date;
+  workDays: WorkDay[];
+  isHoliday: boolean;
+  holidayLabel: string | null;
+  onExpand: (wd: WorkDay) => void;
+}) {
+  const isToday = isoDate(date) === todayISO();
+  const isCurrentMonth = date.getMonth() === monthStart.getMonth();
+  const visibleDays = workDays.slice(0, 3);
+  const hiddenCount = Math.max(0, workDays.length - visibleDays.length);
+
+  return (
+    <div
+      className={cn(
+        "min-h-[120px] rounded-xl border p-2 transition-colors",
+        isCurrentMonth ? "bg-white border-slate-200" : "bg-slate-50 border-slate-100 text-slate-400",
+        isToday && "ring-2 ring-blue-300 border-blue-300",
+        isHoliday && "bg-red-50/70 border-red-200",
+      )}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div>
+          <p className={cn("text-xs font-semibold", isToday ? "text-blue-600" : isCurrentMonth ? "text-slate-700" : "text-slate-400")}>
+            {date.toLocaleDateString("en-GB", { weekday: "short" })}
+          </p>
+          <p className={cn("text-sm font-bold", isToday ? "text-blue-700" : isCurrentMonth ? "text-slate-900" : "text-slate-400")}>
+            {date.getDate()}
+          </p>
+        </div>
+        {isHoliday && (
+          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+            {holidayLabel ?? "Holiday"}
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-1.5">
+        {visibleDays.map((workDay) => (
+          <button
+            key={workDay.id}
+            type="button"
+            onClick={() => onExpand(workDay)}
+            className="flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left text-[11px] text-white transition hover:opacity-90"
+            style={workDayChipStyle(workDay.status, workDay.area?.color)}
+          >
+            <span className="truncate font-bold">{workDay.area?.name ?? workDay.jobs[0]?.customer?.name ?? "Work day"}</span>
+            <span className="truncate opacity-90">{workDay.jobs.length} job{workDay.jobs.length !== 1 ? "s" : ""}</span>
+            {workDay.assignedUser && (
+              <span className="truncate opacity-80">{workDay.assignedUser.name ?? workDay.assignedUser.email}</span>
+            )}
+          </button>
+        ))}
+        {hiddenCount > 0 && (
+          <p className="px-1 text-[11px] font-medium text-slate-500">+{hiddenCount} more</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -1307,7 +1404,17 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
 
 // ── Day Detail Modal ─────────────────────────────────────────────────────────
 
-function DayDetailModal({ workDay, onClose }: { workDay: WorkDay | null; onClose: () => void }) {
+function DayDetailModal({
+  workDay,
+  onClose,
+  workers,
+  canAssignWorkers,
+}: {
+  workDay: WorkDay | null;
+  onClose: () => void;
+  workers: WorkerOption[];
+  canAssignWorkers: boolean;
+}) {
   const router = useRouter();
   const [localJobs, setLocalJobs] = useState<FullJob[]>([]);
   const [hasOrderChanges, setHasOrderChanges] = useState(false);
@@ -1324,6 +1431,7 @@ function DayDetailModal({ workDay, onClose }: { workDay: WorkDay | null; onClose
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [dragSrcIdx, setDragSrcIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [assignedWorkerId, setAssignedWorkerId] = useState("");
 
   // ── 3-tab add-job state ──────────────────────────────────────────────────
   const [addTab, setAddTab] = useState<"from-area" | "one-off" | "new-customer">("from-area");
@@ -1379,6 +1487,7 @@ function DayDetailModal({ workDay, onClose }: { workDay: WorkDay | null; onClose
     setRouteModalOpen(false);
     setDragSrcIdx(null);
     setDragOverIdx(null);
+    setAssignedWorkerId(workDay.assignedUser?.id ?? "");
   }
 
   // Enrich localJobs with full payment data as soon as workDay changes
@@ -1563,6 +1672,42 @@ function DayDetailModal({ workDay, onClose }: { workDay: WorkDay | null; onClose
             </button>
           )}
         </div>
+
+        {canAssignWorkers && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Assigned worker
+            </label>
+            <div className="flex items-center gap-2">
+              <select
+                value={assignedWorkerId}
+                onChange={(event) => setAssignedWorkerId(event.target.value)}
+                className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <option value="">Unassigned</option>
+                {workers.map((worker) => (
+                  <option key={worker.id} value={worker.id}>
+                    {worker.name ?? worker.email}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!workDay) return;
+                  startSaving(async () => {
+                    await assignWorkDayWorker(workDay.id, assignedWorkerId || null);
+                    router.refresh();
+                  });
+                }}
+                disabled={isSaving}
+                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Customer list header with full-day link */}
         <div className="flex items-center justify-between">
@@ -2166,19 +2311,28 @@ function DayDetailModal({ workDay, onClose }: { workDay: WorkDay | null; onClose
 
 // ── Main Scheduler Client ─────────────────────────────────────────────────────
 
-export function SchedulerClient({ areas, workDays, holidays: initialHolidays }: {
+export function SchedulerClient({ areas, workDays, holidays: initialHolidays, workers, viewerRole }: {
   areas: Area[];
   workDays: WorkDay[];
   holidays: Holiday[];
+  workers: WorkerOption[];
+  viewerRole: "SUPER_ADMIN" | "OWNER" | "WORKER";
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
+  const canManageSchedule = viewerRole !== "WORKER";
 
+  const [calendarView, setCalendarView] = useState<"week" | "month">("week");
   const [weekStart, setWeekStart] = useState<Date>(() => getMondayOfWeek(new Date()));
+  const [monthStart, setMonthStart] = useState<Date>(() => startOfMonth(new Date()));
   const goToPrevWeek = () => setWeekStart((w) => addDays(w, -7));
   const goToNextWeek = () => setWeekStart((w) => addDays(w, 7));
   const goToThisWeek = () => setWeekStart(getMondayOfWeek(new Date()));
   const isCurrentWeek = isoDate(weekStart) === isoDate(getMondayOfWeek(new Date()));
+  const goToPrevMonth = () => setMonthStart((m) => addMonths(m, -1));
+  const goToNextMonth = () => setMonthStart((m) => addMonths(m, 1));
+  const goToThisMonth = () => setMonthStart(startOfMonth(new Date()));
+  const isCurrentMonth = monthStart.getFullYear() === new Date().getFullYear() && monthStart.getMonth() === new Date().getMonth();
   const [dragState, setDragState] = useState<DragState>(null);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [addAreaOpen, setAddAreaOpen] = useState(false);
@@ -2247,6 +2401,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays }: 
   }, []);
 
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const monthDates = getMonthGridDates(monthStart);
 
   const workDaysByDate = new Map<string, WorkDay[]>();
   for (const wd of workDays) {
@@ -2302,6 +2457,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays }: 
 
   const handleDrop = useCallback((targetDate: Date) => {
     setDragOverDate(null);
+    if (!canManageSchedule) return;
     if (!dragState) return;
     // Block drops on holidays
     if (isDateHoliday(targetDate)) {
@@ -2352,7 +2508,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays }: 
       });
     }
     setDragState(null);
-  }, [dragState, router, startTransition]);
+  }, [canManageSchedule, dragState, router, startTransition]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden relative">
@@ -2386,6 +2542,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays }: 
       </Modal>
 
       {/* ── Areas strip ────────────────────────────────────────────────────── */}
+      {canManageSchedule && (
       <div className="border-b border-slate-200 bg-slate-50 flex-shrink-0">
         {/* Strip header */}
         <div className="flex items-center justify-between px-3 py-1.5">
@@ -2505,6 +2662,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays }: 
           </div>
         )}
       </div>
+      )}
 
       {/* ── Calendar ───────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -2516,141 +2674,185 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays }: 
           </div>
         )}
 
-        {/* Week nav */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-white flex-shrink-0">
-          <button
-            onClick={goToPrevWeek}
-            className={cn(
-              "p-1.5 rounded-lg transition-colors text-slate-600",
-              "hover:bg-slate-100"
-            )}
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <div className="flex flex-col items-center gap-0.5">
-            <p className="text-sm font-bold text-slate-800">{formatWeekRange(weekStart)}</p>
-            {dragState ? (
-              <p className="text-[10px] text-blue-500 font-semibold animate-pulse">drag to edges to change week</p>
-            ) : !isCurrentWeek ? (
-              <button onClick={goToThisWeek}
-                className="text-[11px] text-blue-600 font-semibold px-2 py-0.5 rounded-full bg-blue-50 hover:bg-blue-100">
-                Today
-              </button>
-            ) : null}
-          </div>
-          <button
-            onClick={goToNextWeek}
-            className={cn(
-              "p-1.5 rounded-lg transition-colors text-slate-600",
-              "hover:bg-slate-100"
-            )}
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
-
-        {/* Day column headers */}
-        <div className="grid grid-cols-7 border-b border-slate-200 bg-white flex-shrink-0">
-          {weekDates.map((d, i) => {
-            const iso = isoDate(d);
-            const isToday = iso === todayISO();
-            const cellWDs = workDaysByDate.get(iso) ?? [];
-            const colJobs = cellWDs.reduce((s, wd) => s + wd.jobs.length, 0);
-            const colValue = cellWDs.reduce((s, wd) => wd.jobs.reduce((s2, j) => s2 + j.price, s), 0);
-            return (
-              <div key={i} className={cn(
-                "px-1 py-2 text-center border-r border-slate-100 last:border-r-0",
-                isToday ? "bg-blue-50" : ""
-              )}>
-                <p className={cn("text-[10px] font-semibold uppercase tracking-wide",
-                  isToday ? "text-blue-600" : "text-slate-500")}>{DAY_LABELS[i]}</p>
-                <p className={cn("text-sm font-bold",
-                  isToday ? "text-blue-600" : "text-slate-700")}>{fmtDayNum(d)}</p>
-                {colJobs > 0 && (
-                  <p className="text-[9px] text-slate-400 mt-0.5 tabular-nums leading-tight">
-                    {colJobs}j · £{colValue.toFixed(0)}
-                  </p>
+        <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-200 bg-white flex-shrink-0">
+          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+            {(["week", "month"] as const).map((view) => (
+              <button
+                key={view}
+                type="button"
+                onClick={() => setCalendarView(view)}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                  calendarView === view ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-white"
                 )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Calendar grid — edge zones change week when dragging */}
-        <div className="flex-1 overflow-y-auto relative"
-          onDragOver={(e) => {
-            if (!dragState) return;
-            const rect = e.currentTarget.getBoundingClientRect();
-            const pct = (e.clientX - rect.left) / rect.width;
-            if (pct < 0.09) {
-              if (!edgeTimerRef.current)
-                edgeTimerRef.current = setTimeout(() => { goToPrevWeek(); edgeTimerRef.current = null; }, 750);
-            } else if (pct > 0.91) {
-              if (!edgeTimerRef.current)
-                edgeTimerRef.current = setTimeout(() => { goToNextWeek(); edgeTimerRef.current = null; }, 750);
-            } else {
-              clearEdgeTimer();
-            }
-          }}
-          onDragLeave={clearEdgeTimer}
-          onDragEnd={clearEdgeTimer}
-        >
-          {/* Left edge indicator */}
-          {dragState && (
-            <>
-              <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 z-20 bg-gradient-to-r from-blue-100/70 to-transparent flex items-center justify-start pl-1">
-                <ChevronLeft size={16} className="text-blue-400" />
-              </div>
-              <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 z-20 bg-gradient-to-l from-blue-100/70 to-transparent flex items-center justify-end pr-1">
-                <ChevronRight size={16} className="text-blue-400" />
-              </div>
-            </>
-          )}
-          <div className="grid grid-cols-7 gap-1.5 p-2 min-h-full">
-            {weekDates.map((d) => {
-              const iso = isoDate(d);
-              const cellWorkDays = workDaysByDate.get(iso) ?? [];
-              const isToday = iso === todayISO();
-              const isDragOver = dragOverDate === iso;
-              const isExpectedForDrag = (() => {
-                if (!dragState) return false;
-                if (dragState.type === "workday") {
-                  const expected = dragState.workDay.area ? nextExpectedDateForArea(dragState.workDay.area) : null;
-                  return !!expected && isoDate(expected) === iso;
-                }
-                return false;
-              })();
-              return (
-                <CalendarCell
-                  key={iso}
-                  date={d}
-                  workDays={cellWorkDays}
-                  isToday={isToday}
-                  dragState={dragState}
-                  isHoliday={isDateHoliday(d)}
-                  holidayLabel={getDateHolidayLabel(d)}
-                  isExpectedForDrag={isExpectedForDrag}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  isDragOver={isDragOver}
-                  onWorkDayDragStart={handleWorkDayDragStart}
-                  onNotesClick={handleNotesClick}
-                  onExpand={(wd) => {
-                    if (wd.status === "COMPLETE") setCompletedExpandedDay(wd);
-                    else setExpandedDay(wd);
-                  }}
-                  onRemove={(wd) => {
-                    startTransition(async () => {
-                      await deleteWorkDay(wd.id);
-                      router.refresh();
-                    });
-                  }}
-                />
-              );
-            })}
+              >
+                {view === "week" ? "Week" : "Month"}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={calendarView === "week" ? goToPrevWeek : goToPrevMonth}
+              className="p-1.5 rounded-lg transition-colors text-slate-600 hover:bg-slate-100"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div className="flex min-w-[180px] flex-col items-center gap-0.5">
+              <p className="text-sm font-bold text-slate-800">
+                {calendarView === "week" ? formatWeekRange(weekStart) : formatMonthRange(monthStart)}
+              </p>
+              {calendarView === "week" && dragState ? (
+                <p className="text-[10px] text-blue-500 font-semibold animate-pulse">drag to edges to change week</p>
+              ) : (calendarView === "week" ? !isCurrentWeek : !isCurrentMonth) ? (
+                <button
+                  onClick={calendarView === "week" ? goToThisWeek : goToThisMonth}
+                  className="text-[11px] text-blue-600 font-semibold px-2 py-0.5 rounded-full bg-blue-50 hover:bg-blue-100"
+                >
+                  Today
+                </button>
+              ) : null}
+            </div>
+            <button
+              onClick={calendarView === "week" ? goToNextWeek : goToNextMonth}
+              className="p-1.5 rounded-lg transition-colors text-slate-600 hover:bg-slate-100"
+            >
+              <ChevronRight size={16} />
+            </button>
           </div>
         </div>
+
+        {calendarView === "week" ? (
+          <>
+            <div className="grid grid-cols-7 border-b border-slate-200 bg-white flex-shrink-0">
+              {weekDates.map((d, i) => {
+                const iso = isoDate(d);
+                const isToday = iso === todayISO();
+                const cellWDs = workDaysByDate.get(iso) ?? [];
+                const colJobs = cellWDs.reduce((s, wd) => s + wd.jobs.length, 0);
+                const colValue = cellWDs.reduce((s, wd) => wd.jobs.reduce((s2, j) => s2 + j.price, s), 0);
+                return (
+                  <div key={i} className={cn(
+                    "px-1 py-2 text-center border-r border-slate-100 last:border-r-0",
+                    isToday ? "bg-blue-50" : ""
+                  )}>
+                    <p className={cn("text-[10px] font-semibold uppercase tracking-wide",
+                      isToday ? "text-blue-600" : "text-slate-500")}>{DAY_LABELS[i]}</p>
+                    <p className={cn("text-sm font-bold",
+                      isToday ? "text-blue-600" : "text-slate-700")}>{fmtDayNum(d)}</p>
+                    {colJobs > 0 && (
+                      <p className="text-[9px] text-slate-400 mt-0.5 tabular-nums leading-tight">
+                        {colJobs}j · £{colValue.toFixed(0)}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex-1 overflow-y-auto relative"
+              onDragOver={(e) => {
+                if (!dragState || !canManageSchedule) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const pct = (e.clientX - rect.left) / rect.width;
+                if (pct < 0.09) {
+                  if (!edgeTimerRef.current)
+                    edgeTimerRef.current = setTimeout(() => { goToPrevWeek(); edgeTimerRef.current = null; }, 750);
+                } else if (pct > 0.91) {
+                  if (!edgeTimerRef.current)
+                    edgeTimerRef.current = setTimeout(() => { goToNextWeek(); edgeTimerRef.current = null; }, 750);
+                } else {
+                  clearEdgeTimer();
+                }
+              }}
+              onDragLeave={clearEdgeTimer}
+              onDragEnd={clearEdgeTimer}
+            >
+              {dragState && canManageSchedule && (
+                <>
+                  <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 z-20 bg-gradient-to-r from-blue-100/70 to-transparent flex items-center justify-start pl-1">
+                    <ChevronLeft size={16} className="text-blue-400" />
+                  </div>
+                  <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 z-20 bg-gradient-to-l from-blue-100/70 to-transparent flex items-center justify-end pr-1">
+                    <ChevronRight size={16} className="text-blue-400" />
+                  </div>
+                </>
+              )}
+              <div className="grid grid-cols-7 gap-1.5 p-2 min-h-full">
+                {weekDates.map((d) => {
+                  const iso = isoDate(d);
+                  const cellWorkDays = workDaysByDate.get(iso) ?? [];
+                  const isToday = iso === todayISO();
+                  const isDragOver = dragOverDate === iso;
+                  const isExpectedForDrag = (() => {
+                    if (!dragState) return false;
+                    if (dragState.type === "workday") {
+                      const expected = dragState.workDay.area ? nextExpectedDateForArea(dragState.workDay.area) : null;
+                      return !!expected && isoDate(expected) === iso;
+                    }
+                    return false;
+                  })();
+                  return (
+                    <CalendarCell
+                      key={iso}
+                      date={d}
+                      workDays={cellWorkDays}
+                      isToday={isToday}
+                      dragState={dragState}
+                      isHoliday={isDateHoliday(d)}
+                      holidayLabel={getDateHolidayLabel(d)}
+                      isExpectedForDrag={isExpectedForDrag}
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      isDragOver={isDragOver}
+                      onWorkDayDragStart={handleWorkDayDragStart}
+                      onNotesClick={handleNotesClick}
+                      canManageSchedule={canManageSchedule}
+                      onExpand={(wd) => {
+                        if (wd.status === "COMPLETE") setCompletedExpandedDay(wd);
+                        else setExpandedDay(wd);
+                      }}
+                      onRemove={(wd) => {
+                        startTransition(async () => {
+                          await deleteWorkDay(wd.id);
+                          router.refresh();
+                        });
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-2">
+            <div className="grid grid-cols-7 gap-1.5">
+              {DAY_LABELS.map((label) => (
+                <div key={label} className="px-2 py-1 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  {label}
+                </div>
+              ))}
+              {monthDates.map((date) => {
+                const iso = isoDate(date);
+                const cellWorkDays = workDaysByDate.get(iso) ?? [];
+                return (
+                  <MonthCalendarCell
+                    key={iso}
+                    date={date}
+                    monthStart={monthStart}
+                    workDays={cellWorkDays}
+                    isHoliday={isDateHoliday(date)}
+                    holidayLabel={getDateHolidayLabel(date)}
+                    onExpand={(wd) => {
+                      if (wd.status === "COMPLETE") setCompletedExpandedDay(wd);
+                      else setExpandedDay(wd);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Legend */}
         <div className="flex items-center gap-3 px-3 py-1.5 bg-white border-t border-slate-200 flex-shrink-0 flex-wrap">
@@ -2691,6 +2893,8 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays }: 
       />
       <DayDetailModal
         workDay={expandedDay}
+        workers={workers}
+        canAssignWorkers={canManageSchedule}
         onClose={() => setExpandedDay(null)}
       />
       <CompletedWorkDayModal

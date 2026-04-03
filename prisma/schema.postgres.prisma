@@ -25,6 +25,7 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   users     User[]
+  memberships Membership[]
   areas     Area[]
   customers Customer[]
   workDays  WorkDay[]
@@ -126,10 +127,29 @@ model User {
   updatedAt          DateTime  @updatedAt
   accounts           Account[]
   sessions           Session[]
+  memberships        Membership[]
+  assignedWorkDays   WorkDay[] @relation("AssignedWorkerWorkDays")
   supportAccessLogs  SupportAccessLog[] @relation("SupportAdminLogs")
   endedSupportAccessLogs SupportAccessLog[] @relation("EndedSupportAccessLogs")
 
   @@index([tenantId])
+}
+
+model Membership {
+  id          Int       @id @default(autoincrement())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId    Int
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role        UserRole  @default(WORKER)
+  permissions String    @default("[]")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+  @@index([tenantId, role])
+  @@index([userId])
 }
 
 model Account {
@@ -291,6 +311,8 @@ model WorkDay {
   date      DateTime
   areaId    Int?
   area      Area?         @relation(fields: [areaId], references: [id])
+  assignedUserId String?
+  assignedUser   User?    @relation("AssignedWorkerWorkDays", fields: [assignedUserId], references: [id], onDelete: SetNull)
   status    WorkDayStatus @default(PLANNED)
   notes     String?
   createdAt DateTime      @default(now())
@@ -300,6 +322,7 @@ model WorkDay {
   @@index([tenantId])
   @@index([tenantId, date])
   @@index([tenantId, areaId])
+  @@index([tenantId, assignedUserId])
 }
 
 model Job {

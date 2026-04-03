@@ -129,6 +129,8 @@ export function Nav({
   user,
   tenantName,
   permissions = [],
+  activeRole,
+  companyCount = 0,
 }: {
   user: {
     name?: string | null;
@@ -138,10 +140,13 @@ export function Nav({
   };
   tenantName?: string | null;
   permissions?: string[];
+  activeRole?: string | null;
+  companyCount?: number;
 }) {
   const pathname = usePathname();
   const isSuperAdmin = user.role === "SUPER_ADMIN";
-  const isWorker = user.role === "WORKER";
+  const currentRole = activeRole ?? user.role;
+  const isWorker = currentRole === "WORKER";
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -199,10 +204,15 @@ export function Nav({
           <div className="rounded-2xl border border-[#1E2840] bg-[#131929] px-3 py-3">
             <p className="truncate text-sm font-semibold text-white">{user.name || user.email || "Signed in"}</p>
             <p className="mt-0.5 truncate text-[11px] uppercase tracking-[0.18em] text-[#4A5568]">
-              {isSuperAdmin ? "Super Admin" : user.role === "OWNER" ? "Owner" : user.role === "WORKER" ? "Worker" : user.role ?? "User"}
+              {isSuperAdmin ? "Super Admin" : currentRole === "OWNER" ? "Owner" : currentRole === "WORKER" ? "Worker" : currentRole ?? "User"}
             </p>
             {tenantName && !isSuperAdmin && (
               <p className="mt-0.5 truncate text-[11px] text-[#4A5568]">{tenantName}</p>
+            )}
+            {!isSuperAdmin && companyCount > 1 && (
+              <Link href="/auth/company-select" className="mt-2 inline-block text-xs font-semibold text-[#3D8EF5] hover:text-[#8bbcff]">
+                Switch company
+              </Link>
             )}
             {!user.onboardingComplete && !isSuperAdmin && (
               <Link href="/auth/onboarding" className="mt-2 inline-block text-xs font-semibold text-[#3D8EF5] hover:text-[#8bbcff]">
@@ -230,6 +240,11 @@ export function Nav({
           {isSuperAdmin && tenantName && (
             <Link href="/admin" className="text-[10px] font-semibold uppercase tracking-[0.15em] text-blue-400">
               {tenantName}
+            </Link>
+          )}
+          {!isSuperAdmin && companyCount > 1 && (
+            <Link href="/auth/company-select" className="text-[10px] font-semibold uppercase tracking-[0.15em] text-blue-400">
+              Switch
             </Link>
           )}
           {!user.onboardingComplete && !isSuperAdmin && (

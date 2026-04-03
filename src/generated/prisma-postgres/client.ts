@@ -63,6 +63,11 @@ export type Invite = Prisma.InviteModel
  */
 export type User = Prisma.UserModel
 /**
+ * Model Membership
+ * 
+ */
+export type Membership = Prisma.MembershipModel
+/**
  * Model Account
  * 
  */

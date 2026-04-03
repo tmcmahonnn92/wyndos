@@ -31,7 +31,14 @@ async function requireTenantJob(tenantId: number, jobId: number) {
 }
 
 async function requireTenantWorkDay(tenantId: number, workDayId: number) {
-  const workDay = await prisma.workDay.findFirst({ where: { id: workDayId, tenantId } });
+  const user = await requireAuth();
+  const workDay = await prisma.workDay.findFirst({
+    where: {
+      id: workDayId,
+      tenantId,
+      ...(user.role === "WORKER" ? { assignedUserId: user.id } : {}),
+    },
+  });
   if (!workDay) throw new Error("Work day not found");
   return workDay;
 }
@@ -46,6 +53,26 @@ async function requireTenantCustomer(tenantId: number, customerId: number) {
   const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId } });
   if (!customer) throw new Error("Customer not found");
   return customer;
+}
+
+async function resolveAssignedWorkerId(tenantId: number, assignedUserId?: string | null) {
+  if (assignedUserId === undefined) return undefined;
+  if (!assignedUserId) return null;
+
+  const membership = await prisma.membership.findFirst({
+    where: { tenantId, userId: assignedUserId, role: "WORKER" },
+    select: { userId: true },
+  });
+  if (!membership) {
+    throw new Error("Selected worker does not belong to this company.");
+  }
+
+  return membership.userId;
+}
+
+async function getVisibleWorkDayWhere(tenantId: number) {
+  const user = await requireAuth();
+  return user.role === "WORKER" ? { tenantId, assignedUserId: user.id } : { tenantId };
 }
 
 function normaliseGoCardlessReference(value: string | null | undefined) {
@@ -228,6 +255,10 @@ export async function getAreas() {
 
 export async function getAreaSchedules() {
   const tenantId = await getActiveTenantId();
+  const user = await requireAuth();
+  if (user.role === "WORKER") {
+    return [];
+  }
   const areas = await prisma.area.findMany({ where: { tenantId, isSystemArea: false },
     include: {
       _count: { select: { customers: true } },
@@ -318,10 +349,11 @@ function isoToUTC(dateISO: string): Date {
  * customers for the area, and mark the area's nextDueDate as this date.
  * (Completion auto-schedules the subsequent run.)
  */
-export async function scheduleAreaRun(areaId: number, dateISO: string) {
+export async function scheduleAreaRun(areaId: number, dateISO: string, assignedUserId?: string | null) {
   const tenantId = await getActiveTenantId();
   const d = isoToUTC(dateISO);
   const area = await requireTenantArea(tenantId, areaId);
+  const workerId = await resolveAssignedWorkerId(tenantId, assignedUserId);
 
   const [, eligibleCustomers] = await Promise.all([
     area,
@@ -334,8 +366,8 @@ export async function scheduleAreaRun(areaId: number, dateISO: string) {
   // Create (or find existing) work day for the dropped date
   const workDay = await prisma.workDay.upsert({
     where: { tenantId_date_areaId: { tenantId, date: d, areaId } },
-    update: {},
-    create: { tenantId, date: d, areaId },
+    update: workerId === undefined ? {} : { assignedUserId: workerId },
+    create: { tenantId, date: d, areaId, assignedUserId: workerId ?? undefined },
   });
 
   // Populate with eligible customers (avoid duplicates)
@@ -933,10 +965,12 @@ export async function rescheduleCustomer(id: number, newDate: Date) {
 
 export async function getWorkDays() {
   const tenantId = await getActiveTenantId();
+  const where = await getVisibleWorkDayWhere(tenantId);
   return prisma.workDay.findMany({
-    where: { tenantId },
+    where,
     include: {
       area: true,
+      assignedUser: { select: { id: true, name: true, email: true } },
       jobs: {
         include: {
           customer: {
@@ -958,10 +992,12 @@ export async function getWorkDays() {
 
 export async function getWorkDay(id: number) {
   const tenantId = await getActiveTenantId();
+  const where = await getVisibleWorkDayWhere(tenantId);
   return prisma.workDay.findFirst({
-    where: { id, tenantId },
+    where: { id, ...where },
     include: {
       area: true,
+      assignedUser: { select: { id: true, name: true, email: true } },
       jobs: {
         include: {
           allocations: {
@@ -996,21 +1032,22 @@ export async function getWorkDay(id: number) {
   });
 }
 
-export async function createWorkDay(date: Date, areaId?: number) {
+export async function createWorkDay(date: Date, areaId?: number, assignedUserId?: string | null) {
   const tenantId = await getActiveTenantId();
   const d = utcDay(date);
+  const workerId = await resolveAssignedWorkerId(tenantId, assignedUserId);
   let day;
   if (areaId) {
     await requireTenantArea(tenantId, areaId);
     // For area-linked days: enforce one per (date, area) pair
     day = await prisma.workDay.upsert({
       where: { tenantId_date_areaId: { tenantId, date: d, areaId } },
-      update: {},
-      create: { tenantId, date: d, areaId },
+      update: workerId === undefined ? {} : { assignedUserId: workerId },
+      create: { tenantId, date: d, areaId, assignedUserId: workerId ?? undefined },
     });
   } else {
     // No area: just create a standalone day (one-off / manual)
-    day = await prisma.workDay.create({ data: { tenantId, date: d } });
+    day = await prisma.workDay.create({ data: { tenantId, date: d, assignedUserId: workerId ?? undefined } });
   }
   revalidatePath("/days");
   return day;
@@ -1656,13 +1693,32 @@ export async function rescheduleWorkDay(
 /** Fetch work days within a date range (inclusive). */
 export async function getWorkDaysInRange(from: Date, to: Date) {
   const tenantId = await getActiveTenantId();
-  return prisma.workDay.findMany({ where: { tenantId, date: { gte: utcDay(from), lte: utcDay(to) } },
+  const where = await getVisibleWorkDayWhere(tenantId);
+  return prisma.workDay.findMany({ where: { ...where, date: { gte: utcDay(from), lte: utcDay(to) } },
     include: {
       area: true,
+      assignedUser: { select: { id: true, name: true, email: true } },
       jobs: { include: { customer: { include: { area: true } } } },
     },
     orderBy: { date: "asc" },
   });
+}
+
+export async function assignWorkDayWorker(workDayId: number, assignedUserId?: string | null) {
+  const tenantId = await getActiveTenantId();
+  const user = await requireAuth();
+  if (user.role === "WORKER") {
+    throw new Error("Only owners can assign work days.");
+  }
+
+  const workerId = await resolveAssignedWorkerId(tenantId, assignedUserId);
+  await prisma.workDay.update({
+    where: { id: workDayId },
+    data: { assignedUserId: workerId ?? null },
+  });
+  revalidatePath("/scheduler");
+  revalidatePath("/days");
+  revalidatePath(`/days/${workDayId}`);
 }
 
 // â”€â”€â”€ Complete Day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1743,8 +1799,8 @@ export async function completeDay(
     // Create populated work day for next run
     const nextWorkDay = await prisma.workDay.upsert({
       where: { tenantId_date_areaId: { date: nextDue, areaId: workDay.area.id , tenantId } },
-      update: {},
-      create: { tenantId, date: nextDue, areaId: workDay.area.id },
+      update: { assignedUserId: workDay.assignedUserId ?? null },
+      create: { tenantId, date: nextDue, areaId: workDay.area.id, assignedUserId: workDay.assignedUserId ?? undefined },
     });
 
     // All active area customers are always included in every run â€” no nextDueDate filter
@@ -1886,8 +1942,8 @@ export async function updateCompletedWorkDayDate(workDayId: number, isoDate: str
 
     const targetNextWorkDay = await prisma.workDay.upsert({
       where: { tenantId_date_areaId: { tenantId, date: nextDue, areaId: workDay.area.id } },
-      update: {},
-      create: { tenantId, date: nextDue, areaId: workDay.area.id },
+      update: { assignedUserId: workDay.assignedUserId ?? null },
+      create: { tenantId, date: nextDue, areaId: workDay.area.id, assignedUserId: workDay.assignedUserId ?? undefined },
     });
 
     const sourceNextWorkDay = await prisma.workDay.findFirst({

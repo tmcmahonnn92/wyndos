@@ -43,6 +43,7 @@ export type WorkDayMinAggregateOutputType = {
   tenantId: number | null
   date: Date | null
   areaId: number | null
+  assignedUserId: string | null
   status: $Enums.WorkDayStatus | null
   notes: string | null
   createdAt: Date | null
@@ -53,6 +54,7 @@ export type WorkDayMaxAggregateOutputType = {
   tenantId: number | null
   date: Date | null
   areaId: number | null
+  assignedUserId: string | null
   status: $Enums.WorkDayStatus | null
   notes: string | null
   createdAt: Date | null
@@ -63,6 +65,7 @@ export type WorkDayCountAggregateOutputType = {
   tenantId: number
   date: number
   areaId: number
+  assignedUserId: number
   status: number
   notes: number
   createdAt: number
@@ -87,6 +90,7 @@ export type WorkDayMinAggregateInputType = {
   tenantId?: true
   date?: true
   areaId?: true
+  assignedUserId?: true
   status?: true
   notes?: true
   createdAt?: true
@@ -97,6 +101,7 @@ export type WorkDayMaxAggregateInputType = {
   tenantId?: true
   date?: true
   areaId?: true
+  assignedUserId?: true
   status?: true
   notes?: true
   createdAt?: true
@@ -107,6 +112,7 @@ export type WorkDayCountAggregateInputType = {
   tenantId?: true
   date?: true
   areaId?: true
+  assignedUserId?: true
   status?: true
   notes?: true
   createdAt?: true
@@ -204,6 +210,7 @@ export type WorkDayGroupByOutputType = {
   tenantId: number
   date: Date
   areaId: number | null
+  assignedUserId: string | null
   status: $Enums.WorkDayStatus
   notes: string | null
   createdAt: Date
@@ -237,11 +244,13 @@ export type WorkDayWhereInput = {
   tenantId?: Prisma.IntFilter<"WorkDay"> | number
   date?: Prisma.DateTimeFilter<"WorkDay"> | Date | string
   areaId?: Prisma.IntNullableFilter<"WorkDay"> | number | null
+  assignedUserId?: Prisma.StringNullableFilter<"WorkDay"> | string | null
   status?: Prisma.EnumWorkDayStatusFilter<"WorkDay"> | $Enums.WorkDayStatus
   notes?: Prisma.StringNullableFilter<"WorkDay"> | string | null
   createdAt?: Prisma.DateTimeFilter<"WorkDay"> | Date | string
   tenant?: Prisma.XOR<Prisma.TenantScalarRelationFilter, Prisma.TenantWhereInput>
   area?: Prisma.XOR<Prisma.AreaNullableScalarRelationFilter, Prisma.AreaWhereInput> | null
+  assignedUser?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
   jobs?: Prisma.JobListRelationFilter
 }
 
@@ -250,11 +259,13 @@ export type WorkDayOrderByWithRelationInput = {
   tenantId?: Prisma.SortOrder
   date?: Prisma.SortOrder
   areaId?: Prisma.SortOrderInput | Prisma.SortOrder
+  assignedUserId?: Prisma.SortOrderInput | Prisma.SortOrder
   status?: Prisma.SortOrder
   notes?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   tenant?: Prisma.TenantOrderByWithRelationInput
   area?: Prisma.AreaOrderByWithRelationInput
+  assignedUser?: Prisma.UserOrderByWithRelationInput
   jobs?: Prisma.JobOrderByRelationAggregateInput
 }
 
@@ -267,11 +278,13 @@ export type WorkDayWhereUniqueInput = Prisma.AtLeast<{
   tenantId?: Prisma.IntFilter<"WorkDay"> | number
   date?: Prisma.DateTimeFilter<"WorkDay"> | Date | string
   areaId?: Prisma.IntNullableFilter<"WorkDay"> | number | null
+  assignedUserId?: Prisma.StringNullableFilter<"WorkDay"> | string | null
   status?: Prisma.EnumWorkDayStatusFilter<"WorkDay"> | $Enums.WorkDayStatus
   notes?: Prisma.StringNullableFilter<"WorkDay"> | string | null
   createdAt?: Prisma.DateTimeFilter<"WorkDay"> | Date | string
   tenant?: Prisma.XOR<Prisma.TenantScalarRelationFilter, Prisma.TenantWhereInput>
   area?: Prisma.XOR<Prisma.AreaNullableScalarRelationFilter, Prisma.AreaWhereInput> | null
+  assignedUser?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
   jobs?: Prisma.JobListRelationFilter
 }, "id" | "tenantId_date_areaId">
 
@@ -280,6 +293,7 @@ export type WorkDayOrderByWithAggregationInput = {
   tenantId?: Prisma.SortOrder
   date?: Prisma.SortOrder
   areaId?: Prisma.SortOrderInput | Prisma.SortOrder
+  assignedUserId?: Prisma.SortOrderInput | Prisma.SortOrder
   status?: Prisma.SortOrder
   notes?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -298,6 +312,7 @@ export type WorkDayScalarWhereWithAggregatesInput = {
   tenantId?: Prisma.IntWithAggregatesFilter<"WorkDay"> | number
   date?: Prisma.DateTimeWithAggregatesFilter<"WorkDay"> | Date | string
   areaId?: Prisma.IntNullableWithAggregatesFilter<"WorkDay"> | number | null
+  assignedUserId?: Prisma.StringNullableWithAggregatesFilter<"WorkDay"> | string | null
   status?: Prisma.EnumWorkDayStatusWithAggregatesFilter<"WorkDay"> | $Enums.WorkDayStatus
   notes?: Prisma.StringNullableWithAggregatesFilter<"WorkDay"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"WorkDay"> | Date | string
@@ -310,6 +325,7 @@ export type WorkDayCreateInput = {
   createdAt?: Date | string
   tenant: Prisma.TenantCreateNestedOneWithoutWorkDaysInput
   area?: Prisma.AreaCreateNestedOneWithoutWorkDaysInput
+  assignedUser?: Prisma.UserCreateNestedOneWithoutAssignedWorkDaysInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkDayInput
 }
 
@@ -318,6 +334,7 @@ export type WorkDayUncheckedCreateInput = {
   tenantId: number
   date: Date | string
   areaId?: number | null
+  assignedUserId?: string | null
   status?: $Enums.WorkDayStatus
   notes?: string | null
   createdAt?: Date | string
@@ -331,6 +348,7 @@ export type WorkDayUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tenant?: Prisma.TenantUpdateOneRequiredWithoutWorkDaysNestedInput
   area?: Prisma.AreaUpdateOneWithoutWorkDaysNestedInput
+  assignedUser?: Prisma.UserUpdateOneWithoutAssignedWorkDaysNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkDayNestedInput
 }
 
@@ -339,6 +357,7 @@ export type WorkDayUncheckedUpdateInput = {
   tenantId?: Prisma.IntFieldUpdateOperationsInput | number
   date?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   areaId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  assignedUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumWorkDayStatusFieldUpdateOperationsInput | $Enums.WorkDayStatus
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -350,6 +369,7 @@ export type WorkDayCreateManyInput = {
   tenantId: number
   date: Date | string
   areaId?: number | null
+  assignedUserId?: string | null
   status?: $Enums.WorkDayStatus
   notes?: string | null
   createdAt?: Date | string
@@ -367,6 +387,7 @@ export type WorkDayUncheckedUpdateManyInput = {
   tenantId?: Prisma.IntFieldUpdateOperationsInput | number
   date?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   areaId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  assignedUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumWorkDayStatusFieldUpdateOperationsInput | $Enums.WorkDayStatus
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -393,6 +414,7 @@ export type WorkDayCountOrderByAggregateInput = {
   tenantId?: Prisma.SortOrder
   date?: Prisma.SortOrder
   areaId?: Prisma.SortOrder
+  assignedUserId?: Prisma.SortOrder
   status?: Prisma.SortOrder
   notes?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -409,6 +431,7 @@ export type WorkDayMaxOrderByAggregateInput = {
   tenantId?: Prisma.SortOrder
   date?: Prisma.SortOrder
   areaId?: Prisma.SortOrder
+  assignedUserId?: Prisma.SortOrder
   status?: Prisma.SortOrder
   notes?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -419,6 +442,7 @@ export type WorkDayMinOrderByAggregateInput = {
   tenantId?: Prisma.SortOrder
   date?: Prisma.SortOrder
   areaId?: Prisma.SortOrder
+  assignedUserId?: Prisma.SortOrder
   status?: Prisma.SortOrder
   notes?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -474,6 +498,48 @@ export type WorkDayUncheckedUpdateManyWithoutTenantNestedInput = {
   connect?: Prisma.WorkDayWhereUniqueInput | Prisma.WorkDayWhereUniqueInput[]
   update?: Prisma.WorkDayUpdateWithWhereUniqueWithoutTenantInput | Prisma.WorkDayUpdateWithWhereUniqueWithoutTenantInput[]
   updateMany?: Prisma.WorkDayUpdateManyWithWhereWithoutTenantInput | Prisma.WorkDayUpdateManyWithWhereWithoutTenantInput[]
+  deleteMany?: Prisma.WorkDayScalarWhereInput | Prisma.WorkDayScalarWhereInput[]
+}
+
+export type WorkDayCreateNestedManyWithoutAssignedUserInput = {
+  create?: Prisma.XOR<Prisma.WorkDayCreateWithoutAssignedUserInput, Prisma.WorkDayUncheckedCreateWithoutAssignedUserInput> | Prisma.WorkDayCreateWithoutAssignedUserInput[] | Prisma.WorkDayUncheckedCreateWithoutAssignedUserInput[]
+  connectOrCreate?: Prisma.WorkDayCreateOrConnectWithoutAssignedUserInput | Prisma.WorkDayCreateOrConnectWithoutAssignedUserInput[]
+  createMany?: Prisma.WorkDayCreateManyAssignedUserInputEnvelope
+  connect?: Prisma.WorkDayWhereUniqueInput | Prisma.WorkDayWhereUniqueInput[]
+}
+
+export type WorkDayUncheckedCreateNestedManyWithoutAssignedUserInput = {
+  create?: Prisma.XOR<Prisma.WorkDayCreateWithoutAssignedUserInput, Prisma.WorkDayUncheckedCreateWithoutAssignedUserInput> | Prisma.WorkDayCreateWithoutAssignedUserInput[] | Prisma.WorkDayUncheckedCreateWithoutAssignedUserInput[]
+  connectOrCreate?: Prisma.WorkDayCreateOrConnectWithoutAssignedUserInput | Prisma.WorkDayCreateOrConnectWithoutAssignedUserInput[]
+  createMany?: Prisma.WorkDayCreateManyAssignedUserInputEnvelope
+  connect?: Prisma.WorkDayWhereUniqueInput | Prisma.WorkDayWhereUniqueInput[]
+}
+
+export type WorkDayUpdateManyWithoutAssignedUserNestedInput = {
+  create?: Prisma.XOR<Prisma.WorkDayCreateWithoutAssignedUserInput, Prisma.WorkDayUncheckedCreateWithoutAssignedUserInput> | Prisma.WorkDayCreateWithoutAssignedUserInput[] | Prisma.WorkDayUncheckedCreateWithoutAssignedUserInput[]
+  connectOrCreate?: Prisma.WorkDayCreateOrConnectWithoutAssignedUserInput | Prisma.WorkDayCreateOrConnectWithoutAssignedUserInput[]
+  upsert?: Prisma.WorkDayUpsertWithWhereUniqueWithoutAssignedUserInput | Prisma.WorkDayUpsertWithWhereUniqueWithoutAssignedUserInput[]
+  createMany?: Prisma.WorkDayCreateManyAssignedUserInputEnvelope
+  set?: Prisma.WorkDayWhereUniqueInput | Prisma.WorkDayWhereUniqueInput[]
+  disconnect?: Prisma.WorkDayWhereUniqueInput | Prisma.WorkDayWhereUniqueInput[]
+  delete?: Prisma.WorkDayWhereUniqueInput | Prisma.WorkDayWhereUniqueInput[]
+  connect?: Prisma.WorkDayWhereUniqueInput | Prisma.WorkDayWhereUniqueInput[]
+  update?: Prisma.WorkDayUpdateWithWhereUniqueWithoutAssignedUserInput | Prisma.WorkDayUpdateWithWhereUniqueWithoutAssignedUserInput[]
+  updateMany?: Prisma.WorkDayUpdateManyWithWhereWithoutAssignedUserInput | Prisma.WorkDayUpdateManyWithWhereWithoutAssignedUserInput[]
+  deleteMany?: Prisma.WorkDayScalarWhereInput | Prisma.WorkDayScalarWhereInput[]
+}
+
+export type WorkDayUncheckedUpdateManyWithoutAssignedUserNestedInput = {
+  create?: Prisma.XOR<Prisma.WorkDayCreateWithoutAssignedUserInput, Prisma.WorkDayUncheckedCreateWithoutAssignedUserInput> | Prisma.WorkDayCreateWithoutAssignedUserInput[] | Prisma.WorkDayUncheckedCreateWithoutAssignedUserInput[]
+  connectOrCreate?: Prisma.WorkDayCreateOrConnectWithoutAssignedUserInput | Prisma.WorkDayCreateOrConnectWithoutAssignedUserInput[]
+  upsert?: Prisma.WorkDayUpsertWithWhereUniqueWithoutAssignedUserInput | Prisma.WorkDayUpsertWithWhereUniqueWithoutAssignedUserInput[]
+  createMany?: Prisma.WorkDayCreateManyAssignedUserInputEnvelope
+  set?: Prisma.WorkDayWhereUniqueInput | Prisma.WorkDayWhereUniqueInput[]
+  disconnect?: Prisma.WorkDayWhereUniqueInput | Prisma.WorkDayWhereUniqueInput[]
+  delete?: Prisma.WorkDayWhereUniqueInput | Prisma.WorkDayWhereUniqueInput[]
+  connect?: Prisma.WorkDayWhereUniqueInput | Prisma.WorkDayWhereUniqueInput[]
+  update?: Prisma.WorkDayUpdateWithWhereUniqueWithoutAssignedUserInput | Prisma.WorkDayUpdateWithWhereUniqueWithoutAssignedUserInput[]
+  updateMany?: Prisma.WorkDayUpdateManyWithWhereWithoutAssignedUserInput | Prisma.WorkDayUpdateManyWithWhereWithoutAssignedUserInput[]
   deleteMany?: Prisma.WorkDayScalarWhereInput | Prisma.WorkDayScalarWhereInput[]
 }
 
@@ -543,6 +609,7 @@ export type WorkDayCreateWithoutTenantInput = {
   notes?: string | null
   createdAt?: Date | string
   area?: Prisma.AreaCreateNestedOneWithoutWorkDaysInput
+  assignedUser?: Prisma.UserCreateNestedOneWithoutAssignedWorkDaysInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkDayInput
 }
 
@@ -550,6 +617,7 @@ export type WorkDayUncheckedCreateWithoutTenantInput = {
   id?: number
   date: Date | string
   areaId?: number | null
+  assignedUserId?: string | null
   status?: $Enums.WorkDayStatus
   notes?: string | null
   createdAt?: Date | string
@@ -590,9 +658,57 @@ export type WorkDayScalarWhereInput = {
   tenantId?: Prisma.IntFilter<"WorkDay"> | number
   date?: Prisma.DateTimeFilter<"WorkDay"> | Date | string
   areaId?: Prisma.IntNullableFilter<"WorkDay"> | number | null
+  assignedUserId?: Prisma.StringNullableFilter<"WorkDay"> | string | null
   status?: Prisma.EnumWorkDayStatusFilter<"WorkDay"> | $Enums.WorkDayStatus
   notes?: Prisma.StringNullableFilter<"WorkDay"> | string | null
   createdAt?: Prisma.DateTimeFilter<"WorkDay"> | Date | string
+}
+
+export type WorkDayCreateWithoutAssignedUserInput = {
+  date: Date | string
+  status?: $Enums.WorkDayStatus
+  notes?: string | null
+  createdAt?: Date | string
+  tenant: Prisma.TenantCreateNestedOneWithoutWorkDaysInput
+  area?: Prisma.AreaCreateNestedOneWithoutWorkDaysInput
+  jobs?: Prisma.JobCreateNestedManyWithoutWorkDayInput
+}
+
+export type WorkDayUncheckedCreateWithoutAssignedUserInput = {
+  id?: number
+  tenantId: number
+  date: Date | string
+  areaId?: number | null
+  status?: $Enums.WorkDayStatus
+  notes?: string | null
+  createdAt?: Date | string
+  jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkDayInput
+}
+
+export type WorkDayCreateOrConnectWithoutAssignedUserInput = {
+  where: Prisma.WorkDayWhereUniqueInput
+  create: Prisma.XOR<Prisma.WorkDayCreateWithoutAssignedUserInput, Prisma.WorkDayUncheckedCreateWithoutAssignedUserInput>
+}
+
+export type WorkDayCreateManyAssignedUserInputEnvelope = {
+  data: Prisma.WorkDayCreateManyAssignedUserInput | Prisma.WorkDayCreateManyAssignedUserInput[]
+  skipDuplicates?: boolean
+}
+
+export type WorkDayUpsertWithWhereUniqueWithoutAssignedUserInput = {
+  where: Prisma.WorkDayWhereUniqueInput
+  update: Prisma.XOR<Prisma.WorkDayUpdateWithoutAssignedUserInput, Prisma.WorkDayUncheckedUpdateWithoutAssignedUserInput>
+  create: Prisma.XOR<Prisma.WorkDayCreateWithoutAssignedUserInput, Prisma.WorkDayUncheckedCreateWithoutAssignedUserInput>
+}
+
+export type WorkDayUpdateWithWhereUniqueWithoutAssignedUserInput = {
+  where: Prisma.WorkDayWhereUniqueInput
+  data: Prisma.XOR<Prisma.WorkDayUpdateWithoutAssignedUserInput, Prisma.WorkDayUncheckedUpdateWithoutAssignedUserInput>
+}
+
+export type WorkDayUpdateManyWithWhereWithoutAssignedUserInput = {
+  where: Prisma.WorkDayScalarWhereInput
+  data: Prisma.XOR<Prisma.WorkDayUpdateManyMutationInput, Prisma.WorkDayUncheckedUpdateManyWithoutAssignedUserInput>
 }
 
 export type WorkDayCreateWithoutAreaInput = {
@@ -601,6 +717,7 @@ export type WorkDayCreateWithoutAreaInput = {
   notes?: string | null
   createdAt?: Date | string
   tenant: Prisma.TenantCreateNestedOneWithoutWorkDaysInput
+  assignedUser?: Prisma.UserCreateNestedOneWithoutAssignedWorkDaysInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkDayInput
 }
 
@@ -608,6 +725,7 @@ export type WorkDayUncheckedCreateWithoutAreaInput = {
   id?: number
   tenantId: number
   date: Date | string
+  assignedUserId?: string | null
   status?: $Enums.WorkDayStatus
   notes?: string | null
   createdAt?: Date | string
@@ -647,6 +765,7 @@ export type WorkDayCreateWithoutJobsInput = {
   createdAt?: Date | string
   tenant: Prisma.TenantCreateNestedOneWithoutWorkDaysInput
   area?: Prisma.AreaCreateNestedOneWithoutWorkDaysInput
+  assignedUser?: Prisma.UserCreateNestedOneWithoutAssignedWorkDaysInput
 }
 
 export type WorkDayUncheckedCreateWithoutJobsInput = {
@@ -654,6 +773,7 @@ export type WorkDayUncheckedCreateWithoutJobsInput = {
   tenantId: number
   date: Date | string
   areaId?: number | null
+  assignedUserId?: string | null
   status?: $Enums.WorkDayStatus
   notes?: string | null
   createdAt?: Date | string
@@ -682,6 +802,7 @@ export type WorkDayUpdateWithoutJobsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tenant?: Prisma.TenantUpdateOneRequiredWithoutWorkDaysNestedInput
   area?: Prisma.AreaUpdateOneWithoutWorkDaysNestedInput
+  assignedUser?: Prisma.UserUpdateOneWithoutAssignedWorkDaysNestedInput
 }
 
 export type WorkDayUncheckedUpdateWithoutJobsInput = {
@@ -689,6 +810,7 @@ export type WorkDayUncheckedUpdateWithoutJobsInput = {
   tenantId?: Prisma.IntFieldUpdateOperationsInput | number
   date?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   areaId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  assignedUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumWorkDayStatusFieldUpdateOperationsInput | $Enums.WorkDayStatus
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -698,6 +820,7 @@ export type WorkDayCreateManyTenantInput = {
   id?: number
   date: Date | string
   areaId?: number | null
+  assignedUserId?: string | null
   status?: $Enums.WorkDayStatus
   notes?: string | null
   createdAt?: Date | string
@@ -709,6 +832,7 @@ export type WorkDayUpdateWithoutTenantInput = {
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   area?: Prisma.AreaUpdateOneWithoutWorkDaysNestedInput
+  assignedUser?: Prisma.UserUpdateOneWithoutAssignedWorkDaysNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkDayNestedInput
 }
 
@@ -716,6 +840,7 @@ export type WorkDayUncheckedUpdateWithoutTenantInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   date?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   areaId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  assignedUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumWorkDayStatusFieldUpdateOperationsInput | $Enums.WorkDayStatus
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -724,6 +849,48 @@ export type WorkDayUncheckedUpdateWithoutTenantInput = {
 
 export type WorkDayUncheckedUpdateManyWithoutTenantInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
+  date?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  areaId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  assignedUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  status?: Prisma.EnumWorkDayStatusFieldUpdateOperationsInput | $Enums.WorkDayStatus
+  notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type WorkDayCreateManyAssignedUserInput = {
+  id?: number
+  tenantId: number
+  date: Date | string
+  areaId?: number | null
+  status?: $Enums.WorkDayStatus
+  notes?: string | null
+  createdAt?: Date | string
+}
+
+export type WorkDayUpdateWithoutAssignedUserInput = {
+  date?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.EnumWorkDayStatusFieldUpdateOperationsInput | $Enums.WorkDayStatus
+  notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tenant?: Prisma.TenantUpdateOneRequiredWithoutWorkDaysNestedInput
+  area?: Prisma.AreaUpdateOneWithoutWorkDaysNestedInput
+  jobs?: Prisma.JobUpdateManyWithoutWorkDayNestedInput
+}
+
+export type WorkDayUncheckedUpdateWithoutAssignedUserInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  tenantId?: Prisma.IntFieldUpdateOperationsInput | number
+  date?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  areaId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  status?: Prisma.EnumWorkDayStatusFieldUpdateOperationsInput | $Enums.WorkDayStatus
+  notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkDayNestedInput
+}
+
+export type WorkDayUncheckedUpdateManyWithoutAssignedUserInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  tenantId?: Prisma.IntFieldUpdateOperationsInput | number
   date?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   areaId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   status?: Prisma.EnumWorkDayStatusFieldUpdateOperationsInput | $Enums.WorkDayStatus
@@ -735,6 +902,7 @@ export type WorkDayCreateManyAreaInput = {
   id?: number
   tenantId: number
   date: Date | string
+  assignedUserId?: string | null
   status?: $Enums.WorkDayStatus
   notes?: string | null
   createdAt?: Date | string
@@ -746,6 +914,7 @@ export type WorkDayUpdateWithoutAreaInput = {
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tenant?: Prisma.TenantUpdateOneRequiredWithoutWorkDaysNestedInput
+  assignedUser?: Prisma.UserUpdateOneWithoutAssignedWorkDaysNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkDayNestedInput
 }
 
@@ -753,6 +922,7 @@ export type WorkDayUncheckedUpdateWithoutAreaInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   tenantId?: Prisma.IntFieldUpdateOperationsInput | number
   date?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  assignedUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumWorkDayStatusFieldUpdateOperationsInput | $Enums.WorkDayStatus
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -763,6 +933,7 @@ export type WorkDayUncheckedUpdateManyWithoutAreaInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   tenantId?: Prisma.IntFieldUpdateOperationsInput | number
   date?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  assignedUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumWorkDayStatusFieldUpdateOperationsInput | $Enums.WorkDayStatus
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -804,11 +975,13 @@ export type WorkDaySelect<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   tenantId?: boolean
   date?: boolean
   areaId?: boolean
+  assignedUserId?: boolean
   status?: boolean
   notes?: boolean
   createdAt?: boolean
   tenant?: boolean | Prisma.TenantDefaultArgs<ExtArgs>
   area?: boolean | Prisma.WorkDay$areaArgs<ExtArgs>
+  assignedUser?: boolean | Prisma.WorkDay$assignedUserArgs<ExtArgs>
   jobs?: boolean | Prisma.WorkDay$jobsArgs<ExtArgs>
   _count?: boolean | Prisma.WorkDayCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["workDay"]>
@@ -818,11 +991,13 @@ export type WorkDaySelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exten
   tenantId?: boolean
   date?: boolean
   areaId?: boolean
+  assignedUserId?: boolean
   status?: boolean
   notes?: boolean
   createdAt?: boolean
   tenant?: boolean | Prisma.TenantDefaultArgs<ExtArgs>
   area?: boolean | Prisma.WorkDay$areaArgs<ExtArgs>
+  assignedUser?: boolean | Prisma.WorkDay$assignedUserArgs<ExtArgs>
 }, ExtArgs["result"]["workDay"]>
 
 export type WorkDaySelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -830,11 +1005,13 @@ export type WorkDaySelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exten
   tenantId?: boolean
   date?: boolean
   areaId?: boolean
+  assignedUserId?: boolean
   status?: boolean
   notes?: boolean
   createdAt?: boolean
   tenant?: boolean | Prisma.TenantDefaultArgs<ExtArgs>
   area?: boolean | Prisma.WorkDay$areaArgs<ExtArgs>
+  assignedUser?: boolean | Prisma.WorkDay$assignedUserArgs<ExtArgs>
 }, ExtArgs["result"]["workDay"]>
 
 export type WorkDaySelectScalar = {
@@ -842,25 +1019,29 @@ export type WorkDaySelectScalar = {
   tenantId?: boolean
   date?: boolean
   areaId?: boolean
+  assignedUserId?: boolean
   status?: boolean
   notes?: boolean
   createdAt?: boolean
 }
 
-export type WorkDayOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tenantId" | "date" | "areaId" | "status" | "notes" | "createdAt", ExtArgs["result"]["workDay"]>
+export type WorkDayOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tenantId" | "date" | "areaId" | "assignedUserId" | "status" | "notes" | "createdAt", ExtArgs["result"]["workDay"]>
 export type WorkDayInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tenant?: boolean | Prisma.TenantDefaultArgs<ExtArgs>
   area?: boolean | Prisma.WorkDay$areaArgs<ExtArgs>
+  assignedUser?: boolean | Prisma.WorkDay$assignedUserArgs<ExtArgs>
   jobs?: boolean | Prisma.WorkDay$jobsArgs<ExtArgs>
   _count?: boolean | Prisma.WorkDayCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type WorkDayIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tenant?: boolean | Prisma.TenantDefaultArgs<ExtArgs>
   area?: boolean | Prisma.WorkDay$areaArgs<ExtArgs>
+  assignedUser?: boolean | Prisma.WorkDay$assignedUserArgs<ExtArgs>
 }
 export type WorkDayIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tenant?: boolean | Prisma.TenantDefaultArgs<ExtArgs>
   area?: boolean | Prisma.WorkDay$areaArgs<ExtArgs>
+  assignedUser?: boolean | Prisma.WorkDay$assignedUserArgs<ExtArgs>
 }
 
 export type $WorkDayPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -868,6 +1049,7 @@ export type $WorkDayPayload<ExtArgs extends runtime.Types.Extensions.InternalArg
   objects: {
     tenant: Prisma.$TenantPayload<ExtArgs>
     area: Prisma.$AreaPayload<ExtArgs> | null
+    assignedUser: Prisma.$UserPayload<ExtArgs> | null
     jobs: Prisma.$JobPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
@@ -875,6 +1057,7 @@ export type $WorkDayPayload<ExtArgs extends runtime.Types.Extensions.InternalArg
     tenantId: number
     date: Date
     areaId: number | null
+    assignedUserId: string | null
     status: $Enums.WorkDayStatus
     notes: string | null
     createdAt: Date
@@ -1274,6 +1457,7 @@ export interface Prisma__WorkDayClient<T, Null = never, ExtArgs extends runtime.
   readonly [Symbol.toStringTag]: "PrismaPromise"
   tenant<T extends Prisma.TenantDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TenantDefaultArgs<ExtArgs>>): Prisma.Prisma__TenantClient<runtime.Types.Result.GetResult<Prisma.$TenantPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   area<T extends Prisma.WorkDay$areaArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkDay$areaArgs<ExtArgs>>): Prisma.Prisma__AreaClient<runtime.Types.Result.GetResult<Prisma.$AreaPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  assignedUser<T extends Prisma.WorkDay$assignedUserArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkDay$assignedUserArgs<ExtArgs>>): Prisma.Prisma__UserClient<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   jobs<T extends Prisma.WorkDay$jobsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkDay$jobsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$JobPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -1308,6 +1492,7 @@ export interface WorkDayFieldRefs {
   readonly tenantId: Prisma.FieldRef<"WorkDay", 'Int'>
   readonly date: Prisma.FieldRef<"WorkDay", 'DateTime'>
   readonly areaId: Prisma.FieldRef<"WorkDay", 'Int'>
+  readonly assignedUserId: Prisma.FieldRef<"WorkDay", 'String'>
   readonly status: Prisma.FieldRef<"WorkDay", 'WorkDayStatus'>
   readonly notes: Prisma.FieldRef<"WorkDay", 'String'>
   readonly createdAt: Prisma.FieldRef<"WorkDay", 'DateTime'>
@@ -1728,6 +1913,25 @@ export type WorkDay$areaArgs<ExtArgs extends runtime.Types.Extensions.InternalAr
    */
   include?: Prisma.AreaInclude<ExtArgs> | null
   where?: Prisma.AreaWhereInput
+}
+
+/**
+ * WorkDay.assignedUser
+ */
+export type WorkDay$assignedUserArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the User
+   */
+  select?: Prisma.UserSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the User
+   */
+  omit?: Prisma.UserOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.UserInclude<ExtArgs> | null
+  where?: Prisma.UserWhereInput
 }
 
 /**

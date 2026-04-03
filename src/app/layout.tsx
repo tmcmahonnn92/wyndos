@@ -8,6 +8,7 @@ import { SplashScreen } from "@/components/splash-screen";
 import { SupportSessionBanner } from "@/components/support-session-banner";
 import prisma from "@/lib/db";
 import { ACTIVE_TENANT_COOKIE, SUPPORT_ACCESS_COOKIE } from "@/lib/auth-cookies";
+import { resolveActiveMembership, resolveActivePermissions } from "@/lib/memberships";
 
 const syne = Syne({
   subsets: ["latin"],
@@ -49,6 +50,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const db = prisma as any;
 
   let tenantName: string | null = null;
+  let activeRole: "SUPER_ADMIN" | "OWNER" | "WORKER" | null = session?.user?.role ?? null;
+  let activePermissions: string[] = [];
+  const companyCount = session?.user?.memberships?.length ?? 0;
   let supportSession: { reason: string; startedAt: string } | null = null;
 
   if (session?.user) {
@@ -81,12 +85,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           };
         }
       }
-    } else if (session.user.tenantId) {
-      const tenant = await db.tenant.findUnique({
-        where: { id: session.user.tenantId },
-        select: { name: true },
-      });
-      tenantName = tenant?.name ?? null;
+    } else {
+      const cookieStore = await cookies();
+      const rawTenantId = cookieStore.get(ACTIVE_TENANT_COOKIE)?.value;
+      const preferredTenantId = rawTenantId ? parseInt(rawTenantId, 10) : null;
+      const activeMembership = resolveActiveMembership(session.user, preferredTenantId);
+      tenantName = activeMembership?.tenantName ?? null;
+      activeRole = activeMembership?.role ?? session.user.role ?? null;
+      activePermissions = resolveActivePermissions(session.user, preferredTenantId);
     }
   }
 
@@ -97,7 +103,15 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       </head>
       <body className="antialiased">
         <SplashScreen />
-        {session?.user && <Nav user={session.user} tenantName={tenantName} permissions={session.user.permissions ?? []} />}
+        {session?.user && (
+          <Nav
+            user={session.user}
+            tenantName={tenantName}
+            permissions={activePermissions}
+            activeRole={activeRole}
+            companyCount={companyCount}
+          />
+        )}
         <main className={`${session?.user ? "md:ml-56 pt-14 md:pt-0 pb-16 md:pb-0" : ""} min-h-screen`}>
           {session?.user?.role === "SUPER_ADMIN" && tenantName && supportSession && (
             <SupportSessionBanner tenantName={tenantName} reason={supportSession.reason} startedAt={supportSession.startedAt} />

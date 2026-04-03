@@ -5,6 +5,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { compare } from "bcryptjs";
 import prisma from "@/lib/db";
 import authConfig from "@/auth.config";
+import { normalizeMemberships, serializeMemberships } from "@/lib/memberships";
 
 const googleEnabled = Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);
 
@@ -42,10 +43,18 @@ function fallbackOwnerName(name: string | null | undefined, email: string | null
 async function ensureGoogleOwnerSetup(userId: string, profile: { name?: string | null; email?: string | null }) {
   const existing = await db.user.findUnique({
     where: { id: userId },
-    select: { id: true, name: true, email: true, role: true, tenantId: true, onboardingComplete: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      tenantId: true,
+      onboardingComplete: true,
+      memberships: { select: { id: true }, take: 1 },
+    },
   });
 
-  if (!existing || existing.role !== "OWNER" || existing.tenantId) {
+  if (!existing || existing.role !== "OWNER" || existing.tenantId || existing.memberships.length > 0) {
     return;
   }
 
@@ -68,6 +77,15 @@ async function ensureGoogleOwnerSetup(userId: string, profile: { name?: string |
         tenantId: tenant.id,
         name: existing.name ?? ownerName,
         onboardingComplete: false,
+      },
+    });
+
+    await tx.membership.create({
+      data: {
+        userId,
+        tenantId: tenant.id,
+        role: "OWNER",
+        permissions: "[]",
       },
     });
 
@@ -177,6 +195,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.sub) {
         const current = await db.user.findUnique({ where: { id: token.sub } });
         if (current) {
+          const memberships = await db.membership.findMany({
+            where: { userId: current.id },
+            include: { tenant: { select: { id: true, name: true } } },
+          });
           token.name = current.name;
           token.email = current.email;
           token.picture = current.image;
@@ -185,6 +207,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.onboardingComplete = current.onboardingComplete;
           // Only persist workerPermissions for WORKER accounts
           token.workerPermissions = current.role === "WORKER" ? current.workerPermissions : "[]";
+          token.memberships = serializeMemberships(
+            memberships.map((membership: any) => ({
+              tenantId: membership.tenantId,
+              tenantName: membership.tenant?.name ?? "",
+              role: membership.role,
+              permissions: membership.role === "WORKER"
+                ? (() => {
+                    try {
+                      return JSON.parse(membership.permissions ?? "[]");
+                    } catch {
+                      return [];
+                    }
+                  })()
+                : [],
+            }))
+          );
         }
       }
 
@@ -208,10 +246,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         current.email.toLowerCase() === SUPER_ADMIN_EMAIL;
 
       if (!isSuperAdmin) {
-        await ensureGoogleOwnerSetup(user.id, {
-          name: user.name,
-          email: user.email,
-        });
+        const pendingInvite = current.email
+          ? await db.invite.findFirst({
+              where: {
+                email: current.email.toLowerCase(),
+                acceptedAt: null,
+                expiresAt: { gt: new Date() },
+              },
+            })
+          : null;
+
+        if (!pendingInvite) {
+          await ensureGoogleOwnerSetup(user.id, {
+            name: user.name,
+            email: user.email,
+          });
+        }
         current = await db.user.findUnique({ where: { id: user.id } });
         if (!current) return true;
       }
@@ -245,6 +295,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           : undefined;
         session.user.tenantId = typeof token.tenantId === "number" ? token.tenantId : null;
         session.user.onboardingComplete = Boolean(token.onboardingComplete);
+        session.user.memberships = normalizeMemberships(token.memberships);
         try {
           session.user.permissions = JSON.parse(
             typeof token.workerPermissions === "string" ? token.workerPermissions : "[]"

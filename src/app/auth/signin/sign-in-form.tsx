@@ -63,7 +63,7 @@ export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
   const handleGoogle = async () => {
     setError("");
     setIsGooglePending(true);
-    await signIn("google", { callbackUrl: "/auth/onboarding" });
+    await signIn("google", { callbackUrl });
   };
 
   return (

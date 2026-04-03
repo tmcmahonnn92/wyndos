@@ -55,6 +55,7 @@ export const ModelName = {
   TenantSettings: 'TenantSettings',
   Invite: 'Invite',
   User: 'User',
+  Membership: 'Membership',
   Account: 'Account',
   Session: 'Session',
   VerificationToken: 'VerificationToken',
@@ -178,6 +179,19 @@ export const UserScalarFieldEnum = {
 } as const
 
 export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]
+
+
+export const MembershipScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  tenantId: 'tenantId',
+  role: 'role',
+  permissions: 'permissions',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type MembershipScalarFieldEnum = (typeof MembershipScalarFieldEnum)[keyof typeof MembershipScalarFieldEnum]
 
 
 export const AccountScalarFieldEnum = {
@@ -317,6 +331,7 @@ export const WorkDayScalarFieldEnum = {
   tenantId: 'tenantId',
   date: 'date',
   areaId: 'areaId',
+  assignedUserId: 'assignedUserId',
   status: 'status',
   notes: 'notes',
   createdAt: 'createdAt'

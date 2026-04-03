@@ -1,14 +1,16 @@
 import { auth } from "@/auth";
-import prisma from "@/lib/db";
+import { cookies } from "next/headers";
+import { resolveActiveMembership } from "@/lib/memberships";
 import { OnboardingForm } from "./onboarding-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function OnboardingPage() {
   const session = await auth();
-  const tenant = session?.user?.tenantId
-    ? await prisma.tenant.findFirst({ where: { id: session.user.tenantId }, select: { name: true } })
-    : null;
+  const cookieStore = await cookies();
+  const rawTenantId = cookieStore.get("wyndos_active_tenant")?.value;
+  const preferredTenantId = rawTenantId ? Number.parseInt(rawTenantId, 10) : null;
+  const activeMembership = session?.user ? resolveActiveMembership(session.user, preferredTenantId) : null;
 
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
@@ -26,7 +28,7 @@ export default async function OnboardingPage() {
           </div>
 
           <OnboardingForm
-            initialCompanyName={tenant?.name ?? session?.user?.name ?? ""}
+            initialCompanyName={activeMembership?.tenantName ?? session?.user?.name ?? ""}
             initialOwnerName={session?.user?.name ?? ""}
           />
         </div>

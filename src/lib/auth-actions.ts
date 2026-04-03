@@ -7,6 +7,7 @@ import { addDays } from "date-fns";
 import nodemailer from "nodemailer";
 import prisma from "@/lib/db";
 import { auth } from "@/auth";
+import { ACTIVE_TENANT_COOKIE } from "@/lib/auth-cookies";
 import { requireOwnerOrAdmin, requireSuperAdmin } from "@/lib/tenant-context";
 import {
   type Permission,
@@ -104,6 +105,15 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
         },
       });
 
+      await tx.membership.create({
+        data: {
+          userId: user.id,
+          tenantId: tenant.id,
+          role: "OWNER",
+          permissions: "[]",
+        },
+      });
+
       // 3. Bootstrap TenantSettings with the company name
       await tx.tenantSettings.create({
         data: {
@@ -126,6 +136,15 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
       });
 
       return { userId: user.id, tenantId: tenant.id };
+    });
+
+    const cookieStore = await cookies();
+    cookieStore.set(ACTIVE_TENANT_COOKIE, String(result.tenantId), {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30,
     });
 
     return { ok: true, ...result };
@@ -245,8 +264,8 @@ export async function createInvite(
     if (!normEmail) return { ok: false, error: "A valid email address is required." };
 
     // Check the person isn't already a user in this tenant
-    const alreadyUser = await db.user.findFirst({
-      where: { email: normEmail, tenantId },
+    const alreadyUser = await db.membership.findFirst({
+      where: { tenantId, user: { email: normEmail } },
     });
     if (alreadyUser) return { ok: false, error: "This person already has an account in your round." };
 
@@ -305,13 +324,13 @@ export async function getInviteInfo(token: string): Promise<InviteInfo | null> {
 
 export type AcceptInviteInput = {
   token: string;
-  name: string;
-  password: string;
+  name?: string;
+  password?: string;
 };
 
 export type AcceptInviteResult =
-  | { ok: true; email: string }
-  | { ok: false; error: string };
+  | { ok: true; email: string; existingAccount: boolean; tenantId: number }
+  | { ok: false; error: string; requiresSignIn?: boolean; email?: string };
 
 export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInviteResult> {
   try {
@@ -323,21 +342,92 @@ export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInvi
     if (invite.acceptedAt) return { ok: false, error: "This invite has already been used." };
     if (invite.expiresAt < new Date()) return { ok: false, error: "This invite has expired." };
 
-    const existingUser = await db.user.findUnique({ where: { email: invite.email } });
-    if (existingUser) return { ok: false, error: "An account with this email already exists. Please sign in." };
+    const session = await auth();
+    const signedInUser = session?.user?.id
+      ? await db.user.findUnique({ where: { id: session.user.id }, select: { id: true, name: true, email: true } })
+      : null;
 
-    const passwordHash = await hash(input.password, 12);
+    if (signedInUser) {
+      if ((signedInUser.email ?? "").toLowerCase() !== invite.email.toLowerCase()) {
+        return {
+          ok: false,
+          error: `You're signed in as ${signedInUser.email}. Sign in with ${invite.email} to accept this invite.`,
+        };
+      }
+
+      await db.$transaction(async (tx: any) => {
+        await tx.membership.upsert({
+          where: { userId_tenantId: { userId: signedInUser.id, tenantId: invite.tenantId } },
+          update: {
+            role: invite.role,
+            permissions: invite.permissions ?? serializePermissions(DEFAULT_WORKER_PERMISSIONS),
+          },
+          create: {
+            userId: signedInUser.id,
+            tenantId: invite.tenantId,
+            role: invite.role,
+            permissions: invite.permissions ?? serializePermissions(DEFAULT_WORKER_PERMISSIONS),
+          },
+        });
+
+        if (!signedInUser.name && input.name?.trim()) {
+          await tx.user.update({ where: { id: signedInUser.id }, data: { name: input.name.trim() } });
+        }
+
+        await tx.invite.update({
+          where: { id: invite.id },
+          data: { acceptedAt: new Date() },
+        });
+      });
+
+      const cookieStore = await cookies();
+      cookieStore.set(ACTIVE_TENANT_COOKIE, String(invite.tenantId), {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 30,
+      });
+
+      return { ok: true, email: invite.email, existingAccount: true, tenantId: invite.tenantId };
+    }
+
+    const existingUser = await db.user.findUnique({ where: { email: invite.email } });
+    if (existingUser) {
+      return {
+        ok: false,
+        error: "An account with this email already exists. Sign in with that account or Google to join this company.",
+        requiresSignIn: true,
+        email: invite.email,
+      };
+    }
+
+    const name = input.name?.trim() ?? "";
+    const password = input.password ?? "";
+    if (!name) return { ok: false, error: "Your full name is required." };
+    if (password.length < 8) return { ok: false, error: "Password must be at least 8 characters." };
+
+    const passwordHash = await hash(password, 12);
 
     await db.$transaction(async (tx: any) => {
-      await tx.user.create({
+      const user = await tx.user.create({
         data: {
-          name: input.name.trim(),
+          name,
           email: invite.email,
           passwordHash,
           role: invite.role,
           tenantId: invite.tenantId,
-          onboardingComplete: true, // workers skip onboarding
+          onboardingComplete: true,
           workerPermissions: invite.permissions ?? serializePermissions(DEFAULT_WORKER_PERMISSIONS),
+        },
+      });
+
+      await tx.membership.create({
+        data: {
+          userId: user.id,
+          tenantId: invite.tenantId,
+          role: invite.role,
+          permissions: invite.permissions ?? serializePermissions(DEFAULT_WORKER_PERMISSIONS),
         },
       });
 
@@ -347,7 +437,16 @@ export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInvi
       });
     });
 
-    return { ok: true, email: invite.email };
+    const cookieStore = await cookies();
+    cookieStore.set(ACTIVE_TENANT_COOKIE, String(invite.tenantId), {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30,
+    });
+
+    return { ok: true, email: invite.email, existingAccount: false, tenantId: invite.tenantId };
   } catch (err: any) {
     console.error("[acceptInvite]", err);
     return { ok: false, error: err.message ?? "Failed to accept invite." };
@@ -380,18 +479,23 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
   const tenantId = user.tenantId;
   if (!tenantId) return [];
 
-  const members = await db.user.findMany({
+  const members = await db.membership.findMany({
     where: { tenantId, role: { in: ["OWNER", "WORKER"] } },
-    select: { id: true, name: true, email: true, role: true, createdAt: true, workerPermissions: true },
+    select: {
+      role: true,
+      permissions: true,
+      createdAt: true,
+      user: { select: { id: true, name: true, email: true } },
+    },
     orderBy: { createdAt: "asc" },
   });
 
   return members.map((m: any) => ({
-    id: m.id as string,
-    name: m.name,
-    email: m.email,
+    id: m.user.id as string,
+    name: m.user.name,
+    email: m.user.email,
     role: m.role as "OWNER" | "WORKER",
-    permissions: parsePermissions(m.workerPermissions),
+    permissions: m.role === "WORKER" ? parsePermissions(m.permissions) : [],
     joinedAt: m.createdAt,
   }));
 }
@@ -430,9 +534,9 @@ export async function removeTeamMember(memberId: string): Promise<{ ok: boolean;
     const tenantId = caller.tenantId;
     if (!tenantId) return { ok: false, error: "No tenant." };
     if (caller.id === memberId) return { ok: false, error: "You cannot remove yourself." };
-    const member = await db.user.findFirst({ where: { id: memberId, tenantId, role: "WORKER" } });
+    const member = await db.membership.findFirst({ where: { userId: memberId, tenantId, role: "WORKER" } });
     if (!member) return { ok: false, error: "Worker not found." };
-    await db.user.delete({ where: { id: memberId } });
+    await db.membership.delete({ where: { id: member.id } });
     return { ok: true };
   } catch (err: any) {
     return { ok: false, error: err.message ?? "Failed to remove member." };
@@ -448,11 +552,11 @@ export async function updateWorkerPermissions(
     const caller = await requireOwnerOrAdmin();
     const tenantId = caller.tenantId;
     if (!tenantId) return { ok: false, error: "No tenant." };
-    const member = await db.user.findFirst({ where: { id: memberId, tenantId, role: "WORKER" } });
+    const member = await db.membership.findFirst({ where: { userId: memberId, tenantId, role: "WORKER" } });
     if (!member) return { ok: false, error: "Worker not found." };
-    await db.user.update({
-      where: { id: memberId },
-      data: { workerPermissions: serializePermissions(permissions) },
+    await db.membership.update({
+      where: { id: member.id },
+      data: { permissions: serializePermissions(permissions) },
     });
     return { ok: true };
   } catch (err: any) {
@@ -599,6 +703,11 @@ export async function requestPasswordReset(email: string): Promise<RequestResetR
     let smtpSettings: any = null;
     if (user.tenantId) {
       smtpSettings = await db.tenantSettings.findFirst({ where: { tenantId: user.tenantId } });
+    } else {
+      const membership = await db.membership.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "asc" } });
+      if (membership) {
+        smtpSettings = await db.tenantSettings.findFirst({ where: { tenantId: membership.tenantId } });
+      }
     }
 
     const smtpDeliveryOptions = [
@@ -699,12 +808,12 @@ export async function listAllTenants(): Promise<TenantSummary[]> {
   const tenants = await db.tenant.findMany({
     orderBy: { createdAt: "desc" },
     include: {
-      users: {
+      memberships: {
         where: { role: "OWNER" },
-        select: { email: true },
+        select: { user: { select: { email: true } } },
         take: 1,
       },
-      _count: { select: { users: true } },
+      _count: { select: { memberships: true } },
     },
   });
 
@@ -712,9 +821,9 @@ export async function listAllTenants(): Promise<TenantSummary[]> {
     id: t.id,
     name: t.name,
     slug: t.slug,
-    ownerEmail: t.users[0]?.email ?? null,
+    ownerEmail: t.memberships[0]?.user?.email ?? null,
     createdAt: t.createdAt,
-    userCount: t._count.users,
+    userCount: t._count.memberships,
   }));
 }
 
