@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
+    "postinstall": "npm run db:generate && npm run db:generate:postgres",
     "lint": "eslint",
     "seed": "tsx prisma/seed.ts",
     "db:generate": "prisma generate",
