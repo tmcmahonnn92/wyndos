@@ -8,6 +8,90 @@ import authConfig from "@/auth.config";
 
 const googleEnabled = Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);
 
+function toSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[''`]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+}
+
+async function uniqueSlug(base: string, currentTenantId?: number): Promise<string> {
+  let slug = base || "my-window-cleaning";
+  let suffix = 2;
+  while (true) {
+    const existing = await db.tenant.findUnique({ where: { slug }, select: { id: true } });
+    if (!existing || existing.id === currentTenantId) {
+      return slug;
+    }
+    slug = `${base}-${suffix++}`;
+  }
+}
+
+function fallbackOwnerName(name: string | null | undefined, email: string | null | undefined) {
+  const trimmedName = name?.trim();
+  if (trimmedName) return trimmedName;
+
+  const localPart = email?.split("@")[0]?.replace(/[._-]+/g, " ").trim();
+  if (!localPart) return "Owner";
+
+  return localPart.replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+async function ensureGoogleOwnerSetup(userId: string, profile: { name?: string | null; email?: string | null }) {
+  const existing = await db.user.findUnique({
+    where: { id: userId },
+    select: { id: true, name: true, email: true, role: true, tenantId: true, onboardingComplete: true },
+  });
+
+  if (!existing || existing.role !== "OWNER" || existing.tenantId) {
+    return;
+  }
+
+  const ownerName = fallbackOwnerName(existing.name, existing.email ?? profile.email ?? null);
+  const companyName = `${ownerName}'s Window Cleaning`;
+  const slug = await uniqueSlug(toSlug(companyName));
+  const email = (existing.email ?? profile.email ?? "").trim().toLowerCase();
+
+  await db.$transaction(async (tx: any) => {
+    const tenant = await tx.tenant.create({
+      data: {
+        name: companyName,
+        slug,
+      },
+    });
+
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        tenantId: tenant.id,
+        name: existing.name ?? ownerName,
+        onboardingComplete: false,
+      },
+    });
+
+    await tx.tenantSettings.create({
+      data: {
+        tenantId: tenant.id,
+        businessName: companyName,
+        ownerName,
+        email,
+      },
+    });
+
+    await tx.area.create({
+      data: {
+        tenantId: tenant.id,
+        name: "One-Off Jobs",
+        color: "#9CA3AF",
+        sortOrder: 9999,
+        isSystemArea: true,
+      },
+    });
+  });
+}
+
 function getAuthSecret() {
   if (process.env.AUTH_SECRET) {
     return process.env.AUTH_SECRET;
@@ -115,13 +199,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async signIn({ user }) {
       if (!user?.id) return true;
 
-      const current = await db.user.findUnique({ where: { id: user.id } });
+      let current = await db.user.findUnique({ where: { id: user.id } });
       if (!current) return true;
 
       const isSuperAdmin =
         SUPER_ADMIN_EMAIL.length > 0 &&
         typeof current.email === "string" &&
         current.email.toLowerCase() === SUPER_ADMIN_EMAIL;
+
+      if (!isSuperAdmin) {
+        await ensureGoogleOwnerSetup(user.id, {
+          name: user.name,
+          email: user.email,
+        });
+        current = await db.user.findUnique({ where: { id: user.id } });
+        if (!current) return true;
+      }
 
       const nextRole = isSuperAdmin ? "SUPER_ADMIN" : current.role;
       const updates: Record<string, unknown> = {};

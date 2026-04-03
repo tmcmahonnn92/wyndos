@@ -4,6 +4,8 @@ import { SignUpForm } from "./sign-up-form";
 export const dynamic = "force-dynamic";
 
 export default function SignUpPage() {
+  const googleEnabled = Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);
+
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
       <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-4xl items-center justify-center">
@@ -57,7 +59,7 @@ export default function SignUpPage() {
                   Enter your details below to set up your window cleaning round.
                 </p>
               </div>
-              <SignUpForm />
+              <SignUpForm googleEnabled={googleEnabled} />
               <p className="text-center text-sm text-slate-500 lg:hidden">
                 Already have an account?{" "}
                 <Link href="/auth/signin" className="font-semibold text-blue-400 hover:text-blue-300">

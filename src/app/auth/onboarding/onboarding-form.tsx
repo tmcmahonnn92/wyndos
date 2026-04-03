@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { completeOwnerOnboarding } from "@/lib/auth-actions";
 
 export function OnboardingForm({
@@ -11,7 +10,6 @@ export function OnboardingForm({
   initialCompanyName: string;
   initialOwnerName: string;
 }) {
-  const { update } = useSession();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -35,10 +33,6 @@ export function OnboardingForm({
         return;
       }
 
-      await update({
-        name: (fd.get("ownerName") as string) || initialOwnerName,
-        onboardingComplete: true,
-      });
       window.location.assign("/");
     } finally {
       setLoading(false);
