@@ -11,7 +11,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { fmtDate, fmtCurrency, cn } from "@/lib/utils";
 
-type Customer = NonNullable<Awaited<ReturnType<typeof getCustomer>>>;
+type Customer = NonNullable<Awaited<ReturnType<typeof getCustomer>>> & {
+  goCardlessCustomerReference: string;
+  goCardlessCustomerId: string | null;
+  goCardlessMandateId: string | null;
+};
 type Area = Awaited<ReturnType<typeof getAreas>>[0];
 type TagRow = { id: number; name: string; color: string };
 
@@ -21,6 +25,7 @@ interface Props {
   balance: number;
   allTags: TagRow[];
   hidePrices?: boolean;
+  goCardlessReferencePrefix?: string;
 }
 
 type JobBalance = {
@@ -48,7 +53,7 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, allTags, hidePrices = false }: Props) {
+export function CustomerDetail({ customer, areas, balance, allTags, hidePrices = false, goCardlessReferencePrefix = "WD" }: Props) {
   const JOB_HISTORY_PREVIEW_COUNT = 6;
   const [editOpen, setEditOpen] = useState(false);
   const [changeAreaOpen, setChangeAreaOpen] = useState(false);
@@ -91,7 +96,11 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
     jobName: customer.jobName ?? "Window Cleaning",
     advanceNotice: customer.advanceNotice ?? false,
     preferredPaymentMethod: customer.preferredPaymentMethod ?? "",
+    goCardlessCustomerReference: customer.goCardlessCustomerReference ?? "",
+    goCardlessCustomerId: customer.goCardlessCustomerId ?? "",
+    goCardlessMandateId: customer.goCardlessMandateId ?? "",
   });
+  const goCardlessReferencePlaceholder = `${goCardlessReferencePrefix}-C${customer.id}`;
 
   // Invoice state
   const jobBalanceMap = buildJobBalanceMap(customer.jobs);
@@ -228,6 +237,9 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
         jobName: form.jobName || undefined,
         advanceNotice: form.advanceNotice,
         preferredPaymentMethod: form.preferredPaymentMethod || undefined,
+        goCardlessCustomerReference: form.goCardlessCustomerReference || "",
+        goCardlessCustomerId: form.goCardlessCustomerId || "",
+        goCardlessMandateId: form.goCardlessMandateId || "",
       });
       setEditOpen(false);
       setChangeAreaOpen(false);
@@ -422,6 +434,14 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                 {customer.active ? "Active" : "Inactive"}
               </Badge>
             </div>
+            {(customer.goCardlessCustomerReference || customer.goCardlessMandateId || customer.goCardlessCustomerId) && (
+              <div className="pt-1 border-t border-slate-100 space-y-1">
+                <span className="text-xs text-slate-500 block">GoCardless matching</span>
+                {customer.goCardlessCustomerReference && <p className="text-xs text-slate-700">Reference: {customer.goCardlessCustomerReference}</p>}
+                {customer.goCardlessCustomerId && <p className="text-xs text-slate-700">Customer ID: {customer.goCardlessCustomerId}</p>}
+                {customer.goCardlessMandateId && <p className="text-xs text-slate-700">Mandate ID: {customer.goCardlessMandateId}</p>}
+              </div>
+            )}
             {/* Tags row */}
             <div className="flex items-start justify-between gap-2 pt-1">
               <span className="text-xs text-slate-500 mt-1">Tags</span>
@@ -644,6 +664,29 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                 </div>
                 <span className="text-sm font-medium text-slate-700 leading-tight">Advance notice<br /><span className="text-xs text-slate-400 font-normal">required</span></span>
               </label>
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">GoCardless customer reference</label>
+              <input type="text" value={form.goCardlessCustomerReference} onChange={(e) => setForm(f => ({ ...f, goCardlessCustomerReference: e.target.value }))}
+                placeholder={goCardlessReferencePlaceholder}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+              <p className="mt-1 text-xs text-slate-400">Use the same reference in GoCardless metadata or mandate reference so synced payments can match this customer.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">GoCardless customer ID</label>
+                <input type="text" value={form.goCardlessCustomerId} onChange={(e) => setForm(f => ({ ...f, goCardlessCustomerId: e.target.value }))}
+                  placeholder="CU123..."
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Mandate ID</label>
+                <input type="text" value={form.goCardlessMandateId} onChange={(e) => setForm(f => ({ ...f, goCardlessMandateId: e.target.value }))}
+                  placeholder="MD123..."
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+              </div>
             </div>
           </div>
           <div>

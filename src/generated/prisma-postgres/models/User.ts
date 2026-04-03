@@ -1326,7 +1326,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     tenantId: number | null
     onboardingComplete: boolean
     /**
-     * JSON array of Permission strings — only used for WORKER accounts. OWNER/SUPER_ADMIN always have full access.
+     * JSON array of Permission strings â€” only used for WORKER accounts. OWNER/SUPER_ADMIN always have full access.
      */
     workerPermissions: string
     createdAt: Date

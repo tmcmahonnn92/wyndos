@@ -67,6 +67,7 @@ export const ModelName = {
   WorkDay: 'WorkDay',
   Job: 'Job',
   Payment: 'Payment',
+  PaymentAllocation: 'PaymentAllocation',
   Holiday: 'Holiday'
 } as const
 
@@ -114,6 +115,10 @@ export const TenantSettingsScalarFieldEnum = {
   invoicePrefix: 'invoicePrefix',
   nextInvoiceNum: 'nextInvoiceNum',
   logoBase64: 'logoBase64',
+  goCardlessAccessToken: 'goCardlessAccessToken',
+  goCardlessEnvironment: 'goCardlessEnvironment',
+  goCardlessReferencePrefix: 'goCardlessReferencePrefix',
+  goCardlessLastSyncedAt: 'goCardlessLastSyncedAt',
   smtpProvider: 'smtpProvider',
   smtpHost: 'smtpHost',
   smtpPort: 'smtpPort',
@@ -293,6 +298,9 @@ export const CustomerScalarFieldEnum = {
   jobName: 'jobName',
   advanceNotice: 'advanceNotice',
   preferredPaymentMethod: 'preferredPaymentMethod',
+  goCardlessCustomerReference: 'goCardlessCustomerReference',
+  goCardlessCustomerId: 'goCardlessCustomerId',
+  goCardlessMandateId: 'goCardlessMandateId',
   active: 'active',
   sortOrder: 'sortOrder',
   nextDueDate: 'nextDueDate',
@@ -339,15 +347,31 @@ export const PaymentScalarFieldEnum = {
   id: 'id',
   tenantId: 'tenantId',
   customerId: 'customerId',
-  jobId: 'jobId',
   amount: 'amount',
   method: 'method',
   paidAt: 'paidAt',
   notes: 'notes',
-  createdAt: 'createdAt'
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  voidedAt: 'voidedAt',
+  voidReason: 'voidReason',
+  goCardlessPaymentId: 'goCardlessPaymentId',
+  goCardlessStatus: 'goCardlessStatus',
+  goCardlessReference: 'goCardlessReference'
 } as const
 
 export type PaymentScalarFieldEnum = (typeof PaymentScalarFieldEnum)[keyof typeof PaymentScalarFieldEnum]
+
+
+export const PaymentAllocationScalarFieldEnum = {
+  id: 'id',
+  tenantId: 'tenantId',
+  paymentId: 'paymentId',
+  jobId: 'jobId',
+  amount: 'amount'
+} as const
+
+export type PaymentAllocationScalarFieldEnum = (typeof PaymentAllocationScalarFieldEnum)[keyof typeof PaymentAllocationScalarFieldEnum]
 
 
 export const HolidayScalarFieldEnum = {

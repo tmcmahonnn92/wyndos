@@ -58,6 +58,9 @@ export type CustomerMinAggregateOutputType = {
   jobName: string | null
   advanceNotice: boolean | null
   preferredPaymentMethod: string | null
+  goCardlessCustomerReference: string | null
+  goCardlessCustomerId: string | null
+  goCardlessMandateId: string | null
   active: boolean | null
   sortOrder: number | null
   nextDueDate: Date | null
@@ -80,6 +83,9 @@ export type CustomerMaxAggregateOutputType = {
   jobName: string | null
   advanceNotice: boolean | null
   preferredPaymentMethod: string | null
+  goCardlessCustomerReference: string | null
+  goCardlessCustomerId: string | null
+  goCardlessMandateId: string | null
   active: boolean | null
   sortOrder: number | null
   nextDueDate: Date | null
@@ -102,6 +108,9 @@ export type CustomerCountAggregateOutputType = {
   jobName: number
   advanceNotice: number
   preferredPaymentMethod: number
+  goCardlessCustomerReference: number
+  goCardlessCustomerId: number
+  goCardlessMandateId: number
   active: number
   sortOrder: number
   nextDueDate: number
@@ -144,6 +153,9 @@ export type CustomerMinAggregateInputType = {
   jobName?: true
   advanceNotice?: true
   preferredPaymentMethod?: true
+  goCardlessCustomerReference?: true
+  goCardlessCustomerId?: true
+  goCardlessMandateId?: true
   active?: true
   sortOrder?: true
   nextDueDate?: true
@@ -166,6 +178,9 @@ export type CustomerMaxAggregateInputType = {
   jobName?: true
   advanceNotice?: true
   preferredPaymentMethod?: true
+  goCardlessCustomerReference?: true
+  goCardlessCustomerId?: true
+  goCardlessMandateId?: true
   active?: true
   sortOrder?: true
   nextDueDate?: true
@@ -188,6 +203,9 @@ export type CustomerCountAggregateInputType = {
   jobName?: true
   advanceNotice?: true
   preferredPaymentMethod?: true
+  goCardlessCustomerReference?: true
+  goCardlessCustomerId?: true
+  goCardlessMandateId?: true
   active?: true
   sortOrder?: true
   nextDueDate?: true
@@ -297,6 +315,9 @@ export type CustomerGroupByOutputType = {
   jobName: string
   advanceNotice: boolean
   preferredPaymentMethod: string
+  goCardlessCustomerReference: string
+  goCardlessCustomerId: string | null
+  goCardlessMandateId: string | null
   active: boolean
   sortOrder: number
   nextDueDate: Date | null
@@ -342,6 +363,9 @@ export type CustomerWhereInput = {
   jobName?: Prisma.StringFilter<"Customer"> | string
   advanceNotice?: Prisma.BoolFilter<"Customer"> | boolean
   preferredPaymentMethod?: Prisma.StringFilter<"Customer"> | string
+  goCardlessCustomerReference?: Prisma.StringFilter<"Customer"> | string
+  goCardlessCustomerId?: Prisma.StringNullableFilter<"Customer"> | string | null
+  goCardlessMandateId?: Prisma.StringNullableFilter<"Customer"> | string | null
   active?: Prisma.BoolFilter<"Customer"> | boolean
   sortOrder?: Prisma.IntFilter<"Customer"> | number
   nextDueDate?: Prisma.DateTimeNullableFilter<"Customer"> | Date | string | null
@@ -369,6 +393,9 @@ export type CustomerOrderByWithRelationInput = {
   jobName?: Prisma.SortOrder
   advanceNotice?: Prisma.SortOrder
   preferredPaymentMethod?: Prisma.SortOrder
+  goCardlessCustomerReference?: Prisma.SortOrder
+  goCardlessCustomerId?: Prisma.SortOrderInput | Prisma.SortOrder
+  goCardlessMandateId?: Prisma.SortOrderInput | Prisma.SortOrder
   active?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
   nextDueDate?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -399,6 +426,9 @@ export type CustomerWhereUniqueInput = Prisma.AtLeast<{
   jobName?: Prisma.StringFilter<"Customer"> | string
   advanceNotice?: Prisma.BoolFilter<"Customer"> | boolean
   preferredPaymentMethod?: Prisma.StringFilter<"Customer"> | string
+  goCardlessCustomerReference?: Prisma.StringFilter<"Customer"> | string
+  goCardlessCustomerId?: Prisma.StringNullableFilter<"Customer"> | string | null
+  goCardlessMandateId?: Prisma.StringNullableFilter<"Customer"> | string | null
   active?: Prisma.BoolFilter<"Customer"> | boolean
   sortOrder?: Prisma.IntFilter<"Customer"> | number
   nextDueDate?: Prisma.DateTimeNullableFilter<"Customer"> | Date | string | null
@@ -426,6 +456,9 @@ export type CustomerOrderByWithAggregationInput = {
   jobName?: Prisma.SortOrder
   advanceNotice?: Prisma.SortOrder
   preferredPaymentMethod?: Prisma.SortOrder
+  goCardlessCustomerReference?: Prisma.SortOrder
+  goCardlessCustomerId?: Prisma.SortOrderInput | Prisma.SortOrder
+  goCardlessMandateId?: Prisma.SortOrderInput | Prisma.SortOrder
   active?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
   nextDueDate?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -456,6 +489,9 @@ export type CustomerScalarWhereWithAggregatesInput = {
   jobName?: Prisma.StringWithAggregatesFilter<"Customer"> | string
   advanceNotice?: Prisma.BoolWithAggregatesFilter<"Customer"> | boolean
   preferredPaymentMethod?: Prisma.StringWithAggregatesFilter<"Customer"> | string
+  goCardlessCustomerReference?: Prisma.StringWithAggregatesFilter<"Customer"> | string
+  goCardlessCustomerId?: Prisma.StringNullableWithAggregatesFilter<"Customer"> | string | null
+  goCardlessMandateId?: Prisma.StringNullableWithAggregatesFilter<"Customer"> | string | null
   active?: Prisma.BoolWithAggregatesFilter<"Customer"> | boolean
   sortOrder?: Prisma.IntWithAggregatesFilter<"Customer"> | number
   nextDueDate?: Prisma.DateTimeNullableWithAggregatesFilter<"Customer"> | Date | string | null
@@ -475,6 +511,9 @@ export type CustomerCreateInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -502,6 +541,9 @@ export type CustomerUncheckedCreateInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -524,6 +566,9 @@ export type CustomerUpdateInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -551,6 +596,9 @@ export type CustomerUncheckedUpdateInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -576,6 +624,9 @@ export type CustomerCreateManyInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -595,6 +646,9 @@ export type CustomerUpdateManyMutationInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -617,6 +671,9 @@ export type CustomerUncheckedUpdateManyInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -654,6 +711,9 @@ export type CustomerCountOrderByAggregateInput = {
   jobName?: Prisma.SortOrder
   advanceNotice?: Prisma.SortOrder
   preferredPaymentMethod?: Prisma.SortOrder
+  goCardlessCustomerReference?: Prisma.SortOrder
+  goCardlessCustomerId?: Prisma.SortOrder
+  goCardlessMandateId?: Prisma.SortOrder
   active?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
   nextDueDate?: Prisma.SortOrder
@@ -685,6 +745,9 @@ export type CustomerMaxOrderByAggregateInput = {
   jobName?: Prisma.SortOrder
   advanceNotice?: Prisma.SortOrder
   preferredPaymentMethod?: Prisma.SortOrder
+  goCardlessCustomerReference?: Prisma.SortOrder
+  goCardlessCustomerId?: Prisma.SortOrder
+  goCardlessMandateId?: Prisma.SortOrder
   active?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
   nextDueDate?: Prisma.SortOrder
@@ -707,6 +770,9 @@ export type CustomerMinOrderByAggregateInput = {
   jobName?: Prisma.SortOrder
   advanceNotice?: Prisma.SortOrder
   preferredPaymentMethod?: Prisma.SortOrder
+  goCardlessCustomerReference?: Prisma.SortOrder
+  goCardlessCustomerId?: Prisma.SortOrder
+  goCardlessMandateId?: Prisma.SortOrder
   active?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
   nextDueDate?: Prisma.SortOrder
@@ -869,6 +935,9 @@ export type CustomerCreateWithoutTenantInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -894,6 +963,9 @@ export type CustomerUncheckedCreateWithoutTenantInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -948,6 +1020,9 @@ export type CustomerScalarWhereInput = {
   jobName?: Prisma.StringFilter<"Customer"> | string
   advanceNotice?: Prisma.BoolFilter<"Customer"> | boolean
   preferredPaymentMethod?: Prisma.StringFilter<"Customer"> | string
+  goCardlessCustomerReference?: Prisma.StringFilter<"Customer"> | string
+  goCardlessCustomerId?: Prisma.StringNullableFilter<"Customer"> | string | null
+  goCardlessMandateId?: Prisma.StringNullableFilter<"Customer"> | string | null
   active?: Prisma.BoolFilter<"Customer"> | boolean
   sortOrder?: Prisma.IntFilter<"Customer"> | number
   nextDueDate?: Prisma.DateTimeNullableFilter<"Customer"> | Date | string | null
@@ -967,6 +1042,9 @@ export type CustomerCreateWithoutAreaInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -992,6 +1070,9 @@ export type CustomerUncheckedCreateWithoutAreaInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -1040,6 +1121,9 @@ export type CustomerCreateWithoutTagsInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -1066,6 +1150,9 @@ export type CustomerUncheckedCreateWithoutTagsInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -1103,6 +1190,9 @@ export type CustomerUpdateWithoutTagsInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1129,6 +1219,9 @@ export type CustomerUncheckedUpdateWithoutTagsInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1150,6 +1243,9 @@ export type CustomerCreateWithoutJobsInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -1176,6 +1272,9 @@ export type CustomerUncheckedCreateWithoutJobsInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -1213,6 +1312,9 @@ export type CustomerUpdateWithoutJobsInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1239,6 +1341,9 @@ export type CustomerUncheckedUpdateWithoutJobsInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1260,6 +1365,9 @@ export type CustomerCreateWithoutPaymentsInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -1286,6 +1394,9 @@ export type CustomerUncheckedCreateWithoutPaymentsInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -1323,6 +1434,9 @@ export type CustomerUpdateWithoutPaymentsInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1349,6 +1463,9 @@ export type CustomerUncheckedUpdateWithoutPaymentsInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1372,6 +1489,9 @@ export type CustomerCreateManyTenantInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -1391,6 +1511,9 @@ export type CustomerUpdateWithoutTenantInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1416,6 +1539,9 @@ export type CustomerUncheckedUpdateWithoutTenantInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1440,6 +1566,9 @@ export type CustomerUncheckedUpdateManyWithoutTenantInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1461,6 +1590,9 @@ export type CustomerCreateManyAreaInput = {
   jobName?: string
   advanceNotice?: boolean
   preferredPaymentMethod?: string
+  goCardlessCustomerReference?: string
+  goCardlessCustomerId?: string | null
+  goCardlessMandateId?: string | null
   active?: boolean
   sortOrder?: number
   nextDueDate?: Date | string | null
@@ -1480,6 +1612,9 @@ export type CustomerUpdateWithoutAreaInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1505,6 +1640,9 @@ export type CustomerUncheckedUpdateWithoutAreaInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1529,6 +1667,9 @@ export type CustomerUncheckedUpdateManyWithoutAreaInput = {
   jobName?: Prisma.StringFieldUpdateOperationsInput | string
   advanceNotice?: Prisma.BoolFieldUpdateOperationsInput | boolean
   preferredPaymentMethod?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerReference?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessCustomerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessMandateId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   active?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   nextDueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1600,6 +1741,9 @@ export type CustomerSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   jobName?: boolean
   advanceNotice?: boolean
   preferredPaymentMethod?: boolean
+  goCardlessCustomerReference?: boolean
+  goCardlessCustomerId?: boolean
+  goCardlessMandateId?: boolean
   active?: boolean
   sortOrder?: boolean
   nextDueDate?: boolean
@@ -1628,6 +1772,9 @@ export type CustomerSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
   jobName?: boolean
   advanceNotice?: boolean
   preferredPaymentMethod?: boolean
+  goCardlessCustomerReference?: boolean
+  goCardlessCustomerId?: boolean
+  goCardlessMandateId?: boolean
   active?: boolean
   sortOrder?: boolean
   nextDueDate?: boolean
@@ -1652,6 +1799,9 @@ export type CustomerSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
   jobName?: boolean
   advanceNotice?: boolean
   preferredPaymentMethod?: boolean
+  goCardlessCustomerReference?: boolean
+  goCardlessCustomerId?: boolean
+  goCardlessMandateId?: boolean
   active?: boolean
   sortOrder?: boolean
   nextDueDate?: boolean
@@ -1676,6 +1826,9 @@ export type CustomerSelectScalar = {
   jobName?: boolean
   advanceNotice?: boolean
   preferredPaymentMethod?: boolean
+  goCardlessCustomerReference?: boolean
+  goCardlessCustomerId?: boolean
+  goCardlessMandateId?: boolean
   active?: boolean
   sortOrder?: boolean
   nextDueDate?: boolean
@@ -1684,7 +1837,7 @@ export type CustomerSelectScalar = {
   createdAt?: boolean
 }
 
-export type CustomerOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tenantId" | "name" | "address" | "email" | "phone" | "areaId" | "frequencyWeeks" | "price" | "notes" | "jobName" | "advanceNotice" | "preferredPaymentMethod" | "active" | "sortOrder" | "nextDueDate" | "lastCompletedDate" | "skipNextAreaRun" | "createdAt", ExtArgs["result"]["customer"]>
+export type CustomerOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tenantId" | "name" | "address" | "email" | "phone" | "areaId" | "frequencyWeeks" | "price" | "notes" | "jobName" | "advanceNotice" | "preferredPaymentMethod" | "goCardlessCustomerReference" | "goCardlessCustomerId" | "goCardlessMandateId" | "active" | "sortOrder" | "nextDueDate" | "lastCompletedDate" | "skipNextAreaRun" | "createdAt", ExtArgs["result"]["customer"]>
 export type CustomerInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tenant?: boolean | Prisma.TenantDefaultArgs<ExtArgs>
   area?: boolean | Prisma.AreaDefaultArgs<ExtArgs>
@@ -1725,6 +1878,9 @@ export type $CustomerPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     jobName: string
     advanceNotice: boolean
     preferredPaymentMethod: string
+    goCardlessCustomerReference: string
+    goCardlessCustomerId: string | null
+    goCardlessMandateId: string | null
     active: boolean
     sortOrder: number
     nextDueDate: Date | null
@@ -2172,6 +2328,9 @@ export interface CustomerFieldRefs {
   readonly jobName: Prisma.FieldRef<"Customer", 'String'>
   readonly advanceNotice: Prisma.FieldRef<"Customer", 'Boolean'>
   readonly preferredPaymentMethod: Prisma.FieldRef<"Customer", 'String'>
+  readonly goCardlessCustomerReference: Prisma.FieldRef<"Customer", 'String'>
+  readonly goCardlessCustomerId: Prisma.FieldRef<"Customer", 'String'>
+  readonly goCardlessMandateId: Prisma.FieldRef<"Customer", 'String'>
   readonly active: Prisma.FieldRef<"Customer", 'Boolean'>
   readonly sortOrder: Prisma.FieldRef<"Customer", 'Int'>
   readonly nextDueDate: Prisma.FieldRef<"Customer", 'DateTime'>

@@ -21,6 +21,8 @@ interface Settings {
   businessName: string; ownerName: string; phone: string; email: string;
   address: string; bankDetails: string; vatNumber: string;
   invoicePrefix: string; nextInvoiceNum: number; logoBase64: string | null;
+  goCardlessEnvironment: string; goCardlessReferencePrefix: string;
+  goCardlessAccessTokenConfigured: boolean; goCardlessLastSyncedAt: string | null;
   smtpProvider: string; smtpHost: string; smtpPort: number;
   smtpUser: string; smtpFromName: string; smtpPassConfigured: boolean;
   voodooSender: string; voodooApiKeyConfigured: boolean;
@@ -181,6 +183,12 @@ export function SettingsClient({
     metaWabaId: settings.metaWabaId || "",
   });
 
+  const [goCardless, setGoCardless] = useState({
+    environment: settings.goCardlessEnvironment || "live",
+    accessToken: "",
+    referencePrefix: settings.goCardlessReferencePrefix || "WD",
+  });
+
   const [templates, setTemplates] = useState<Record<TmplKey, string>>({
     tmplCleaningReminder: settings.tmplCleaningReminder || "",
     tmplJobComplete:      settings.tmplJobComplete      || "",
@@ -207,6 +215,7 @@ export function SettingsClient({
   const [showVoodooKey, setShowVoodooKey] = useState(false);
   const [showTwilioAuth, setShowTwilioAuth] = useState(false);
   const [showMetaToken, setShowMetaToken] = useState(false);
+  const [showGoCardlessToken, setShowGoCardlessToken] = useState(false);
   const [metaGuideOpen, setMetaGuideOpen] = useState(false);
   type MetaVerify = { status: "idle" | "checking" | "ok" | "error"; displayNumber?: string; verifiedName?: string; qualityRating?: string; verificationStatus?: string; error?: string; };
   const [metaVerify, setMetaVerify] = useState<MetaVerify>({ status: "idle" });
@@ -359,6 +368,8 @@ export function SettingsClient({
 
         if (canManageProviderSettings) {
           Object.assign(payload, {
+            goCardlessEnvironment: goCardless.environment,
+            goCardlessReferencePrefix: goCardless.referencePrefix.trim() || "WD",
             smtpProvider: smtp.smtpProvider,
             smtpHost: smtp.smtpHost,
             smtpPort: smtp.smtpPort,
@@ -374,6 +385,7 @@ export function SettingsClient({
           });
 
           if (smtp.smtpPass.trim()) payload.smtpPass = smtp.smtpPass.trim();
+          if (goCardless.accessToken.trim()) payload.goCardlessAccessToken = goCardless.accessToken.trim();
           if (messaging.voodooApiKey.trim()) payload.voodooApiKey = messaging.voodooApiKey.trim();
           if (messaging.twilioAuthToken.trim()) payload.twilioAuthToken = messaging.twilioAuthToken.trim();
           if (messaging.metaAccessToken.trim()) payload.metaAccessToken = messaging.metaAccessToken.trim();
@@ -528,6 +540,58 @@ export function SettingsClient({
                 <label className={lbl}>Bank / payment details</label>
                 <textarea className={cn(inp, "resize-none")} rows={4} value={form.bankDetails} onChange={(e) => setForm((f) => ({ ...f, bankDetails: e.target.value }))} placeholder={"Bank: Lloyds\nAccount name: J Smith Window Cleaning\nSort code: 12-34-56\nAccount: 12345678"} />
                 <p className="text-xs text-slate-400 mt-1">Shown at the bottom of every invoice</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle><Link2 size={16} className="inline mr-2 text-blue-600" />GoCardless</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                Store one GoCardless access token per Wyndos account, then sync confirmed payments into the Payments page. Matching works best when each customer has a saved GoCardless reference or mandate ID in their customer profile.
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={lbl}>Environment</label>
+                  <select
+                    value={goCardless.environment}
+                    onChange={(e) => setGoCardless((current) => ({ ...current, environment: e.target.value }))}
+                    className={cn(inp, "bg-white")}
+                  >
+                    <option value="live">Live</option>
+                    <option value="sandbox">Sandbox</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={lbl}>Reference prefix</label>
+                  <input
+                    className={inp}
+                    value={goCardless.referencePrefix}
+                    onChange={(e) => setGoCardless((current) => ({ ...current, referencePrefix: e.target.value.toUpperCase() }))}
+                    placeholder="WD"
+                  />
+                  <p className="mt-1 text-xs text-slate-400">Suggested customer ref format: {`${goCardless.referencePrefix.trim() || "WD"}-C123`}</p>
+                </div>
+              </div>
+              <div>
+                <label className={lbl}>Access token</label>
+                <div className="relative">
+                  <input
+                    type={showGoCardlessToken ? "text" : "password"}
+                    className={cn(inp, "pr-9")}
+                    value={goCardless.accessToken}
+                    onChange={(e) => setGoCardless((current) => ({ ...current, accessToken: e.target.value }))}
+                    placeholder={settings.goCardlessAccessTokenConfigured ? "Configured - enter a new token to replace it" : "Paste your GoCardless access token"}
+                  />
+                  <button type="button" onClick={() => setShowGoCardlessToken((value) => !value)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">{showGoCardlessToken ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  {settings.goCardlessAccessTokenConfigured ? "A token is already stored. Leave this blank to keep the current token." : "Use a GoCardless access token for the relevant live or sandbox account."}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
+                <p>To link payments reliably, set the same customer reference in both systems, or save the customer&apos;s GoCardless mandate ID in Wyndos.</p>
+                <p>Last sync: {settings.goCardlessLastSyncedAt ? new Date(settings.goCardlessLastSyncedAt).toLocaleString("en-GB") : "Never"}</p>
               </div>
             </CardContent>
           </Card>

@@ -17,12 +17,20 @@ export default async function PaymentsPage() {
   ]);
   const owingAreaIds = new Set(customersWithDebt.map((customer) => customer.areaId).filter((id): id is number => typeof id === "number"));
   const owingAreas = areas.filter((area) => owingAreaIds.has(area.id));
+  const goCardlessSettings = settings as typeof settings & {
+    goCardlessAccessToken?: string;
+    goCardlessLastSyncedAt?: Date | null;
+  };
 
   return (
     <div className="px-4 py-5 max-w-2xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-800">Payments</h1>
-        <PaymentsToolbar customers={customersWithDebt} />
+        <PaymentsToolbar
+          customers={customersWithDebt}
+          goCardlessConfigured={Boolean(goCardlessSettings.goCardlessAccessToken)}
+          goCardlessLastSyncedAt={goCardlessSettings.goCardlessLastSyncedAt ? goCardlessSettings.goCardlessLastSyncedAt.toISOString() : null}
+        />
       </div>
 
       {/* Debt summary with invoice + SMS actions */}

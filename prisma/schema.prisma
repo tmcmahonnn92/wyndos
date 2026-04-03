@@ -53,6 +53,10 @@ model TenantSettings {
   invoicePrefix   String @default("INV")
   nextInvoiceNum  Int    @default(1)
   logoBase64      String? // base64 data URL
+  goCardlessAccessToken     String   @default("")
+  goCardlessEnvironment     String   @default("live")
+  goCardlessReferencePrefix String   @default("WD")
+  goCardlessLastSyncedAt    DateTime?
 
   // SMTP
   smtpProvider    String @default("gmail")
@@ -260,6 +264,9 @@ model Customer {
   jobName                String        @default("Window Cleaning")
   advanceNotice          Boolean       @default(false)
   preferredPaymentMethod String        @default("")
+  goCardlessCustomerReference String   @default("")
+  goCardlessCustomerId    String?
+  goCardlessMandateId     String?
   active                 Boolean       @default(true)
   sortOrder              Int           @default(0)
   nextDueDate            DateTime?
@@ -273,6 +280,7 @@ model Customer {
   @@index([tenantId])
   @@index([tenantId, areaId])
   @@index([tenantId, active])
+  @@index([tenantId, goCardlessCustomerReference])
   @@index([tenantId, nextDueDate])
 }
 
@@ -331,10 +339,14 @@ model Payment {
   updatedAt   DateTime            @updatedAt
   voidedAt    DateTime?
   voidReason  String?
+  goCardlessPaymentId String?     @unique
+  goCardlessStatus    String?
+  goCardlessReference String?
   allocations PaymentAllocation[]
 
   @@index([tenantId])
   @@index([tenantId, customerId])
+  @@index([tenantId, goCardlessStatus])
   @@index([paidAt])
   @@index([voidedAt])
 }

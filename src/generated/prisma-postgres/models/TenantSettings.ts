@@ -54,6 +54,10 @@ export type TenantSettingsMinAggregateOutputType = {
   invoicePrefix: string | null
   nextInvoiceNum: number | null
   logoBase64: string | null
+  goCardlessAccessToken: string | null
+  goCardlessEnvironment: string | null
+  goCardlessReferencePrefix: string | null
+  goCardlessLastSyncedAt: Date | null
   smtpProvider: string | null
   smtpHost: string | null
   smtpPort: number | null
@@ -92,6 +96,10 @@ export type TenantSettingsMaxAggregateOutputType = {
   invoicePrefix: string | null
   nextInvoiceNum: number | null
   logoBase64: string | null
+  goCardlessAccessToken: string | null
+  goCardlessEnvironment: string | null
+  goCardlessReferencePrefix: string | null
+  goCardlessLastSyncedAt: Date | null
   smtpProvider: string | null
   smtpHost: string | null
   smtpPort: number | null
@@ -130,6 +138,10 @@ export type TenantSettingsCountAggregateOutputType = {
   invoicePrefix: number
   nextInvoiceNum: number
   logoBase64: number
+  goCardlessAccessToken: number
+  goCardlessEnvironment: number
+  goCardlessReferencePrefix: number
+  goCardlessLastSyncedAt: number
   smtpProvider: number
   smtpHost: number
   smtpPort: number
@@ -184,6 +196,10 @@ export type TenantSettingsMinAggregateInputType = {
   invoicePrefix?: true
   nextInvoiceNum?: true
   logoBase64?: true
+  goCardlessAccessToken?: true
+  goCardlessEnvironment?: true
+  goCardlessReferencePrefix?: true
+  goCardlessLastSyncedAt?: true
   smtpProvider?: true
   smtpHost?: true
   smtpPort?: true
@@ -222,6 +238,10 @@ export type TenantSettingsMaxAggregateInputType = {
   invoicePrefix?: true
   nextInvoiceNum?: true
   logoBase64?: true
+  goCardlessAccessToken?: true
+  goCardlessEnvironment?: true
+  goCardlessReferencePrefix?: true
+  goCardlessLastSyncedAt?: true
   smtpProvider?: true
   smtpHost?: true
   smtpPort?: true
@@ -260,6 +280,10 @@ export type TenantSettingsCountAggregateInputType = {
   invoicePrefix?: true
   nextInvoiceNum?: true
   logoBase64?: true
+  goCardlessAccessToken?: true
+  goCardlessEnvironment?: true
+  goCardlessReferencePrefix?: true
+  goCardlessLastSyncedAt?: true
   smtpProvider?: true
   smtpHost?: true
   smtpPort?: true
@@ -385,6 +409,10 @@ export type TenantSettingsGroupByOutputType = {
   invoicePrefix: string
   nextInvoiceNum: number
   logoBase64: string | null
+  goCardlessAccessToken: string
+  goCardlessEnvironment: string
+  goCardlessReferencePrefix: string
+  goCardlessLastSyncedAt: Date | null
   smtpProvider: string
   smtpHost: string
   smtpPort: number
@@ -446,6 +474,10 @@ export type TenantSettingsWhereInput = {
   invoicePrefix?: Prisma.StringFilter<"TenantSettings"> | string
   nextInvoiceNum?: Prisma.IntFilter<"TenantSettings"> | number
   logoBase64?: Prisma.StringNullableFilter<"TenantSettings"> | string | null
+  goCardlessAccessToken?: Prisma.StringFilter<"TenantSettings"> | string
+  goCardlessEnvironment?: Prisma.StringFilter<"TenantSettings"> | string
+  goCardlessReferencePrefix?: Prisma.StringFilter<"TenantSettings"> | string
+  goCardlessLastSyncedAt?: Prisma.DateTimeNullableFilter<"TenantSettings"> | Date | string | null
   smtpProvider?: Prisma.StringFilter<"TenantSettings"> | string
   smtpHost?: Prisma.StringFilter<"TenantSettings"> | string
   smtpPort?: Prisma.IntFilter<"TenantSettings"> | number
@@ -485,6 +517,10 @@ export type TenantSettingsOrderByWithRelationInput = {
   invoicePrefix?: Prisma.SortOrder
   nextInvoiceNum?: Prisma.SortOrder
   logoBase64?: Prisma.SortOrderInput | Prisma.SortOrder
+  goCardlessAccessToken?: Prisma.SortOrder
+  goCardlessEnvironment?: Prisma.SortOrder
+  goCardlessReferencePrefix?: Prisma.SortOrder
+  goCardlessLastSyncedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   smtpProvider?: Prisma.SortOrder
   smtpHost?: Prisma.SortOrder
   smtpPort?: Prisma.SortOrder
@@ -527,6 +563,10 @@ export type TenantSettingsWhereUniqueInput = Prisma.AtLeast<{
   invoicePrefix?: Prisma.StringFilter<"TenantSettings"> | string
   nextInvoiceNum?: Prisma.IntFilter<"TenantSettings"> | number
   logoBase64?: Prisma.StringNullableFilter<"TenantSettings"> | string | null
+  goCardlessAccessToken?: Prisma.StringFilter<"TenantSettings"> | string
+  goCardlessEnvironment?: Prisma.StringFilter<"TenantSettings"> | string
+  goCardlessReferencePrefix?: Prisma.StringFilter<"TenantSettings"> | string
+  goCardlessLastSyncedAt?: Prisma.DateTimeNullableFilter<"TenantSettings"> | Date | string | null
   smtpProvider?: Prisma.StringFilter<"TenantSettings"> | string
   smtpHost?: Prisma.StringFilter<"TenantSettings"> | string
   smtpPort?: Prisma.IntFilter<"TenantSettings"> | number
@@ -566,6 +606,10 @@ export type TenantSettingsOrderByWithAggregationInput = {
   invoicePrefix?: Prisma.SortOrder
   nextInvoiceNum?: Prisma.SortOrder
   logoBase64?: Prisma.SortOrderInput | Prisma.SortOrder
+  goCardlessAccessToken?: Prisma.SortOrder
+  goCardlessEnvironment?: Prisma.SortOrder
+  goCardlessReferencePrefix?: Prisma.SortOrder
+  goCardlessLastSyncedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   smtpProvider?: Prisma.SortOrder
   smtpHost?: Prisma.SortOrder
   smtpPort?: Prisma.SortOrder
@@ -612,6 +656,10 @@ export type TenantSettingsScalarWhereWithAggregatesInput = {
   invoicePrefix?: Prisma.StringWithAggregatesFilter<"TenantSettings"> | string
   nextInvoiceNum?: Prisma.IntWithAggregatesFilter<"TenantSettings"> | number
   logoBase64?: Prisma.StringNullableWithAggregatesFilter<"TenantSettings"> | string | null
+  goCardlessAccessToken?: Prisma.StringWithAggregatesFilter<"TenantSettings"> | string
+  goCardlessEnvironment?: Prisma.StringWithAggregatesFilter<"TenantSettings"> | string
+  goCardlessReferencePrefix?: Prisma.StringWithAggregatesFilter<"TenantSettings"> | string
+  goCardlessLastSyncedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"TenantSettings"> | Date | string | null
   smtpProvider?: Prisma.StringWithAggregatesFilter<"TenantSettings"> | string
   smtpHost?: Prisma.StringWithAggregatesFilter<"TenantSettings"> | string
   smtpPort?: Prisma.IntWithAggregatesFilter<"TenantSettings"> | number
@@ -648,6 +696,10 @@ export type TenantSettingsCreateInput = {
   invoicePrefix?: string
   nextInvoiceNum?: number
   logoBase64?: string | null
+  goCardlessAccessToken?: string
+  goCardlessEnvironment?: string
+  goCardlessReferencePrefix?: string
+  goCardlessLastSyncedAt?: Date | string | null
   smtpProvider?: string
   smtpHost?: string
   smtpPort?: number
@@ -687,6 +739,10 @@ export type TenantSettingsUncheckedCreateInput = {
   invoicePrefix?: string
   nextInvoiceNum?: number
   logoBase64?: string | null
+  goCardlessAccessToken?: string
+  goCardlessEnvironment?: string
+  goCardlessReferencePrefix?: string
+  goCardlessLastSyncedAt?: Date | string | null
   smtpProvider?: string
   smtpHost?: string
   smtpPort?: number
@@ -723,6 +779,10 @@ export type TenantSettingsUpdateInput = {
   invoicePrefix?: Prisma.StringFieldUpdateOperationsInput | string
   nextInvoiceNum?: Prisma.IntFieldUpdateOperationsInput | number
   logoBase64?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessAccessToken?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessEnvironment?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessReferencePrefix?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessLastSyncedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   smtpProvider?: Prisma.StringFieldUpdateOperationsInput | string
   smtpHost?: Prisma.StringFieldUpdateOperationsInput | string
   smtpPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -762,6 +822,10 @@ export type TenantSettingsUncheckedUpdateInput = {
   invoicePrefix?: Prisma.StringFieldUpdateOperationsInput | string
   nextInvoiceNum?: Prisma.IntFieldUpdateOperationsInput | number
   logoBase64?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessAccessToken?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessEnvironment?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessReferencePrefix?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessLastSyncedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   smtpProvider?: Prisma.StringFieldUpdateOperationsInput | string
   smtpHost?: Prisma.StringFieldUpdateOperationsInput | string
   smtpPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -800,6 +864,10 @@ export type TenantSettingsCreateManyInput = {
   invoicePrefix?: string
   nextInvoiceNum?: number
   logoBase64?: string | null
+  goCardlessAccessToken?: string
+  goCardlessEnvironment?: string
+  goCardlessReferencePrefix?: string
+  goCardlessLastSyncedAt?: Date | string | null
   smtpProvider?: string
   smtpHost?: string
   smtpPort?: number
@@ -836,6 +904,10 @@ export type TenantSettingsUpdateManyMutationInput = {
   invoicePrefix?: Prisma.StringFieldUpdateOperationsInput | string
   nextInvoiceNum?: Prisma.IntFieldUpdateOperationsInput | number
   logoBase64?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessAccessToken?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessEnvironment?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessReferencePrefix?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessLastSyncedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   smtpProvider?: Prisma.StringFieldUpdateOperationsInput | string
   smtpHost?: Prisma.StringFieldUpdateOperationsInput | string
   smtpPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -874,6 +946,10 @@ export type TenantSettingsUncheckedUpdateManyInput = {
   invoicePrefix?: Prisma.StringFieldUpdateOperationsInput | string
   nextInvoiceNum?: Prisma.IntFieldUpdateOperationsInput | number
   logoBase64?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessAccessToken?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessEnvironment?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessReferencePrefix?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessLastSyncedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   smtpProvider?: Prisma.StringFieldUpdateOperationsInput | string
   smtpHost?: Prisma.StringFieldUpdateOperationsInput | string
   smtpPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -917,6 +993,10 @@ export type TenantSettingsCountOrderByAggregateInput = {
   invoicePrefix?: Prisma.SortOrder
   nextInvoiceNum?: Prisma.SortOrder
   logoBase64?: Prisma.SortOrder
+  goCardlessAccessToken?: Prisma.SortOrder
+  goCardlessEnvironment?: Prisma.SortOrder
+  goCardlessReferencePrefix?: Prisma.SortOrder
+  goCardlessLastSyncedAt?: Prisma.SortOrder
   smtpProvider?: Prisma.SortOrder
   smtpHost?: Prisma.SortOrder
   smtpPort?: Prisma.SortOrder
@@ -962,6 +1042,10 @@ export type TenantSettingsMaxOrderByAggregateInput = {
   invoicePrefix?: Prisma.SortOrder
   nextInvoiceNum?: Prisma.SortOrder
   logoBase64?: Prisma.SortOrder
+  goCardlessAccessToken?: Prisma.SortOrder
+  goCardlessEnvironment?: Prisma.SortOrder
+  goCardlessReferencePrefix?: Prisma.SortOrder
+  goCardlessLastSyncedAt?: Prisma.SortOrder
   smtpProvider?: Prisma.SortOrder
   smtpHost?: Prisma.SortOrder
   smtpPort?: Prisma.SortOrder
@@ -1000,6 +1084,10 @@ export type TenantSettingsMinOrderByAggregateInput = {
   invoicePrefix?: Prisma.SortOrder
   nextInvoiceNum?: Prisma.SortOrder
   logoBase64?: Prisma.SortOrder
+  goCardlessAccessToken?: Prisma.SortOrder
+  goCardlessEnvironment?: Prisma.SortOrder
+  goCardlessReferencePrefix?: Prisma.SortOrder
+  goCardlessLastSyncedAt?: Prisma.SortOrder
   smtpProvider?: Prisma.SortOrder
   smtpHost?: Prisma.SortOrder
   smtpPort?: Prisma.SortOrder
@@ -1068,6 +1156,10 @@ export type NullableStringFieldUpdateOperationsInput = {
   set?: string | null
 }
 
+export type NullableDateTimeFieldUpdateOperationsInput = {
+  set?: Date | string | null
+}
+
 export type TenantSettingsCreateWithoutTenantInput = {
   businessName?: string
   ownerName?: string
@@ -1079,6 +1171,10 @@ export type TenantSettingsCreateWithoutTenantInput = {
   invoicePrefix?: string
   nextInvoiceNum?: number
   logoBase64?: string | null
+  goCardlessAccessToken?: string
+  goCardlessEnvironment?: string
+  goCardlessReferencePrefix?: string
+  goCardlessLastSyncedAt?: Date | string | null
   smtpProvider?: string
   smtpHost?: string
   smtpPort?: number
@@ -1116,6 +1212,10 @@ export type TenantSettingsUncheckedCreateWithoutTenantInput = {
   invoicePrefix?: string
   nextInvoiceNum?: number
   logoBase64?: string | null
+  goCardlessAccessToken?: string
+  goCardlessEnvironment?: string
+  goCardlessReferencePrefix?: string
+  goCardlessLastSyncedAt?: Date | string | null
   smtpProvider?: string
   smtpHost?: string
   smtpPort?: number
@@ -1168,6 +1268,10 @@ export type TenantSettingsUpdateWithoutTenantInput = {
   invoicePrefix?: Prisma.StringFieldUpdateOperationsInput | string
   nextInvoiceNum?: Prisma.IntFieldUpdateOperationsInput | number
   logoBase64?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessAccessToken?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessEnvironment?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessReferencePrefix?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessLastSyncedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   smtpProvider?: Prisma.StringFieldUpdateOperationsInput | string
   smtpHost?: Prisma.StringFieldUpdateOperationsInput | string
   smtpPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1205,6 +1309,10 @@ export type TenantSettingsUncheckedUpdateWithoutTenantInput = {
   invoicePrefix?: Prisma.StringFieldUpdateOperationsInput | string
   nextInvoiceNum?: Prisma.IntFieldUpdateOperationsInput | number
   logoBase64?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  goCardlessAccessToken?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessEnvironment?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessReferencePrefix?: Prisma.StringFieldUpdateOperationsInput | string
+  goCardlessLastSyncedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   smtpProvider?: Prisma.StringFieldUpdateOperationsInput | string
   smtpHost?: Prisma.StringFieldUpdateOperationsInput | string
   smtpPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1245,6 +1353,10 @@ export type TenantSettingsSelect<ExtArgs extends runtime.Types.Extensions.Intern
   invoicePrefix?: boolean
   nextInvoiceNum?: boolean
   logoBase64?: boolean
+  goCardlessAccessToken?: boolean
+  goCardlessEnvironment?: boolean
+  goCardlessReferencePrefix?: boolean
+  goCardlessLastSyncedAt?: boolean
   smtpProvider?: boolean
   smtpHost?: boolean
   smtpPort?: boolean
@@ -1284,6 +1396,10 @@ export type TenantSettingsSelectCreateManyAndReturn<ExtArgs extends runtime.Type
   invoicePrefix?: boolean
   nextInvoiceNum?: boolean
   logoBase64?: boolean
+  goCardlessAccessToken?: boolean
+  goCardlessEnvironment?: boolean
+  goCardlessReferencePrefix?: boolean
+  goCardlessLastSyncedAt?: boolean
   smtpProvider?: boolean
   smtpHost?: boolean
   smtpPort?: boolean
@@ -1323,6 +1439,10 @@ export type TenantSettingsSelectUpdateManyAndReturn<ExtArgs extends runtime.Type
   invoicePrefix?: boolean
   nextInvoiceNum?: boolean
   logoBase64?: boolean
+  goCardlessAccessToken?: boolean
+  goCardlessEnvironment?: boolean
+  goCardlessReferencePrefix?: boolean
+  goCardlessLastSyncedAt?: boolean
   smtpProvider?: boolean
   smtpHost?: boolean
   smtpPort?: boolean
@@ -1362,6 +1482,10 @@ export type TenantSettingsSelectScalar = {
   invoicePrefix?: boolean
   nextInvoiceNum?: boolean
   logoBase64?: boolean
+  goCardlessAccessToken?: boolean
+  goCardlessEnvironment?: boolean
+  goCardlessReferencePrefix?: boolean
+  goCardlessLastSyncedAt?: boolean
   smtpProvider?: boolean
   smtpHost?: boolean
   smtpPort?: boolean
@@ -1387,7 +1511,7 @@ export type TenantSettingsSelectScalar = {
   tmplInvoiceNote?: boolean
 }
 
-export type TenantSettingsOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tenantId" | "businessName" | "ownerName" | "phone" | "email" | "address" | "bankDetails" | "vatNumber" | "invoicePrefix" | "nextInvoiceNum" | "logoBase64" | "smtpProvider" | "smtpHost" | "smtpPort" | "smtpUser" | "smtpPass" | "smtpFromName" | "messagingProvider" | "voodooApiKey" | "voodooSender" | "twilioAccountSid" | "twilioAuthToken" | "twilioFromNumber" | "metaPhoneNumberId" | "metaAccessToken" | "metaWabaId" | "tmplCleaningReminder" | "tmplJobComplete" | "tmplPaymentReminder1" | "tmplPaymentReminder2" | "tmplPaymentReminder3" | "tmplPaymentReceived" | "tmplJobAndPayment" | "tmplInvoiceNote", ExtArgs["result"]["tenantSettings"]>
+export type TenantSettingsOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tenantId" | "businessName" | "ownerName" | "phone" | "email" | "address" | "bankDetails" | "vatNumber" | "invoicePrefix" | "nextInvoiceNum" | "logoBase64" | "goCardlessAccessToken" | "goCardlessEnvironment" | "goCardlessReferencePrefix" | "goCardlessLastSyncedAt" | "smtpProvider" | "smtpHost" | "smtpPort" | "smtpUser" | "smtpPass" | "smtpFromName" | "messagingProvider" | "voodooApiKey" | "voodooSender" | "twilioAccountSid" | "twilioAuthToken" | "twilioFromNumber" | "metaPhoneNumberId" | "metaAccessToken" | "metaWabaId" | "tmplCleaningReminder" | "tmplJobComplete" | "tmplPaymentReminder1" | "tmplPaymentReminder2" | "tmplPaymentReminder3" | "tmplPaymentReceived" | "tmplJobAndPayment" | "tmplInvoiceNote", ExtArgs["result"]["tenantSettings"]>
 export type TenantSettingsInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tenant?: boolean | Prisma.TenantDefaultArgs<ExtArgs>
 }
@@ -1416,6 +1540,10 @@ export type $TenantSettingsPayload<ExtArgs extends runtime.Types.Extensions.Inte
     invoicePrefix: string
     nextInvoiceNum: number
     logoBase64: string | null
+    goCardlessAccessToken: string
+    goCardlessEnvironment: string
+    goCardlessReferencePrefix: string
+    goCardlessLastSyncedAt: Date | null
     smtpProvider: string
     smtpHost: string
     smtpPort: number
@@ -1875,6 +2003,10 @@ export interface TenantSettingsFieldRefs {
   readonly invoicePrefix: Prisma.FieldRef<"TenantSettings", 'String'>
   readonly nextInvoiceNum: Prisma.FieldRef<"TenantSettings", 'Int'>
   readonly logoBase64: Prisma.FieldRef<"TenantSettings", 'String'>
+  readonly goCardlessAccessToken: Prisma.FieldRef<"TenantSettings", 'String'>
+  readonly goCardlessEnvironment: Prisma.FieldRef<"TenantSettings", 'String'>
+  readonly goCardlessReferencePrefix: Prisma.FieldRef<"TenantSettings", 'String'>
+  readonly goCardlessLastSyncedAt: Prisma.FieldRef<"TenantSettings", 'DateTime'>
   readonly smtpProvider: Prisma.FieldRef<"TenantSettings", 'String'>
   readonly smtpHost: Prisma.FieldRef<"TenantSettings", 'String'>
   readonly smtpPort: Prisma.FieldRef<"TenantSettings", 'Int'>

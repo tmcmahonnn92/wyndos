@@ -294,7 +294,7 @@ export type JobWhereInput = {
   createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
   workDay?: Prisma.XOR<Prisma.WorkDayScalarRelationFilter, Prisma.WorkDayWhereInput>
   customer?: Prisma.XOR<Prisma.CustomerScalarRelationFilter, Prisma.CustomerWhereInput>
-  payments?: Prisma.PaymentListRelationFilter
+  allocations?: Prisma.PaymentAllocationListRelationFilter
 }
 
 export type JobOrderByWithRelationInput = {
@@ -312,7 +312,7 @@ export type JobOrderByWithRelationInput = {
   createdAt?: Prisma.SortOrder
   workDay?: Prisma.WorkDayOrderByWithRelationInput
   customer?: Prisma.CustomerOrderByWithRelationInput
-  payments?: Prisma.PaymentOrderByRelationAggregateInput
+  allocations?: Prisma.PaymentAllocationOrderByRelationAggregateInput
 }
 
 export type JobWhereUniqueInput = Prisma.AtLeast<{
@@ -333,7 +333,7 @@ export type JobWhereUniqueInput = Prisma.AtLeast<{
   createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
   workDay?: Prisma.XOR<Prisma.WorkDayScalarRelationFilter, Prisma.WorkDayWhereInput>
   customer?: Prisma.XOR<Prisma.CustomerScalarRelationFilter, Prisma.CustomerWhereInput>
-  payments?: Prisma.PaymentListRelationFilter
+  allocations?: Prisma.PaymentAllocationListRelationFilter
 }, "id">
 
 export type JobOrderByWithAggregationInput = {
@@ -386,7 +386,7 @@ export type JobCreateInput = {
   createdAt?: Date | string
   workDay: Prisma.WorkDayCreateNestedOneWithoutJobsInput
   customer: Prisma.CustomerCreateNestedOneWithoutJobsInput
-  payments?: Prisma.PaymentCreateNestedManyWithoutJobInput
+  allocations?: Prisma.PaymentAllocationCreateNestedManyWithoutJobInput
 }
 
 export type JobUncheckedCreateInput = {
@@ -402,7 +402,7 @@ export type JobUncheckedCreateInput = {
   sortOrder?: number
   isOneOff?: boolean
   createdAt?: Date | string
-  payments?: Prisma.PaymentUncheckedCreateNestedManyWithoutJobInput
+  allocations?: Prisma.PaymentAllocationUncheckedCreateNestedManyWithoutJobInput
 }
 
 export type JobUpdateInput = {
@@ -417,7 +417,7 @@ export type JobUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workDay?: Prisma.WorkDayUpdateOneRequiredWithoutJobsNestedInput
   customer?: Prisma.CustomerUpdateOneRequiredWithoutJobsNestedInput
-  payments?: Prisma.PaymentUpdateManyWithoutJobNestedInput
+  allocations?: Prisma.PaymentAllocationUpdateManyWithoutJobNestedInput
 }
 
 export type JobUncheckedUpdateInput = {
@@ -433,7 +433,7 @@ export type JobUncheckedUpdateInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   isOneOff?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  payments?: Prisma.PaymentUncheckedUpdateManyWithoutJobNestedInput
+  allocations?: Prisma.PaymentAllocationUncheckedUpdateManyWithoutJobNestedInput
 }
 
 export type JobCreateManyInput = {
@@ -551,9 +551,9 @@ export type JobSumOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
 }
 
-export type JobNullableScalarRelationFilter = {
-  is?: Prisma.JobWhereInput | null
-  isNot?: Prisma.JobWhereInput | null
+export type JobScalarRelationFilter = {
+  is?: Prisma.JobWhereInput
+  isNot?: Prisma.JobWhereInput
 }
 
 export type JobCreateNestedManyWithoutCustomerInput = {
@@ -644,20 +644,18 @@ export type EnumJobStatusFieldUpdateOperationsInput = {
   set?: $Enums.JobStatus
 }
 
-export type JobCreateNestedOneWithoutPaymentsInput = {
-  create?: Prisma.XOR<Prisma.JobCreateWithoutPaymentsInput, Prisma.JobUncheckedCreateWithoutPaymentsInput>
-  connectOrCreate?: Prisma.JobCreateOrConnectWithoutPaymentsInput
+export type JobCreateNestedOneWithoutAllocationsInput = {
+  create?: Prisma.XOR<Prisma.JobCreateWithoutAllocationsInput, Prisma.JobUncheckedCreateWithoutAllocationsInput>
+  connectOrCreate?: Prisma.JobCreateOrConnectWithoutAllocationsInput
   connect?: Prisma.JobWhereUniqueInput
 }
 
-export type JobUpdateOneWithoutPaymentsNestedInput = {
-  create?: Prisma.XOR<Prisma.JobCreateWithoutPaymentsInput, Prisma.JobUncheckedCreateWithoutPaymentsInput>
-  connectOrCreate?: Prisma.JobCreateOrConnectWithoutPaymentsInput
-  upsert?: Prisma.JobUpsertWithoutPaymentsInput
-  disconnect?: Prisma.JobWhereInput | boolean
-  delete?: Prisma.JobWhereInput | boolean
+export type JobUpdateOneRequiredWithoutAllocationsNestedInput = {
+  create?: Prisma.XOR<Prisma.JobCreateWithoutAllocationsInput, Prisma.JobUncheckedCreateWithoutAllocationsInput>
+  connectOrCreate?: Prisma.JobCreateOrConnectWithoutAllocationsInput
+  upsert?: Prisma.JobUpsertWithoutAllocationsInput
   connect?: Prisma.JobWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.JobUpdateToOneWithWhereWithoutPaymentsInput, Prisma.JobUpdateWithoutPaymentsInput>, Prisma.JobUncheckedUpdateWithoutPaymentsInput>
+  update?: Prisma.XOR<Prisma.XOR<Prisma.JobUpdateToOneWithWhereWithoutAllocationsInput, Prisma.JobUpdateWithoutAllocationsInput>, Prisma.JobUncheckedUpdateWithoutAllocationsInput>
 }
 
 export type JobCreateWithoutCustomerInput = {
@@ -671,7 +669,7 @@ export type JobCreateWithoutCustomerInput = {
   isOneOff?: boolean
   createdAt?: Date | string
   workDay: Prisma.WorkDayCreateNestedOneWithoutJobsInput
-  payments?: Prisma.PaymentCreateNestedManyWithoutJobInput
+  allocations?: Prisma.PaymentAllocationCreateNestedManyWithoutJobInput
 }
 
 export type JobUncheckedCreateWithoutCustomerInput = {
@@ -686,7 +684,7 @@ export type JobUncheckedCreateWithoutCustomerInput = {
   sortOrder?: number
   isOneOff?: boolean
   createdAt?: Date | string
-  payments?: Prisma.PaymentUncheckedCreateNestedManyWithoutJobInput
+  allocations?: Prisma.PaymentAllocationUncheckedCreateNestedManyWithoutJobInput
 }
 
 export type JobCreateOrConnectWithoutCustomerInput = {
@@ -744,7 +742,7 @@ export type JobCreateWithoutWorkDayInput = {
   isOneOff?: boolean
   createdAt?: Date | string
   customer: Prisma.CustomerCreateNestedOneWithoutJobsInput
-  payments?: Prisma.PaymentCreateNestedManyWithoutJobInput
+  allocations?: Prisma.PaymentAllocationCreateNestedManyWithoutJobInput
 }
 
 export type JobUncheckedCreateWithoutWorkDayInput = {
@@ -759,7 +757,7 @@ export type JobUncheckedCreateWithoutWorkDayInput = {
   sortOrder?: number
   isOneOff?: boolean
   createdAt?: Date | string
-  payments?: Prisma.PaymentUncheckedCreateNestedManyWithoutJobInput
+  allocations?: Prisma.PaymentAllocationUncheckedCreateNestedManyWithoutJobInput
 }
 
 export type JobCreateOrConnectWithoutWorkDayInput = {
@@ -788,7 +786,7 @@ export type JobUpdateManyWithWhereWithoutWorkDayInput = {
   data: Prisma.XOR<Prisma.JobUpdateManyMutationInput, Prisma.JobUncheckedUpdateManyWithoutWorkDayInput>
 }
 
-export type JobCreateWithoutPaymentsInput = {
+export type JobCreateWithoutAllocationsInput = {
   tenantId: number
   name?: string
   status?: $Enums.JobStatus
@@ -802,7 +800,7 @@ export type JobCreateWithoutPaymentsInput = {
   customer: Prisma.CustomerCreateNestedOneWithoutJobsInput
 }
 
-export type JobUncheckedCreateWithoutPaymentsInput = {
+export type JobUncheckedCreateWithoutAllocationsInput = {
   id?: number
   tenantId: number
   workDayId: number
@@ -817,23 +815,23 @@ export type JobUncheckedCreateWithoutPaymentsInput = {
   createdAt?: Date | string
 }
 
-export type JobCreateOrConnectWithoutPaymentsInput = {
+export type JobCreateOrConnectWithoutAllocationsInput = {
   where: Prisma.JobWhereUniqueInput
-  create: Prisma.XOR<Prisma.JobCreateWithoutPaymentsInput, Prisma.JobUncheckedCreateWithoutPaymentsInput>
+  create: Prisma.XOR<Prisma.JobCreateWithoutAllocationsInput, Prisma.JobUncheckedCreateWithoutAllocationsInput>
 }
 
-export type JobUpsertWithoutPaymentsInput = {
-  update: Prisma.XOR<Prisma.JobUpdateWithoutPaymentsInput, Prisma.JobUncheckedUpdateWithoutPaymentsInput>
-  create: Prisma.XOR<Prisma.JobCreateWithoutPaymentsInput, Prisma.JobUncheckedCreateWithoutPaymentsInput>
+export type JobUpsertWithoutAllocationsInput = {
+  update: Prisma.XOR<Prisma.JobUpdateWithoutAllocationsInput, Prisma.JobUncheckedUpdateWithoutAllocationsInput>
+  create: Prisma.XOR<Prisma.JobCreateWithoutAllocationsInput, Prisma.JobUncheckedCreateWithoutAllocationsInput>
   where?: Prisma.JobWhereInput
 }
 
-export type JobUpdateToOneWithWhereWithoutPaymentsInput = {
+export type JobUpdateToOneWithWhereWithoutAllocationsInput = {
   where?: Prisma.JobWhereInput
-  data: Prisma.XOR<Prisma.JobUpdateWithoutPaymentsInput, Prisma.JobUncheckedUpdateWithoutPaymentsInput>
+  data: Prisma.XOR<Prisma.JobUpdateWithoutAllocationsInput, Prisma.JobUncheckedUpdateWithoutAllocationsInput>
 }
 
-export type JobUpdateWithoutPaymentsInput = {
+export type JobUpdateWithoutAllocationsInput = {
   tenantId?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumJobStatusFieldUpdateOperationsInput | $Enums.JobStatus
@@ -847,7 +845,7 @@ export type JobUpdateWithoutPaymentsInput = {
   customer?: Prisma.CustomerUpdateOneRequiredWithoutJobsNestedInput
 }
 
-export type JobUncheckedUpdateWithoutPaymentsInput = {
+export type JobUncheckedUpdateWithoutAllocationsInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   tenantId?: Prisma.IntFieldUpdateOperationsInput | number
   workDayId?: Prisma.IntFieldUpdateOperationsInput | number
@@ -887,7 +885,7 @@ export type JobUpdateWithoutCustomerInput = {
   isOneOff?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workDay?: Prisma.WorkDayUpdateOneRequiredWithoutJobsNestedInput
-  payments?: Prisma.PaymentUpdateManyWithoutJobNestedInput
+  allocations?: Prisma.PaymentAllocationUpdateManyWithoutJobNestedInput
 }
 
 export type JobUncheckedUpdateWithoutCustomerInput = {
@@ -902,7 +900,7 @@ export type JobUncheckedUpdateWithoutCustomerInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   isOneOff?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  payments?: Prisma.PaymentUncheckedUpdateManyWithoutJobNestedInput
+  allocations?: Prisma.PaymentAllocationUncheckedUpdateManyWithoutJobNestedInput
 }
 
 export type JobUncheckedUpdateManyWithoutCustomerInput = {
@@ -944,7 +942,7 @@ export type JobUpdateWithoutWorkDayInput = {
   isOneOff?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   customer?: Prisma.CustomerUpdateOneRequiredWithoutJobsNestedInput
-  payments?: Prisma.PaymentUpdateManyWithoutJobNestedInput
+  allocations?: Prisma.PaymentAllocationUpdateManyWithoutJobNestedInput
 }
 
 export type JobUncheckedUpdateWithoutWorkDayInput = {
@@ -959,7 +957,7 @@ export type JobUncheckedUpdateWithoutWorkDayInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   isOneOff?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  payments?: Prisma.PaymentUncheckedUpdateManyWithoutJobNestedInput
+  allocations?: Prisma.PaymentAllocationUncheckedUpdateManyWithoutJobNestedInput
 }
 
 export type JobUncheckedUpdateManyWithoutWorkDayInput = {
@@ -982,11 +980,11 @@ export type JobUncheckedUpdateManyWithoutWorkDayInput = {
  */
 
 export type JobCountOutputType = {
-  payments: number
+  allocations: number
 }
 
 export type JobCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  payments?: boolean | JobCountOutputTypeCountPaymentsArgs
+  allocations?: boolean | JobCountOutputTypeCountAllocationsArgs
 }
 
 /**
@@ -1002,8 +1000,8 @@ export type JobCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Extensio
 /**
  * JobCountOutputType without action
  */
-export type JobCountOutputTypeCountPaymentsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  where?: Prisma.PaymentWhereInput
+export type JobCountOutputTypeCountAllocationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.PaymentAllocationWhereInput
 }
 
 
@@ -1022,7 +1020,7 @@ export type JobSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   createdAt?: boolean
   workDay?: boolean | Prisma.WorkDayDefaultArgs<ExtArgs>
   customer?: boolean | Prisma.CustomerDefaultArgs<ExtArgs>
-  payments?: boolean | Prisma.Job$paymentsArgs<ExtArgs>
+  allocations?: boolean | Prisma.Job$allocationsArgs<ExtArgs>
   _count?: boolean | Prisma.JobCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["job"]>
 
@@ -1079,7 +1077,7 @@ export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
 export type JobInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workDay?: boolean | Prisma.WorkDayDefaultArgs<ExtArgs>
   customer?: boolean | Prisma.CustomerDefaultArgs<ExtArgs>
-  payments?: boolean | Prisma.Job$paymentsArgs<ExtArgs>
+  allocations?: boolean | Prisma.Job$allocationsArgs<ExtArgs>
   _count?: boolean | Prisma.JobCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type JobIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1096,7 +1094,7 @@ export type $JobPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   objects: {
     workDay: Prisma.$WorkDayPayload<ExtArgs>
     customer: Prisma.$CustomerPayload<ExtArgs>
-    payments: Prisma.$PaymentPayload<ExtArgs>[]
+    allocations: Prisma.$PaymentAllocationPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: number
@@ -1507,7 +1505,7 @@ export interface Prisma__JobClient<T, Null = never, ExtArgs extends runtime.Type
   readonly [Symbol.toStringTag]: "PrismaPromise"
   workDay<T extends Prisma.WorkDayDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkDayDefaultArgs<ExtArgs>>): Prisma.Prisma__WorkDayClient<runtime.Types.Result.GetResult<Prisma.$WorkDayPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   customer<T extends Prisma.CustomerDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.CustomerDefaultArgs<ExtArgs>>): Prisma.Prisma__CustomerClient<runtime.Types.Result.GetResult<Prisma.$CustomerPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
-  payments<T extends Prisma.Job$paymentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Job$paymentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PaymentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  allocations<T extends Prisma.Job$allocationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Job$allocationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PaymentAllocationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1950,27 +1948,27 @@ export type JobDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.InternalA
 }
 
 /**
- * Job.payments
+ * Job.allocations
  */
-export type Job$paymentsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+export type Job$allocationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   /**
-   * Select specific fields to fetch from the Payment
+   * Select specific fields to fetch from the PaymentAllocation
    */
-  select?: Prisma.PaymentSelect<ExtArgs> | null
+  select?: Prisma.PaymentAllocationSelect<ExtArgs> | null
   /**
-   * Omit specific fields from the Payment
+   * Omit specific fields from the PaymentAllocation
    */
-  omit?: Prisma.PaymentOmit<ExtArgs> | null
+  omit?: Prisma.PaymentAllocationOmit<ExtArgs> | null
   /**
    * Choose, which related nodes to fetch as well
    */
-  include?: Prisma.PaymentInclude<ExtArgs> | null
-  where?: Prisma.PaymentWhereInput
-  orderBy?: Prisma.PaymentOrderByWithRelationInput | Prisma.PaymentOrderByWithRelationInput[]
-  cursor?: Prisma.PaymentWhereUniqueInput
+  include?: Prisma.PaymentAllocationInclude<ExtArgs> | null
+  where?: Prisma.PaymentAllocationWhereInput
+  orderBy?: Prisma.PaymentAllocationOrderByWithRelationInput | Prisma.PaymentAllocationOrderByWithRelationInput[]
+  cursor?: Prisma.PaymentAllocationWhereUniqueInput
   take?: number
   skip?: number
-  distinct?: Prisma.PaymentScalarFieldEnum | Prisma.PaymentScalarFieldEnum[]
+  distinct?: Prisma.PaymentAllocationScalarFieldEnum | Prisma.PaymentAllocationScalarFieldEnum[]
 }
 
 /**

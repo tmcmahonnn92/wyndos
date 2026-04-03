@@ -123,6 +123,11 @@ export type Job = Prisma.JobModel
  */
 export type Payment = Prisma.PaymentModel
 /**
+ * Model PaymentAllocation
+ * 
+ */
+export type PaymentAllocation = Prisma.PaymentAllocationModel
+/**
  * Model Holiday
  * 
  */

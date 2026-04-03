@@ -6,6 +6,8 @@ import { calcNextDue } from "@/lib/utils";
 import { startOfDay } from "date-fns";
 import { getActiveTenantId, requireAuth } from "@/lib/tenant-context";
 
+type PaymentMethodValue = "CASH" | "BACS" | "CARD";
+
 /** Normalise any Date to UTC midnight so date-input strings and DB values always match. */
 function utcDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -44,6 +46,77 @@ async function requireTenantCustomer(tenantId: number, customerId: number) {
   const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId } });
   if (!customer) throw new Error("Customer not found");
   return customer;
+}
+
+function normaliseGoCardlessReference(value: string | null | undefined) {
+  return value?.trim().toLowerCase().replace(/\s+/g, "") ?? "";
+}
+
+function parseWyndosCustomerId(value: unknown) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function minorUnitsToCurrency(value: unknown) {
+  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? "0"));
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Number((parsed / 100).toFixed(2));
+}
+
+async function createAllocatedPayment(data: {
+  tenantId: number;
+  customerId: number;
+  allocations: Array<{ jobId: number; amount: number }>;
+  method: PaymentMethodValue;
+  notes?: string;
+  paidAt?: Date;
+  goCardlessPaymentId?: string;
+  goCardlessStatus?: string;
+  goCardlessReference?: string;
+}) {
+  await requireTenantCustomer(data.tenantId, data.customerId);
+
+  const allocationData = data.allocations.filter((allocation) => allocation.amount > 0.005);
+  if (allocationData.length === 0) {
+    throw new Error("At least one allocation with amount > 0 is required");
+  }
+
+  const totalAmount = Number(allocationData.reduce((sum, allocation) => sum + allocation.amount, 0).toFixed(2));
+  const jobIds = allocationData.map((allocation) => allocation.jobId);
+  const jobs = await prisma.job.findMany({
+    where: { id: { in: jobIds }, tenantId: data.tenantId, customerId: data.customerId },
+    select: { id: true },
+  });
+  if (jobs.length !== jobIds.length) {
+    throw new Error("One or more jobs not found or do not belong to this customer");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.create({
+      data: {
+        tenantId: data.tenantId,
+        customerId: data.customerId,
+        amount: totalAmount,
+        method: data.method,
+        notes: data.notes ?? null,
+        paidAt: data.paidAt ?? new Date(),
+        goCardlessPaymentId: data.goCardlessPaymentId ?? null,
+        goCardlessStatus: data.goCardlessStatus ?? null,
+        goCardlessReference: data.goCardlessReference ?? null,
+      },
+    });
+
+    await tx.paymentAllocation.createMany({
+      data: allocationData.map((allocation) => ({
+        tenantId: data.tenantId,
+        paymentId: payment.id,
+        jobId: allocation.jobId,
+        amount: Number(allocation.amount.toFixed(2)),
+      })),
+    });
+
+    return payment;
+  });
 }
 
 async function requireTenantTag(tenantId: number, tagId: number) {
@@ -712,6 +785,9 @@ export async function createCustomer(data: {
   jobName?: string;
   advanceNotice?: boolean;
   preferredPaymentMethod?: string;
+  goCardlessCustomerReference?: string;
+  goCardlessCustomerId?: string;
+  goCardlessMandateId?: string;
   nextDueDate?: Date;
 }) {
   const tenantId = await getActiveTenantId();
@@ -728,6 +804,9 @@ export async function createCustomer(data: {
       jobName: data.jobName ?? "Window Cleaning",
       advanceNotice: data.advanceNotice ?? false,
       preferredPaymentMethod: data.preferredPaymentMethod ?? "",
+      goCardlessCustomerReference: data.goCardlessCustomerReference?.trim() ?? "",
+      goCardlessCustomerId: data.goCardlessCustomerId?.trim() || null,
+      goCardlessMandateId: data.goCardlessMandateId?.trim() || null,
       frequencyWeeks: area?.frequencyWeeks ?? data.frequencyWeeks ?? 4,
       nextDueDate: data.nextDueDate ?? null,   // null = never cleaned; picked up on first area run
     },
@@ -754,6 +833,9 @@ export async function updateCustomer(
     jobName?: string;
     advanceNotice?: boolean;
     preferredPaymentMethod?: string;
+    goCardlessCustomerReference?: string;
+    goCardlessCustomerId?: string;
+    goCardlessMandateId?: string;
   }
 ) {
   const tenantId = await getActiveTenantId();
@@ -770,6 +852,15 @@ export async function updateCustomer(
   const { frequencyWeeks: _ignoredFrequencyWeeks, ...rest } = data;
   const updateData = {
     ...rest,
+    ...(data.goCardlessCustomerReference !== undefined && {
+      goCardlessCustomerReference: data.goCardlessCustomerReference.trim(),
+    }),
+    ...(data.goCardlessCustomerId !== undefined && {
+      goCardlessCustomerId: data.goCardlessCustomerId.trim() || null,
+    }),
+    ...(data.goCardlessMandateId !== undefined && {
+      goCardlessMandateId: data.goCardlessMandateId.trim() || null,
+    }),
     areaId: resolvedAreaId,
     frequencyWeeks: area?.frequencyWeeks ?? 4,
   };
@@ -1871,51 +1962,365 @@ export async function updateCompletedWorkDayDate(workDayId: number, isoDate: str
 export async function recordPayment(data: {
   customerId: number;
   allocations: Array<{ jobId: number; amount: number }>;
-  method: "CASH" | "BACS" | "CARD";
+  method: PaymentMethodValue;
   notes?: string;
   paidAt?: Date;
 }) {
   const tenantId = await getActiveTenantId();
-  await requireTenantCustomer(tenantId, data.customerId);
-
-  const allocationData = data.allocations.filter((a) => a.amount > 0.005);
-  if (allocationData.length === 0) {
-    throw new Error("At least one allocation with amount > 0 is required");
-  }
-
-  const totalAmount = Number(allocationData.reduce((sum, a) => sum + a.amount, 0).toFixed(2));
-  const jobIds = allocationData.map((a) => a.jobId);
-  const jobs = await prisma.job.findMany({
-    where: { id: { in: jobIds }, tenantId, customerId: data.customerId },
-    select: { id: true },
-  });
-  if (jobs.length !== jobIds.length) {
-    throw new Error("One or more jobs not found or do not belong to this customer");
-  }
-
-  await prisma.$transaction(async (tx) => {
-    const payment = await tx.payment.create({
-      data: {
-        tenantId,
-        customerId: data.customerId,
-        amount: totalAmount,
-        method: data.method,
-        notes: data.notes ?? null,
-        paidAt: data.paidAt ?? new Date(),
-      },
-    });
-    await tx.paymentAllocation.createMany({
-      data: allocationData.map((a) => ({
-        tenantId,
-        paymentId: payment.id,
-        jobId: a.jobId,
-        amount: Number(a.amount.toFixed(2)),
-      })),
-    });
-  });
+  await createAllocatedPayment({ tenantId, ...data });
 
   revalidatePath("/payments");
   revalidatePath(`/customers/${data.customerId}`);
+}
+
+type GoCardlessPaymentRecord = {
+  id: string;
+  amount: number | string;
+  currency?: string | null;
+  status?: string | null;
+  reference?: string | null;
+  description?: string | null;
+  created_at?: string | null;
+  charge_date?: string | null;
+  metadata?: Record<string, string | null | undefined>;
+  links?: { mandate?: string | null };
+};
+
+type GoCardlessMandateRecord = {
+  id: string;
+  reference?: string | null;
+  metadata?: Record<string, string | null | undefined>;
+  links?: { customer?: string | null };
+};
+
+type GoCardlessPaymentsPage = {
+  payments?: GoCardlessPaymentRecord[];
+  meta?: { cursors?: { after?: string | null } };
+};
+
+async function fetchGoCardlessJson<T>(
+  baseUrl: string,
+  accessToken: string,
+  path: string,
+  searchParams?: URLSearchParams
+): Promise<T> {
+  const url = new URL(path, baseUrl);
+  if (searchParams) {
+    for (const [key, value] of searchParams.entries()) {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "GoCardless-Version": "2015-07-06",
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const apiMessage =
+      (json as { error?: { message?: string }; errors?: Array<{ message?: string }> }).error?.message ||
+      (json as { errors?: Array<{ message?: string }> }).errors?.[0]?.message;
+    throw new Error(apiMessage || `GoCardless request failed (${response.status})`);
+  }
+
+  return json as T;
+}
+
+function buildUniqueCustomerIndex<T extends { id: number }>(
+  rows: T[],
+  getKey: (row: T) => string
+) {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const key = getKey(row);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const unique = new Map<string, T>();
+  for (const row of rows) {
+    const key = getKey(row);
+    if (!key) continue;
+    if (counts.get(key) === 1) {
+      unique.set(key, row);
+    }
+  }
+
+  return unique;
+}
+
+function extractGoCardlessReference(
+  payment: GoCardlessPaymentRecord,
+  mandate?: GoCardlessMandateRecord | null
+) {
+  return [
+    payment.reference,
+    payment.description,
+    payment.metadata?.wyndosCustomerRef,
+    payment.metadata?.customerReference,
+    payment.metadata?.customer_reference,
+    mandate?.reference,
+    mandate?.metadata?.wyndosCustomerRef,
+    mandate?.metadata?.customerReference,
+    mandate?.metadata?.customer_reference,
+  ].find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
+}
+
+export async function syncGoCardlessPayments() {
+  const tenantId = await getActiveTenantId();
+  const user = await requireAuth();
+  if (user.role === "WORKER") {
+    throw new Error("Only owners and admins can sync GoCardless payments.");
+  }
+
+  const settings = await getBusinessSettings();
+  const accessToken = settings.goCardlessAccessToken.trim();
+  if (!accessToken) {
+    throw new Error("Add your GoCardless access token in Settings before syncing payments.");
+  }
+
+  const baseUrl = settings.goCardlessEnvironment === "sandbox"
+    ? "https://api-sandbox.gocardless.com"
+    : "https://api.gocardless.com";
+
+  const [customers, existingGoCardlessPayments] = await Promise.all([
+    prisma.customer.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        name: true,
+        goCardlessCustomerReference: true,
+        goCardlessCustomerId: true,
+        goCardlessMandateId: true,
+        jobs: {
+          where: { status: { in: ["COMPLETE", "OUTSTANDING"] } },
+          select: {
+            id: true,
+            price: true,
+            workDay: { select: { date: true } },
+            allocations: {
+              where: { payment: { voidedAt: null } },
+              select: { amount: true },
+            },
+          },
+          orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
+        },
+      },
+    }),
+    prisma.payment.findMany({
+      where: { tenantId, goCardlessPaymentId: { not: null } },
+      select: { goCardlessPaymentId: true },
+    }),
+  ]);
+
+  const customerById = new Map(customers.map((customer) => [customer.id, customer]));
+  const customerByReference = buildUniqueCustomerIndex(
+    customers,
+    (customer) => normaliseGoCardlessReference(customer.goCardlessCustomerReference)
+  );
+  const customerByGoCardlessCustomerId = buildUniqueCustomerIndex(
+    customers,
+    (customer) => customer.goCardlessCustomerId?.trim() ?? ""
+  );
+  const customerByMandateId = buildUniqueCustomerIndex(
+    customers,
+    (customer) => customer.goCardlessMandateId?.trim() ?? ""
+  );
+  const seenPaymentIds = new Set(
+    existingGoCardlessPayments
+      .map((payment) => payment.goCardlessPaymentId)
+      .filter((paymentId): paymentId is string => Boolean(paymentId))
+  );
+
+  const scannedPayments: GoCardlessPaymentRecord[] = [];
+  let afterCursor: string | null = null;
+  for (let page = 0; page < 3; page++) {
+    const params = new URLSearchParams({ limit: "100" });
+    if (afterCursor) {
+      params.set("after", afterCursor);
+    }
+
+    const payload: GoCardlessPaymentsPage = await fetchGoCardlessJson<GoCardlessPaymentsPage>(
+      baseUrl,
+      accessToken,
+      "/payments",
+      params
+    );
+
+    const pagePayments = payload.payments ?? [];
+    scannedPayments.push(...pagePayments);
+
+    afterCursor = payload.meta?.cursors?.after ?? null;
+    if (!afterCursor || pagePayments.length === 0) break;
+  }
+
+  const mandateIds = Array.from(
+    new Set(
+      scannedPayments
+        .map((payment) => payment.links?.mandate?.trim())
+        .filter((mandateId): mandateId is string => Boolean(mandateId))
+    )
+  );
+  const mandateEntries = await Promise.all(
+    mandateIds.map(async (mandateId) => {
+      try {
+        const payload = await fetchGoCardlessJson<{ mandates?: GoCardlessMandateRecord; mandate?: GoCardlessMandateRecord }>(
+          baseUrl,
+          accessToken,
+          `/mandates/${mandateId}`
+        );
+        return [mandateId, payload.mandates ?? payload.mandate ?? null] as const;
+      } catch {
+        return [mandateId, null] as const;
+      }
+    })
+  );
+  const mandateMap = new Map(mandateEntries);
+
+  const receivedStatuses = new Set(["confirmed", "paid_out"]);
+  const unmatched: Array<{ paymentId: string; reason: string; customerName?: string | null }> = [];
+  const matchedCustomerIds = new Set<number>();
+  let importedCount = 0;
+  let skippedCount = 0;
+
+  for (const payment of scannedPayments) {
+    if (!payment.id) {
+      skippedCount++;
+      continue;
+    }
+    if (seenPaymentIds.has(payment.id)) {
+      skippedCount++;
+      continue;
+    }
+
+    const status = payment.status?.trim().toLowerCase() ?? "";
+    if (!receivedStatuses.has(status)) {
+      skippedCount++;
+      continue;
+    }
+
+    const amount = minorUnitsToCurrency(payment.amount);
+    if (amount <= 0) {
+      skippedCount++;
+      continue;
+    }
+
+    const mandate = payment.links?.mandate ? mandateMap.get(payment.links.mandate) ?? null : null;
+    const metadata = payment.metadata ?? {};
+
+    const localCustomerId =
+      parseWyndosCustomerId(metadata.wyndosCustomerId) ??
+      parseWyndosCustomerId(metadata.customerId) ??
+      parseWyndosCustomerId(metadata.customer_id);
+
+    let customer = localCustomerId ? customerById.get(localCustomerId) ?? null : null;
+
+    if (!customer && payment.links?.mandate) {
+      customer = customerByMandateId.get(payment.links.mandate.trim()) ?? null;
+    }
+
+    if (!customer && mandate?.links?.customer) {
+      customer = customerByGoCardlessCustomerId.get(mandate.links.customer.trim()) ?? null;
+    }
+
+    if (!customer) {
+      const referenceCandidates = [
+        extractGoCardlessReference(payment, mandate),
+        metadata.wyndosCustomerRef ?? null,
+        metadata.customerReference ?? null,
+        metadata.customer_reference ?? null,
+      ];
+
+      for (const candidate of referenceCandidates) {
+        const normalised = normaliseGoCardlessReference(candidate ?? undefined);
+        if (!normalised) continue;
+        const byReference = customerByReference.get(normalised);
+        if (byReference) {
+          customer = byReference;
+          break;
+        }
+      }
+    }
+
+    if (!customer) {
+      unmatched.push({ paymentId: payment.id, reason: "No Wyndos customer matched the GoCardless payment or mandate reference." });
+      continue;
+    }
+
+    const unpaidJobs = customer.jobs
+      .map((job) => {
+        const paid = job.allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
+        const due = Number(Math.max(0, job.price - paid).toFixed(2));
+        return { id: job.id, due };
+      })
+      .filter((job) => job.due > 0.005);
+
+    let remaining = amount;
+    const allocations: Array<{ jobId: number; amount: number }> = [];
+    for (const job of unpaidJobs) {
+      if (remaining <= 0.005) break;
+      const allocationAmount = Number(Math.min(job.due, remaining).toFixed(2));
+      if (allocationAmount <= 0.005) continue;
+      allocations.push({ jobId: job.id, amount: allocationAmount });
+      remaining = Number((remaining - allocationAmount).toFixed(2));
+    }
+
+    if (allocations.length === 0) {
+      unmatched.push({ paymentId: payment.id, customerName: customer.name, reason: "Matched customer has no unpaid jobs to allocate this payment against." });
+      continue;
+    }
+
+    if (remaining > 0.01) {
+      unmatched.push({ paymentId: payment.id, customerName: customer.name, reason: `Payment exceeds the matched customer's outstanding balance by £${remaining.toFixed(2)}.` });
+      continue;
+    }
+
+    await createAllocatedPayment({
+      tenantId,
+      customerId: customer.id,
+      allocations,
+      method: "BACS",
+      notes: `Imported from GoCardless${extractGoCardlessReference(payment, mandate) ? ` · ${extractGoCardlessReference(payment, mandate)}` : ""}`,
+      paidAt: payment.charge_date
+        ? new Date(`${payment.charge_date}T00:00:00.000Z`)
+        : payment.created_at
+          ? new Date(payment.created_at)
+          : new Date(),
+      goCardlessPaymentId: payment.id,
+      goCardlessStatus: payment.status ?? undefined,
+      goCardlessReference: extractGoCardlessReference(payment, mandate) ?? undefined,
+    });
+
+    seenPaymentIds.add(payment.id);
+    matchedCustomerIds.add(customer.id);
+    importedCount++;
+  }
+
+  await prisma.tenantSettings.update({
+    where: { tenantId },
+    data: { goCardlessLastSyncedAt: new Date() },
+  });
+
+  if (importedCount > 0) {
+    revalidatePath("/payments");
+    revalidatePath("/customers");
+    for (const customerId of matchedCustomerIds) {
+      revalidatePath(`/customers/${customerId}`);
+    }
+  }
+  revalidatePath("/settings");
+
+  return {
+    scannedCount: scannedPayments.length,
+    importedCount,
+    skippedCount,
+    unmatched: unmatched.slice(0, 12),
+  };
 }
 
 export async function voidPayment(paymentId: number, reason?: string) {
@@ -2195,6 +2600,7 @@ const PROVIDER_SECRET_FIELDS = [
   "voodooApiKey",
   "twilioAuthToken",
   "metaAccessToken",
+  "goCardlessAccessToken",
 ] as const;
 
 const OWNER_PROVIDER_FIELDS = [
@@ -2213,6 +2619,9 @@ const OWNER_PROVIDER_FIELDS = [
   "metaPhoneNumberId",
   "metaAccessToken",
   "metaWabaId",
+  "goCardlessAccessToken",
+  "goCardlessEnvironment",
+  "goCardlessReferencePrefix",
   "tmplCleaningReminder",
   "tmplJobComplete",
   "tmplPaymentReminder1",
@@ -2239,6 +2648,10 @@ export async function getBusinessSettingsForClient() {
     invoicePrefix: settings.invoicePrefix,
     nextInvoiceNum: settings.nextInvoiceNum,
     logoBase64: settings.logoBase64,
+    goCardlessEnvironment: settings.goCardlessEnvironment,
+    goCardlessReferencePrefix: settings.goCardlessReferencePrefix,
+    goCardlessAccessTokenConfigured: Boolean(settings.goCardlessAccessToken),
+    goCardlessLastSyncedAt: settings.goCardlessLastSyncedAt?.toISOString() ?? null,
     smtpProvider: settings.smtpProvider,
     smtpHost: settings.smtpHost,
     smtpPort: settings.smtpPort,
@@ -2276,6 +2689,9 @@ export async function updateBusinessSettings(data: {
   vatNumber?: string;
   invoicePrefix?: string;
   logoBase64?: string | null;
+  goCardlessAccessToken?: string;
+  goCardlessEnvironment?: string;
+  goCardlessReferencePrefix?: string;
   smtpProvider?: string;
   smtpHost?: string;
   smtpPort?: number;
@@ -2312,12 +2728,24 @@ export async function updateBusinessSettings(data: {
   const phone = typeof updateData.phone === "string" ? updateData.phone.trim() : undefined;
   const email = typeof updateData.email === "string" ? updateData.email.trim().toLowerCase() : undefined;
   const address = typeof updateData.address === "string" ? updateData.address.trim() : undefined;
+  const goCardlessEnvironment = typeof updateData.goCardlessEnvironment === "string"
+    ? updateData.goCardlessEnvironment.trim().toLowerCase()
+    : undefined;
+  const goCardlessReferencePrefix = typeof updateData.goCardlessReferencePrefix === "string"
+    ? updateData.goCardlessReferencePrefix.trim().toUpperCase()
+    : undefined;
 
   if (businessName !== undefined) updateData.businessName = businessName;
   if (ownerName !== undefined) updateData.ownerName = ownerName;
   if (phone !== undefined) updateData.phone = phone;
   if (email !== undefined) updateData.email = email;
   if (address !== undefined) updateData.address = address;
+  if (goCardlessEnvironment !== undefined) {
+    updateData.goCardlessEnvironment = goCardlessEnvironment === "sandbox" ? "sandbox" : "live";
+  }
+  if (goCardlessReferencePrefix !== undefined) {
+    updateData.goCardlessReferencePrefix = goCardlessReferencePrefix || "WD";
+  }
 
   if (!canManageProviderSettings) {
     for (const field of OWNER_PROVIDER_FIELDS) {

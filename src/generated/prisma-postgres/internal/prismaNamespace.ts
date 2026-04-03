@@ -400,6 +400,7 @@ export const ModelName = {
   WorkDay: 'WorkDay',
   Job: 'Job',
   Payment: 'Payment',
+  PaymentAllocation: 'PaymentAllocation',
   Holiday: 'Holiday'
 } as const
 
@@ -416,7 +417,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "tenant" | "tenantSettings" | "invite" | "user" | "account" | "session" | "verificationToken" | "passwordResetToken" | "supportAccessLog" | "area" | "tag" | "customerTag" | "customer" | "workDay" | "job" | "payment" | "holiday"
+    modelProps: "tenant" | "tenantSettings" | "invite" | "user" | "account" | "session" | "verificationToken" | "passwordResetToken" | "supportAccessLog" | "area" | "tag" | "customerTag" | "customer" | "workDay" | "job" | "payment" | "paymentAllocation" | "holiday"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1604,6 +1605,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    PaymentAllocation: {
+      payload: Prisma.$PaymentAllocationPayload<ExtArgs>
+      fields: Prisma.PaymentAllocationFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.PaymentAllocationFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentAllocationPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.PaymentAllocationFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentAllocationPayload>
+        }
+        findFirst: {
+          args: Prisma.PaymentAllocationFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentAllocationPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.PaymentAllocationFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentAllocationPayload>
+        }
+        findMany: {
+          args: Prisma.PaymentAllocationFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentAllocationPayload>[]
+        }
+        create: {
+          args: Prisma.PaymentAllocationCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentAllocationPayload>
+        }
+        createMany: {
+          args: Prisma.PaymentAllocationCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.PaymentAllocationCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentAllocationPayload>[]
+        }
+        delete: {
+          args: Prisma.PaymentAllocationDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentAllocationPayload>
+        }
+        update: {
+          args: Prisma.PaymentAllocationUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentAllocationPayload>
+        }
+        deleteMany: {
+          args: Prisma.PaymentAllocationDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.PaymentAllocationUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.PaymentAllocationUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentAllocationPayload>[]
+        }
+        upsert: {
+          args: Prisma.PaymentAllocationUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentAllocationPayload>
+        }
+        aggregate: {
+          args: Prisma.PaymentAllocationAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregatePaymentAllocation>
+        }
+        groupBy: {
+          args: Prisma.PaymentAllocationGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.PaymentAllocationGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.PaymentAllocationCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.PaymentAllocationCountAggregateOutputType> | number
+        }
+      }
+    }
     Holiday: {
       payload: Prisma.$HolidayPayload<ExtArgs>
       fields: Prisma.HolidayFieldRefs
@@ -1745,6 +1820,10 @@ export const TenantSettingsScalarFieldEnum = {
   invoicePrefix: 'invoicePrefix',
   nextInvoiceNum: 'nextInvoiceNum',
   logoBase64: 'logoBase64',
+  goCardlessAccessToken: 'goCardlessAccessToken',
+  goCardlessEnvironment: 'goCardlessEnvironment',
+  goCardlessReferencePrefix: 'goCardlessReferencePrefix',
+  goCardlessLastSyncedAt: 'goCardlessLastSyncedAt',
   smtpProvider: 'smtpProvider',
   smtpHost: 'smtpHost',
   smtpPort: 'smtpPort',
@@ -1924,6 +2003,9 @@ export const CustomerScalarFieldEnum = {
   jobName: 'jobName',
   advanceNotice: 'advanceNotice',
   preferredPaymentMethod: 'preferredPaymentMethod',
+  goCardlessCustomerReference: 'goCardlessCustomerReference',
+  goCardlessCustomerId: 'goCardlessCustomerId',
+  goCardlessMandateId: 'goCardlessMandateId',
   active: 'active',
   sortOrder: 'sortOrder',
   nextDueDate: 'nextDueDate',
@@ -1970,15 +2052,31 @@ export const PaymentScalarFieldEnum = {
   id: 'id',
   tenantId: 'tenantId',
   customerId: 'customerId',
-  jobId: 'jobId',
   amount: 'amount',
   method: 'method',
   paidAt: 'paidAt',
   notes: 'notes',
-  createdAt: 'createdAt'
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  voidedAt: 'voidedAt',
+  voidReason: 'voidReason',
+  goCardlessPaymentId: 'goCardlessPaymentId',
+  goCardlessStatus: 'goCardlessStatus',
+  goCardlessReference: 'goCardlessReference'
 } as const
 
 export type PaymentScalarFieldEnum = (typeof PaymentScalarFieldEnum)[keyof typeof PaymentScalarFieldEnum]
+
+
+export const PaymentAllocationScalarFieldEnum = {
+  id: 'id',
+  tenantId: 'tenantId',
+  paymentId: 'paymentId',
+  jobId: 'jobId',
+  amount: 'amount'
+} as const
+
+export type PaymentAllocationScalarFieldEnum = (typeof PaymentAllocationScalarFieldEnum)[keyof typeof PaymentAllocationScalarFieldEnum]
 
 
 export const HolidayScalarFieldEnum = {
@@ -2252,6 +2350,7 @@ export type GlobalOmitConfig = {
   workDay?: Prisma.WorkDayOmit
   job?: Prisma.JobOmit
   payment?: Prisma.PaymentOmit
+  paymentAllocation?: Prisma.PaymentAllocationOmit
   holiday?: Prisma.HolidayOmit
 }
 
