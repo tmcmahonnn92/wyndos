@@ -1453,10 +1453,11 @@ function JobCard({
             {hidePrices ? null : fmtCurrency(job.price)}
           </span>
           {(() => {
-            const prevBilled = (job.customer.jobs ?? []).filter(j => j.id !== job.id).reduce((s: number, j: { price: number }) => s + j.price, 0);
-            const totalPaid = ((job.customer as { payments?: { amount: number }[] }).payments ?? []).reduce((s: number, p: { amount: number }) => s + p.amount, 0);
-            const debt = Math.max(0, prevBilled - totalPaid);
-            return debt > 0 ? (
+            const debt = (job.customer.jobs ?? []).reduce((sum, j) => {
+              const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
+              return sum + Math.max(0, j.price - paid);
+            }, 0);
+            return debt > 0.005 ? (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 whitespace-nowrap">
                 owes {fmtCurrency(debt)}
               </span>
@@ -1908,7 +1909,7 @@ function AddJobModal({ open, onClose, workDayId, currentAreaId, existingCustomer
                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Price (ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£) <span className="text-slate-400 font-normal">ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â edit if different</span></label>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Price (£) <span className="text-slate-400 font-normal">ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â edit if different</span></label>
                       <input type="number" step="0.01" value={oneOffCustomPrice} onChange={(e) => setOneOffCustomPrice(e.target.value)}
                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
@@ -1951,7 +1952,7 @@ function AddJobModal({ open, onClose, workDayId, currentAreaId, existingCustomer
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Price (ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£) *</label>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Price (£) *</label>
                     <input type="number" step="0.50" min="0" value={newPrice} onChange={(e) => setNewPrice(e.target.value)}
                       placeholder="0.00"
                       className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -2048,7 +2049,7 @@ function AddJobModal({ open, onClose, workDayId, currentAreaId, existingCustomer
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Price (ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£) *</label>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Price (£) *</label>
                 <input
                   type="number"
                   step="0.50"

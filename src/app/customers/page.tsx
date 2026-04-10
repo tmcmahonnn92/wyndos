@@ -172,7 +172,7 @@ function CustomerRow({
             isInactive && "hover:bg-red-100/60"
           )}
         >
-          <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_150px_120px] md:items-center">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_150px_160px] md:items-center">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className={cn("text-sm font-semibold truncate", isInactive ? "text-red-700 line-through opacity-70" : "text-slate-800")}>
@@ -230,7 +230,7 @@ function CustomerRow({
 
             <div className="flex items-center justify-between gap-2 md:justify-end">
               {!hidePrices && (
-                <div className="min-w-[120px] rounded-xl border px-3 py-2 text-right">
+                <div className="rounded-xl border px-3 py-2 text-right flex-1">
                   <p className="text-[10px] uppercase tracking-wide text-slate-400">Debt</p>
                   <p className={cn("text-sm font-bold", outstandingDebt > 0 ? "text-red-600" : "text-slate-400")}>
                     {outstandingDebt > 0 ? fmtCurrency(outstandingDebt) : "Clear"}

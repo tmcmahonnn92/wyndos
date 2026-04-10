@@ -977,8 +977,18 @@ export async function getWorkDays() {
             include: {
               area: true,
               jobs: {
-                where: { status: "OUTSTANDING" },
-                select: { id: true, price: true },
+                where: { status: "COMPLETE" },
+                select: {
+                  id: true,
+                  name: true,
+                  price: true,
+                  isOneOff: true,
+                  workDay: { select: { date: true } },
+                  allocations: {
+                    where: { payment: { voidedAt: null } },
+                    select: { amount: true },
+                  },
+                },
               },
             },
           },

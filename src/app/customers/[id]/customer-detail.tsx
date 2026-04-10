@@ -633,7 +633,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Price (ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£)</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Price (£)</label>
               <input type="number" min="0" step="0.50" value={form.price} onChange={(e) => setForm(f => ({ ...f, price: e.target.value }))}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
@@ -837,7 +837,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Price (ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£)</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Price (£)</label>
             <input
               type="number"
               min="0"
