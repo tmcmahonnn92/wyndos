@@ -30,6 +30,8 @@ import {
   Search,
   MapPin,
   Users,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import {
   assignWorkDayWorker,
@@ -93,7 +95,7 @@ type Job = {
     name: string;
     address: string;
     area: { id: number; name: string } | null;
-    jobs?: { id: number; price: number; allocations?: { amount: number }[] }[];
+    jobs?: { id: number; name: string | null; price: number; isOneOff: boolean; workDay: { date: Date | string } | null; allocations?: { amount: number }[] }[];
   } | null;
 };
 
@@ -858,6 +860,13 @@ function MonthCalendarCell({
   isHoliday,
   holidayLabel,
   onExpand,
+  dragState,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  isDragOver,
+  onWorkDayDragStart,
+  canManageSchedule,
 }: {
   date: Date;
   monthStart: Date;
@@ -865,21 +874,59 @@ function MonthCalendarCell({
   isHoliday: boolean;
   holidayLabel: string | null;
   onExpand: (wd: WorkDay) => void;
+  dragState: DragState;
+  onDragOver: (date: Date) => void;
+  onDragLeave: () => void;
+  onDrop: (date: Date) => void;
+  isDragOver: boolean;
+  onWorkDayDragStart: (wd: WorkDay) => void;
+  canManageSchedule: boolean;
 }) {
   const isToday = isoDate(date) === todayISO();
   const isCurrentMonth = date.getMonth() === monthStart.getMonth();
   const visibleDays = workDays.slice(0, 3);
   const hiddenCount = Math.max(0, workDays.length - visibleDays.length);
 
+  const dropColour: DropColour =
+    !isHoliday && isDragOver && dragState?.type === "area"
+      ? getAreaDropColour(dragState.area, date)
+      : !isHoliday && isDragOver && dragState?.type === "workday"
+      ? getWorkDayDropColour(dragState.workDay, date)
+      : "neutral";
+
+  const dropLabel =
+    !isHoliday && isDragOver && dragState?.type === "area"
+      ? getAreaDropLabel(dragState.area, date)
+      : !isHoliday && isDragOver && dragState?.type === "workday"
+      ? getWorkDayDropLabel(dragState.workDay, date)
+      : !isHoliday && isDragOver && dragState?.type === "job"
+      ? "Schedule here"
+      : isHoliday && isDragOver && dragState
+      ? `${holidayLabel ?? "Holiday"} — cannot schedule`
+      : null;
+
   return (
     <div
+      onDragOver={(e) => { e.preventDefault(); if (!isHoliday && canManageSchedule) onDragOver(date); }}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => { e.preventDefault(); if (!isHoliday && canManageSchedule) onDrop(date); }}
       className={cn(
-        "min-h-[120px] rounded-xl border p-2 transition-colors",
+        "relative min-h-[120px] rounded-xl border p-2 transition-colors",
         isCurrentMonth ? "bg-white border-slate-200" : "bg-slate-50 border-slate-100 text-slate-400",
         isToday && "ring-2 ring-blue-300 border-blue-300",
         isHoliday && "bg-red-50/70 border-red-200",
+        !isHoliday && isDragOver ? DROP_COLOUR_CLASSES[dropColour] : "",
+        isHoliday && isDragOver && dragState ? "ring-2 ring-red-300" : "",
       )}
     >
+      {isDragOver && dropLabel && (
+        <div className={cn(
+          "absolute inset-0 flex items-center justify-center text-xs font-bold rounded-xl pointer-events-none z-10",
+          isHoliday ? "bg-red-100/80" : DROP_LABEL_CLASSES[dropColour]
+        )}>
+          <span className="bg-white/90 px-2 py-0.5 rounded-full shadow-sm border">{dropLabel}</span>
+        </div>
+      )}
       <div className="mb-2 flex items-center justify-between gap-2">
         <div>
           <p className={cn("text-xs font-semibold", isToday ? "text-blue-600" : isCurrentMonth ? "text-slate-700" : "text-slate-400")}>
@@ -898,19 +945,26 @@ function MonthCalendarCell({
 
       <div className="space-y-1.5">
         {visibleDays.map((workDay) => (
-          <button
+          <div
             key={workDay.id}
-            type="button"
-            onClick={() => onExpand(workDay)}
-            className="flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left text-[11px] text-white transition hover:opacity-90"
-            style={workDayChipStyle(workDay.status, workDay.area?.color)}
+            draggable={canManageSchedule && workDay.status !== "COMPLETE"}
+            onDragStart={(e) => { if (!canManageSchedule || workDay.status === "COMPLETE") { e.preventDefault(); return; } e.stopPropagation(); onWorkDayDragStart(workDay); }}
+            className="relative group"
           >
-            <span className="truncate font-bold">{workDay.area?.name ?? workDay.jobs[0]?.customer?.name ?? "Work day"}</span>
-            <span className="truncate opacity-90">{workDay.jobs.length} job{workDay.jobs.length !== 1 ? "s" : ""}</span>
-            {workDay.assignedUser && (
-              <span className="truncate opacity-80">{workDay.assignedUser.name ?? workDay.assignedUser.email}</span>
-            )}
-          </button>
+            <button
+              type="button"
+              onClick={() => onExpand(workDay)}
+              draggable={false}
+              className="flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left text-[11px] text-white transition hover:opacity-90 select-none"
+              style={workDayChipStyle(workDay.status, workDay.area?.color)}
+            >
+              <span className="truncate font-bold">{workDay.area?.name ?? workDay.jobs[0]?.customer?.name ?? "Work day"}</span>
+              <span className="truncate opacity-90">{workDay.jobs.length} job{workDay.jobs.length !== 1 ? "s" : ""}</span>
+              {workDay.assignedUser && (
+                <span className="truncate opacity-80">{workDay.assignedUser.name ?? workDay.assignedUser.email}</span>
+              )}
+            </button>
+          </div>
         ))}
         {hiddenCount > 0 && (
           <p className="px-1 text-[11px] font-medium text-slate-500">+{hiddenCount} more</p>
@@ -1195,8 +1249,10 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
   const [dateVal, setDateVal] = useState("");
   // payment per job
   const [payingJobId, setPayingJobId] = useState<number | null>(null);
+  const [payJobIds, setPayJobIds] = useState<Set<number>>(new Set());
   const [payAmount, setPayAmount] = useState("");
   const [payMethod, setPayMethod] = useState<"CASH" | "BACS" | "CARD">("CASH");
+  const [payNotes, setPayNotes] = useState("");
 
   const reload = useCallback((id: number) => {
     getWorkDay(id).then((d) => {
@@ -1227,11 +1283,23 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
   const handleMarkPaid = (job: FullJob) => {
     if (!workDay || !job.customer) return;
     const customerId = job.customer.id;
-    const amount = Math.min(parseFloat(payAmount), getOutstandingBalance(job));
-    if (isNaN(amount) || amount <= 0) return;
+    const unpaidJobs = (job.customer.jobs ?? [])
+      .map(j => {
+        const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
+        const due = Number(Math.max(0, j.price - paid).toFixed(2));
+        return { id: j.id, name: j.name, price: j.price, isOneOff: j.isOneOff, date: j.workDay?.date ?? null, due };
+      })
+      .filter(j => j.due > 0.005);
+    const selectedIds = payJobIds.size > 0 ? payJobIds : new Set(unpaidJobs.map(j => j.id));
+    const allocations = unpaidJobs
+      .filter(j => selectedIds.has(j.id))
+      .map(j => ({ jobId: j.id, amount: j.due }));
+    if (allocations.length === 0) return;
     startSaving(async () => {
-      await recordPayment({ customerId, allocations: [{ jobId: job.id, amount }], method: payMethod });
+      await recordPayment({ customerId, allocations, method: payMethod, notes: payNotes || undefined });
       setPayingJobId(null);
+      setPayJobIds(new Set());
+      setPayNotes("");
       router.refresh();
       reload(workDay.id);
     });
@@ -1331,7 +1399,23 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
                       </span>
                     ) : canLogPayment ? (
                       <button
-                        onClick={() => { setPayingJobId(isPayingThis ? null : job.id); setPayAmount(job.price.toFixed(2)); setPayMethod("CASH"); }}
+                        onClick={() => {
+                          const unpaid = (job.customer?.jobs ?? [])
+                            .map(j => {
+                              const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
+                              return { id: j.id, due: Number(Math.max(0, j.price - paid).toFixed(2)) };
+                            })
+                            .filter(j => j.due > 0.005);
+                          if (isPayingThis) {
+                            setPayingJobId(null);
+                            setPayJobIds(new Set());
+                          } else {
+                            setPayingJobId(job.id);
+                            setPayJobIds(new Set(unpaid.map(j => j.id)));
+                            setPayMethod("CASH");
+                            setPayNotes("");
+                          }
+                        }}
                         className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700 hover:bg-amber-100 transition-colors flex-shrink-0 whitespace-nowrap"
                       >
                         <CreditCard size={10} /> Log payment
@@ -1341,45 +1425,76 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
                   {!isSkipped && isPaid && totalPaid > 0 && (
                     <p className="text-[11px] text-green-700">Paid total: £{totalPaid.toFixed(2)}</p>
                   )}
-                  {/* Inline payment form */}
-                  {isPayingThis && canLogPayment && (
-                    <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100 flex-wrap">
-                      {previousDebt > 0 && (
-                        <>
-                          <button
-                            onClick={() => setPayAmount(currentBalance.toFixed(2))}
-                            className="px-2 py-1 rounded-lg border border-blue-200 bg-white text-[11px] font-semibold text-blue-700 hover:border-blue-400"
-                          >
-                            This clean
+                  {/* Specific jobs payment form */}
+                  {isPayingThis && canLogPayment && (() => {
+                    const unpaidJobs = (job.customer?.jobs ?? [])
+                      .map(j => {
+                        const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
+                        const due = Number(Math.max(0, j.price - paid).toFixed(2));
+                        return { id: j.id, name: j.name, price: j.price, isOneOff: j.isOneOff, date: j.workDay?.date ?? null, due };
+                      })
+                      .filter(j => j.due > 0.005);
+                    const total = unpaidJobs.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0);
+                    return (
+                      <div className="pt-2 border-t border-slate-100 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold text-blue-800">Which jobs are being paid</p>
+                          <div className="flex gap-3 text-xs">
+                            <button type="button" onClick={() => setPayJobIds(new Set(unpaidJobs.map(j => j.id)))} className="text-blue-600 hover:underline">Select all</button>
+                            <button type="button" onClick={() => setPayJobIds(new Set())} className="text-slate-400 hover:underline">Clear</button>
+                          </div>
+                        </div>
+                        <div className="space-y-1 max-h-36 overflow-y-auto">
+                          {unpaidJobs.map((j) => {
+                            const checked = payJobIds.has(j.id);
+                            const dateLabel = j.date ? new Date(j.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : null;
+                            return (
+                              <button key={j.id} type="button"
+                                onClick={() => setPayJobIds(prev => { const next = new Set(prev); next.has(j.id) ? next.delete(j.id) : next.add(j.id); return next; })}
+                                className={cn("w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border text-left transition-colors",
+                                  checked ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300 bg-white"
+                                )}>
+                                {checked ? <CheckSquare size={13} className="text-blue-600 flex-shrink-0" /> : <Square size={13} className="text-slate-400 flex-shrink-0" />}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium text-slate-700 truncate">{j.name || "Window Cleaning"}</p>
+                                  {dateLabel && <p className="text-[10px] text-slate-400">{dateLabel}{j.isOneOff ? " · one-off" : ""}</p>}
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                  <p className="text-xs font-semibold text-red-600">£{j.due.toFixed(2)} due</p>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
+                          <p className="text-xs text-slate-600">{payJobIds.size} job{payJobIds.size !== 1 ? "s" : ""} selected</p>
+                          <p className="text-sm font-bold text-slate-800">£{total.toFixed(2)}</p>
+                        </div>
+                        <div className="flex gap-1">
+                          {(["CASH", "BACS", "CARD"] as const).map((m) => (
+                            <button key={m} type="button" onClick={() => setPayMethod(m)}
+                              className={cn("flex-1 py-1.5 rounded-lg border text-xs font-semibold transition-colors",
+                                payMethod === m ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 text-slate-600 hover:border-blue-300"
+                              )}>{m}</button>
+                          ))}
+                        </div>
+                        <input type="text" value={payNotes} onChange={(e) => setPayNotes(e.target.value)}
+                          placeholder="Notes (optional)"
+                          className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+                        <div className="flex gap-2">
+                          <button onClick={() => handleMarkPaid(job)}
+                            disabled={payJobIds.size === 0}
+                            className="flex-1 px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold disabled:opacity-50">
+                            Confirm - £{total.toFixed(2)}
                           </button>
-                          <span className="text-[11px] text-amber-700 font-medium">Owes £{previousDebt.toFixed(2)} older balance</span>
-                        </>
-                      )}
-                      <span className="text-xs text-slate-500">£</span>
-                      <input
-                        type="number" step="0.01" min="0" value={payAmount}
-                        onChange={(e) => setPayAmount(e.target.value)}
-                        className="w-20 border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        autoFocus
-                      />
-                      <select
-                        value={payMethod} onChange={(e) => setPayMethod(e.target.value as "CASH" | "BACS" | "CARD")}
-                        className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                      >
-                        <option value="CASH">Cash</option>
-                        <option value="BACS">BACS</option>
-                        <option value="CARD">Card</option>
-                      </select>
-                      <button onClick={() => handleMarkPaid(job)}
-                        className="px-3 py-1 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold">
-                        Confirm
-                      </button>
-                      <button onClick={() => setPayingJobId(null)}
-                        className="px-3 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50">
-                        Cancel
-                      </button>
-                    </div>
-                  )}
+                          <button onClick={() => { setPayingJobId(null); setPayJobIds(new Set()); }}
+                            className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -1425,8 +1540,9 @@ function DayDetailModal({
   const [showAddJob, setShowAddJob] = useState(false);
   const [removingId, setRemovingId] = useState<number | null>(null);
   const [payingJobId, setPayingJobId] = useState<number | null>(null);
-  const [ddPayAmount, setDdPayAmount] = useState("");
+  const [ddPayJobIds, setDdPayJobIds] = useState<Set<number>>(new Set());
   const [ddPayMethod, setDdPayMethod] = useState<"CASH" | "BACS" | "CARD">("CASH");
+  const [ddPayNotes, setDdPayNotes] = useState("");
   const [isSaving, startSaving] = useTransition();
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [dragSrcIdx, setDragSrcIdx] = useState<number | null>(null);
@@ -1627,11 +1743,22 @@ function DayDetailModal({
   const handleDayDetailMarkPaid = (job: FullJob) => {
     if (!workDay || !job.customer) return;
     const customerId = job.customer.id;
-    const amount = Math.min(parseFloat(ddPayAmount), getOutstandingBalance(job));
-    if (isNaN(amount) || amount <= 0) return;
+    const unpaidJobs = (job.customer.jobs ?? [])
+      .map(j => {
+        const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
+        const due = Number(Math.max(0, j.price - paid).toFixed(2));
+        return { id: j.id, due };
+      })
+      .filter(j => j.due > 0.005);
+    const allocations = unpaidJobs
+      .filter(j => ddPayJobIds.has(j.id))
+      .map(j => ({ jobId: j.id, amount: j.due }));
+    if (allocations.length === 0) return;
     startSaving(async () => {
-      await recordPayment({ customerId, allocations: [{ jobId: job.id, amount }], method: ddPayMethod });
+      await recordPayment({ customerId, allocations, method: ddPayMethod, notes: ddPayNotes || undefined });
       setPayingJobId(null);
+      setDdPayJobIds(new Set());
+      setDdPayNotes("");
       await refreshFromServer(workDay.id);
       router.refresh();
     });
@@ -1830,7 +1957,23 @@ function DayDetailModal({
                         </span>
                       ) : (
                         <button
-                          onClick={() => { setPayingJobId(isPayingThis ? null : job.id); setDdPayAmount(job.price.toFixed(2)); setDdPayMethod("CASH"); }}
+                          onClick={() => {
+                            if (isPayingThis) {
+                              setPayingJobId(null);
+                              setDdPayJobIds(new Set());
+                            } else {
+                              const unpaid = (job.customer?.jobs ?? [])
+                                .map(j => {
+                                  const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
+                                  return { id: j.id, due: Number(Math.max(0, j.price - paid).toFixed(2)) };
+                                })
+                                .filter(j => j.due > 0.005);
+                              setPayingJobId(job.id);
+                              setDdPayJobIds(new Set(unpaid.map(j => j.id)));
+                              setDdPayMethod("CASH");
+                              setDdPayNotes("");
+                            }
+                          }}
                           className="flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-300 text-[10px] font-bold text-amber-700 hover:bg-amber-100 active:bg-amber-200 transition-colors whitespace-nowrap flex-shrink-0"
                           title="Mark as paid"
                         >
@@ -1907,43 +2050,70 @@ function DayDetailModal({
                   </div>
                 )}
 
-                {/* Inline pay form for complete-but-unpaid jobs */}
+                {/* Specific jobs payment form for complete-but-unpaid jobs */}
                 {isDone && payingJobId === job.id && (() => {
                   const totalPaid = job.allocations?.reduce((sum, allocation) => sum + allocation.amount, 0) ?? 0;
-                  const previousDebt = getPreviousDebt(job);
                   if (totalPaid >= job.price && totalPaid > 0) return null;
+                  const unpaidJobs = (job.customer?.jobs ?? [])
+                    .map(j => {
+                      const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
+                      const due = Number(Math.max(0, j.price - paid).toFixed(2));
+                      return { id: j.id, name: j.name, price: j.price, isOneOff: j.isOneOff, date: j.workDay?.date ?? null, due };
+                    })
+                    .filter(j => j.due > 0.005);
+                  const selTotal = unpaidJobs.filter(j => ddPayJobIds.has(j.id)).reduce((s, j) => s + j.due, 0);
                   return (
-                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100 flex-wrap">
-                      {previousDebt > 0 && (
-                        <>
-                          <button
-                            onClick={() => setDdPayAmount(getOutstandingBalance(job).toFixed(2))}
-                            className="px-2 py-1 rounded-lg border border-blue-200 bg-white text-[11px] font-semibold text-blue-700 hover:border-blue-400"
-                          >
-                            This clean
-                          </button>
-                          <span className="text-[11px] text-amber-700 font-medium">Owes £{previousDebt.toFixed(2)} older balance</span>
-                        </>
-                      )}
-                      <span className="text-xs font-semibold text-slate-500">Amount £</span>
-                      <input
-                        type="number" step="0.01" min="0" value={ddPayAmount}
-                        onChange={(e) => setDdPayAmount(e.target.value)}
-                        className="w-20 border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        autoFocus
-                      />
-                      <select
-                        value={ddPayMethod} onChange={(e) => setDdPayMethod(e.target.value as "CASH" | "BACS" | "CARD")}
-                        className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                      >
-                        <option value="CASH">Cash</option>
-                        <option value="BACS">BACS</option>
-                        <option value="CARD">Card</option>
-                      </select>
-                      <button onClick={() => handleDayDetailMarkPaid(job)} disabled={isSaving}
-                        className="px-3 py-1 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold disabled:opacity-60">Confirm</button>
-                      <button onClick={() => setPayingJobId(null)}
-                        className="px-3 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50">Cancel</button>
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-blue-800">Which jobs are being paid</p>
+                        <div className="flex gap-3 text-xs">
+                          <button type="button" onClick={() => setDdPayJobIds(new Set(unpaidJobs.map(j => j.id)))} className="text-blue-600 hover:underline">Select all</button>
+                          <button type="button" onClick={() => setDdPayJobIds(new Set())} className="text-slate-400 hover:underline">Clear</button>
+                        </div>
+                      </div>
+                      <div className="space-y-1 max-h-36 overflow-y-auto">
+                        {unpaidJobs.map((j) => {
+                          const checked = ddPayJobIds.has(j.id);
+                          const dateLabel = j.date ? new Date(j.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : null;
+                          return (
+                            <button key={j.id} type="button"
+                              onClick={() => setDdPayJobIds(prev => { const next = new Set(prev); next.has(j.id) ? next.delete(j.id) : next.add(j.id); return next; })}
+                              className={cn("w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border text-left transition-colors",
+                                checked ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300 bg-white"
+                              )}>
+                              {checked ? <CheckSquare size={13} className="text-blue-600 flex-shrink-0" /> : <Square size={13} className="text-slate-400 flex-shrink-0" />}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-slate-700 truncate">{j.name || "Window Cleaning"}</p>
+                                {dateLabel && <p className="text-[10px] text-slate-400">{dateLabel}{j.isOneOff ? " · one-off" : ""}</p>}
+                              </div>
+                              <p className="text-xs font-semibold text-red-600 flex-shrink-0">£{j.due.toFixed(2)} due</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
+                        <p className="text-xs text-slate-600">{ddPayJobIds.size} job{ddPayJobIds.size !== 1 ? "s" : ""} selected</p>
+                        <p className="text-sm font-bold text-slate-800">£{selTotal.toFixed(2)}</p>
+                      </div>
+                      <div className="flex gap-1">
+                        {(["CASH", "BACS", "CARD"] as const).map((m) => (
+                          <button key={m} type="button" onClick={() => setDdPayMethod(m)}
+                            className={cn("flex-1 py-1.5 rounded-lg border text-xs font-semibold transition-colors",
+                              ddPayMethod === m ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 text-slate-600 hover:border-blue-300"
+                            )}>{m}</button>
+                        ))}
+                      </div>
+                      <input type="text" value={ddPayNotes} onChange={(e) => setDdPayNotes(e.target.value)}
+                        placeholder="Notes (optional)"
+                        className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+                      <div className="flex gap-2">
+                        <button onClick={() => handleDayDetailMarkPaid(job)} disabled={isSaving || ddPayJobIds.size === 0}
+                          className="flex-1 px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold disabled:opacity-60">
+                          Confirm - £{selTotal.toFixed(2)}
+                        </button>
+                        <button onClick={() => { setPayingJobId(null); setDdPayJobIds(new Set()); }}
+                          className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50">Cancel</button>
+                      </div>
                     </div>
                   );
                 })()}
@@ -2835,6 +3005,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
               {monthDates.map((date) => {
                 const iso = isoDate(date);
                 const cellWorkDays = workDaysByDate.get(iso) ?? [];
+                const isDragOver = dragOverDate === iso;
                 return (
                   <MonthCalendarCell
                     key={iso}
@@ -2843,6 +3014,13 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                     workDays={cellWorkDays}
                     isHoliday={isDateHoliday(date)}
                     holidayLabel={getDateHolidayLabel(date)}
+                    dragState={dragState}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    isDragOver={isDragOver}
+                    onWorkDayDragStart={handleWorkDayDragStart}
+                    canManageSchedule={canManageSchedule}
                     onExpand={(wd) => {
                       if (wd.status === "COMPLETE") setCompletedExpandedDay(wd);
                       else setExpandedDay(wd);

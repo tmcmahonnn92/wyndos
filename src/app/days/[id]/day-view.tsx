@@ -751,7 +751,7 @@ function JobActionModal({
   useEffect(() => {
     if (job) {
       setShowPayForm(false);
-      setPayMode("amount");
+      setPayMode("jobs");
       setPayJobIds(new Set());
       setPayAmount(String(job.price));
       setPayNotes("");
@@ -865,7 +865,7 @@ function JobActionModal({
                 <button
                   disabled={isPending}
                   onClick={() => {
-                    setPayAmount(currentOutstanding.toFixed(2));
+                    setPayJobIds(new Set(customerUnpaidJobs.map(j => j.id)));
                     setPayNotes("");
                     setPayMethod("CASH");
                     setShowPayForm(true);
@@ -882,21 +882,8 @@ function JobActionModal({
                     <Banknote size={16} className="text-blue-600" />
                     Mark as Paid
                   </p>
-                  {/* Mode toggle */}
-                  {customerUnpaidJobs.length > 0 && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <button type="button" onClick={() => { setPayMode("jobs"); setPayJobIds(new Set(customerUnpaidJobs.map(j => j.id))); }}
-                        className={cn("py-2 rounded-lg border text-xs font-semibold transition-colors",
-                          payMode === "jobs" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 text-slate-600 hover:border-blue-300"
-                        )}>Specific jobs</button>
-                      <button type="button" onClick={() => setPayMode("amount")}
-                        className={cn("py-2 rounded-lg border text-xs font-semibold transition-colors",
-                          payMode === "amount" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 text-slate-600 hover:border-blue-300"
-                        )}>Amount only</button>
-                    </div>
-                  )}
-                  {payMode === "jobs" ? (
-                    /* Specific jobs mode */
+                  {/* Specific jobs mode — always shown */}
+                  {customerUnpaidJobs.length > 0 ? (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-medium text-slate-700">Which jobs are being paid</label>
@@ -933,35 +920,7 @@ function JobActionModal({
                         {!hidePrices && <p className="text-sm font-bold text-slate-800">{fmtCurrency(customerUnpaidJobs.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0))}</p>}
                       </div>
                     </div>
-                  ) : (
-                    /* Amount mode */
-                    <>
-                      {previousDebt > 0 && (
-                        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs font-semibold text-amber-800">
-                          <AlertCircle size={13} className="flex-shrink-0 text-amber-500" />
-                          {hidePrices ? "Previous balance outstanding" : `Previous balance: ${fmtCurrency(previousDebt)}`}
-                        </div>
-                      )}
-                      <div className="flex flex-wrap gap-2">
-                        <button type="button" onClick={() => setPayAmount(currentVisitAmount.toFixed(2))}
-                          className="px-3 py-1.5 rounded-lg border border-blue-200 bg-white text-xs font-semibold text-blue-700 hover:border-blue-400">
-                          {hidePrices ? "This clean" : `This clean - ${fmtCurrency(currentVisitAmount)}`}
-                        </button>
-                        {previousDebt > 0 && (
-                          <button type="button" onClick={() => setPayAmount(cleanAndDebtAmount.toFixed(2))}
-                            className="px-3 py-1.5 rounded-lg border border-amber-200 bg-white text-xs font-semibold text-amber-700 hover:border-amber-400">
-                            {hidePrices ? "This clean + debt" : `This clean + debt - ${fmtCurrency(cleanAndDebtAmount)}`}
-                          </button>
-                        )}
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-600 font-medium mb-1 block">Amount (GBP)</label>
-                        <input type="number" step="0.01" min="0" value={payAmount} onChange={(e) => setPayAmount(e.target.value)}
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-                        <p className="text-[11px] text-slate-400 mt-1">Use the quick buttons above or enter a custom amount.</p>
-                      </div>
-                    </>
-                  )}
+                  ) : null}
                   <div>
                     <label className="text-xs text-slate-600 font-medium mb-1 block">Method</label>
                     <div className="flex gap-2">
@@ -981,19 +940,13 @@ function JobActionModal({
                   </div>
                   <div className="flex gap-2">
                     <Button
-                      disabled={isPending || (payMode === "amount" ? (isNaN(effectiveAmount) || effectiveAmount <= 0) : payJobIds.size === 0)}
+                      disabled={isPending || payJobIds.size === 0}
                         onClick={() => {
-                          if (payMode === "jobs") {
-                            const allocations = customerUnpaidJobs.filter((j) => payJobIds.has(j.id)).map((j) => ({ jobId: j.id, amount: j.due }));
-                            onMarkPaidJobs(allocations, payMethod, payNotes || undefined);
-                          } else {
-                            onMarkPaid([{ jobId: job.id, amount: effectiveAmount }], payMethod, payNotes || undefined);
-                          }
+                          const allocations = customerUnpaidJobs.filter((j) => payJobIds.has(j.id)).map((j) => ({ jobId: j.id, amount: j.due }));
+                          onMarkPaidJobs(allocations, payMethod, payNotes || undefined);
                         }}
                       className="flex-1" size="sm">
-                      {isPending ? "Saving..." : payMode === "jobs"
-                        ? `Confirm - ${fmtCurrency(customerUnpaidJobs.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0))}`
-                        : `Confirm - ${fmtCurrency(effectiveAmount)}`}
+                      {isPending ? "Saving..." : `Confirm - ${fmtCurrency(customerUnpaidJobs.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0))}`}
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => setShowPayForm(false)}>Back</Button>
                   </div>
@@ -1075,7 +1028,8 @@ function JobActionModal({
                 <button
                   disabled={isPending}
                   onClick={() => {
-                    setPayAmount((parseFloat(priceInput) || job.price).toFixed(2));
+                    const allJobsForMode = [{ id: job.id, name: job.name ?? undefined, price: currentVisitAmount, paid: 0, due: currentVisitAmount, date: null as null, isOneOff: job.isOneOff ?? false }, ...customerUnpaidJobs];
+                    setPayJobIds(new Set(allJobsForMode.map(j => j.id)));
                     setPayNotes(workerNote);
                     setPayMethod("CASH");
                     setShowPayForm(true);
@@ -1092,75 +1046,39 @@ function JobActionModal({
                     <Banknote size={16} className="text-blue-600" />
                     Done &amp; Paid
                   </p>
-                  {/* Mode toggle + job list for "Specific jobs" mode */}
                   {(() => {
                     const allJobsForMode = [{ id: job.id, name: job.name ?? undefined, price: currentVisitAmount, paid: 0, due: currentVisitAmount, date: null as null, isOneOff: job.isOneOff ?? false }, ...customerUnpaidJobs];
                     return (
                       <>
-                        {allJobsForMode.length > 1 && (
-                          <div className="grid grid-cols-2 gap-2">
-                            <button type="button" onClick={() => { setPayMode("jobs"); setPayJobIds(new Set(allJobsForMode.map(j => j.id))); }}
-                              className={cn("py-2 rounded-lg border text-xs font-semibold transition-colors", payMode === "jobs" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 text-slate-600 hover:border-blue-300")}>Specific jobs</button>
-                            <button type="button" onClick={() => setPayMode("amount")}
-                              className={cn("py-2 rounded-lg border text-xs font-semibold transition-colors", payMode === "amount" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 text-slate-600 hover:border-blue-300")}>Amount only</button>
-                          </div>
-                        )}
-                        {payMode === "jobs" ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs font-medium text-slate-700">Which jobs are being paid</label>
-                              <div className="flex gap-3 text-xs">
-                                <button type="button" onClick={() => setPayJobIds(new Set(allJobsForMode.map(j => j.id)))} className="text-blue-600 hover:underline">Select all</button>
-                                <button type="button" onClick={() => setPayJobIds(new Set())} className="text-slate-400 hover:underline">Clear</button>
-                              </div>
-                            </div>
-                            <div className="space-y-1 max-h-48 overflow-y-auto">
-                              {allJobsForMode.map((j) => {
-                                const checked = payJobIds.has(j.id);
-                                return (
-                                  <button key={j.id} type="button" onClick={() => setPayJobIds(prev => { const next = new Set(prev); next.has(j.id) ? next.delete(j.id) : next.add(j.id); return next; })}
-                                    className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors", checked ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300 bg-white")}>
-                                    {checked ? <CheckSquare size={15} className="text-blue-600 flex-shrink-0" /> : <Square size={15} className="text-slate-400 flex-shrink-0" />}
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-xs font-medium text-slate-700 truncate">{j.name || "Window Cleaning"}{j.id === job.id ? " (today)" : ""}</p>
-                                      <p className="text-[11px] text-slate-400">{j.date ? fmtDate(j.date) : "Today"}{j.isOneOff ? " · one-off" : ""}</p>
-                                    </div>
-                                    {!hidePrices && <div className="text-right flex-shrink-0"><p className="text-[11px] text-slate-400">{fmtCurrency(j.price)}</p><p className="text-xs font-semibold text-red-600">{fmtCurrency(j.due)} due</p></div>}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                            <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center justify-between">
-                              <p className="text-xs text-slate-600">{payJobIds.size} job{payJobIds.size !== 1 ? "s" : ""} selected</p>
-                              {!hidePrices && <p className="text-sm font-bold text-slate-800">{fmtCurrency(allJobsForMode.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0))}</p>}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-medium text-slate-700">Which jobs are being paid</label>
+                            <div className="flex gap-3 text-xs">
+                              <button type="button" onClick={() => setPayJobIds(new Set(allJobsForMode.map(j => j.id)))} className="text-blue-600 hover:underline">Select all</button>
+                              <button type="button" onClick={() => setPayJobIds(new Set())} className="text-slate-400 hover:underline">Clear</button>
                             </div>
                           </div>
-                        ) : (
-                          <>
-                            {previousDebt > 0 && (
-                              <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs font-semibold text-amber-800">
-                                <AlertCircle size={13} className="flex-shrink-0 text-amber-500" />
-                                {hidePrices ? "Previous balance outstanding" : `Previous balance: ${fmtCurrency(previousDebt)}`}
-                              </div>
-                            )}
-                            <div className="flex flex-wrap gap-2">
-                              <button type="button" onClick={() => setPayAmount(currentVisitAmount.toFixed(2))} className="px-3 py-1.5 rounded-lg border border-blue-200 bg-white text-xs font-semibold text-blue-700 hover:border-blue-400">
-                                {hidePrices ? "This clean" : `This clean - ${fmtCurrency(currentVisitAmount)}`}
-                              </button>
-                              {previousDebt > 0 && (
-                                <button type="button" onClick={() => setPayAmount(cleanAndDebtAmount.toFixed(2))} className="px-3 py-1.5 rounded-lg border border-amber-200 bg-white text-xs font-semibold text-amber-700 hover:border-amber-400">
-                                  {hidePrices ? "This clean + debt" : `This clean + debt - ${fmtCurrency(cleanAndDebtAmount)}`}
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {allJobsForMode.map((j) => {
+                              const checked = payJobIds.has(j.id);
+                              return (
+                                <button key={j.id} type="button" onClick={() => setPayJobIds(prev => { const next = new Set(prev); next.has(j.id) ? next.delete(j.id) : next.add(j.id); return next; })}
+                                  className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors", checked ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300 bg-white")}>
+                                  {checked ? <CheckSquare size={15} className="text-blue-600 flex-shrink-0" /> : <Square size={15} className="text-slate-400 flex-shrink-0" />}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-slate-700 truncate">{j.name || "Window Cleaning"}{j.id === job.id ? " (today)" : ""}</p>
+                                    <p className="text-[11px] text-slate-400">{j.date ? fmtDate(j.date) : "Today"}{j.isOneOff ? " · one-off" : ""}</p>
+                                  </div>
+                                  {!hidePrices && <div className="text-right flex-shrink-0"><p className="text-[11px] text-slate-400">{fmtCurrency(j.price)}</p><p className="text-xs font-semibold text-red-600">{fmtCurrency(j.due)} due</p></div>}
                                 </button>
-                              )}
-                            </div>
-                            <div>
-                              <label className="text-xs text-slate-600 font-medium mb-1 block">Amount (GBP)</label>
-                              <input type="number" step="0.01" min="0" value={payAmount} onChange={(e) => setPayAmount(e.target.value)}
-                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" placeholder={String(job.price)} />
-                              <p className="text-[11px] text-slate-400 mt-1">Use "This clean" or "This clean + debt", or type a custom amount.</p>
-                            </div>
-                          </>
-                        )}
+                              );
+                            })}
+                          </div>
+                          <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center justify-between">
+                            <p className="text-xs text-slate-600">{payJobIds.size} job{payJobIds.size !== 1 ? "s" : ""} selected</p>
+                            {!hidePrices && <p className="text-sm font-bold text-slate-800">{fmtCurrency(allJobsForMode.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0))}</p>}
+                          </div>
+                        </div>
                         <div>
                           <label className="text-xs text-slate-600 font-medium mb-1 block">Method</label>
                           <div className="flex gap-2">
@@ -1176,18 +1094,12 @@ function JobActionModal({
                             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
                         </div>
                         <div className="flex gap-2">
-                          <Button disabled={isPending || (payMode === "amount" ? (isNaN(effectiveAmount) || effectiveAmount <= 0) : payJobIds.size === 0)}
+                          <Button disabled={isPending || payJobIds.size === 0}
                             onClick={() => {
-                              if (payMode === "jobs") {
-                                const allocations = allJobsForMode.filter(j => payJobIds.has(j.id)).map(j => ({ jobId: j.id, amount: j.due }));
-                                onDoneAndPaidJobs(currentVisitAmount, allocations, payMethod, payNotes || undefined);
-                              } else {
-                                onDoneAndPaid(currentVisitAmount, [{ jobId: job.id, amount: effectiveAmount }], payMethod, payNotes || undefined);
-                              }
+                              const allocations = allJobsForMode.filter(j => payJobIds.has(j.id)).map(j => ({ jobId: j.id, amount: j.due }));
+                              onDoneAndPaidJobs(currentVisitAmount, allocations, payMethod, payNotes || undefined);
                             }} className="flex-1" size="sm">
-                            {isPending ? "Saving..." : payMode === "jobs"
-                              ? `Confirm - ${fmtCurrency(allJobsForMode.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0))}`
-                              : hidePrices ? "Confirm" : `Confirm - ${fmtCurrency(effectiveAmount)}`}
+                            {isPending ? "Saving..." : `Confirm - ${fmtCurrency(allJobsForMode.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0))}`}
                           </Button>
                           <Button variant="outline" size="sm" onClick={() => setShowPayForm(false)}>Back</Button>
                         </div>
