@@ -781,10 +781,10 @@ function JobActionModal({
   const open = job !== null;
   const effectiveAmount = payAmount === "" ? 0 : parseFloat(payAmount);
   const currentVisitAmount = job ? (job.status === "PENDING" ? (parseFloat(priceInput) || job.price) : job.price) : 0;
-  const previousDebt = job ? job.customer.jobs.reduce((sum, j) => {
+  const previousDebt = job ? job.customer.jobs.filter(j => j.id !== job.id).reduce((sum, j) => {
     const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
     return sum + Math.max(0, j.price - paid);
-  }, 0) - Math.max(0, job.price - (job.allocations ?? []).reduce((s, a) => s + a.amount, 0)) : 0;
+  }, 0) : 0;
   const currentOutstanding = job ? Math.max(0, job.price - (job.allocations ?? []).reduce((s, a) => s + a.amount, 0)) : 0;
   const isSettled = currentOutstanding < 0.005;
   const cleanAndDebtAmount = Number((currentVisitAmount + previousDebt).toFixed(2));
@@ -1387,10 +1387,10 @@ function JobCard({
   const isDone = job.status === "COMPLETE";
   const isClickable = true; // All statuses are actionable via the modal
   const [showQuickPayChoices, setShowQuickPayChoices] = useState(false);
-  const previousDebt = job.customer.jobs.reduce((sum, j) => {
+  const previousDebt = job.customer.jobs.filter(j => j.id !== job.id).reduce((sum, j) => {
     const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
     return sum + Math.max(0, j.price - paid);
-  }, 0) - Math.max(0, job.price - (job.allocations ?? []).reduce((s, a) => s + a.amount, 0));
+  }, 0);
 
   return (
     <div

@@ -33,7 +33,7 @@ function parseCookieTenantId(rawValue: string | undefined) {
 async function resolveUserContext(): Promise<ActiveUserContext> {
   const session = await auth();
   if (!session?.user?.id) {
-    throw new Error("You must be signed in.");
+    redirect("/auth/signin");
   }
 
   const memberships = normalizeMemberships(session.user.memberships);
