@@ -54,7 +54,7 @@ function hashPasswordResetToken(token: string) {
 }
 
 // -----------------------------------------------------------------------------
-// Owner registration ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â creates Tenant + User + system area + TenantSettings
+// Owner registration — creates Tenant + User + system area + TenantSettings
 // -----------------------------------------------------------------------------
 
 export type RegisterOwnerInput = {
@@ -155,7 +155,7 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
 }
 
 // -----------------------------------------------------------------------------
-// Owner onboarding ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â save company details after first sign-in
+// Owner onboarding — save company details after first sign-in
 // -----------------------------------------------------------------------------
 
 export type OnboardingInput = {
@@ -240,7 +240,7 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
 }
 
 // -----------------------------------------------------------------------------
-// Invite system ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â OWNER ? WORKER
+// Invite system — OWNER ? WORKER
 // -----------------------------------------------------------------------------
 
 export type CreateInviteResult =
@@ -295,7 +295,7 @@ export async function createInvite(
 }
 
 // -----------------------------------------------------------------------------
-// Accept an invite ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â creates a WORKER account
+// Accept an invite — creates a WORKER account
 // -----------------------------------------------------------------------------
 
 export type InviteInfo = {
@@ -454,7 +454,7 @@ export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInvi
 }
 
 // -----------------------------------------------------------------------------
-// Team management ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â OWNER views their workers and pending invites
+// Team management — OWNER views their workers and pending invites
 // -----------------------------------------------------------------------------
 
 export type TeamMember = {
@@ -527,7 +527,7 @@ export async function revokeInvite(inviteId: number): Promise<void> {
   await db.invite.deleteMany({ where: { id: inviteId, tenantId } });
 }
 
-/** Remove a worker from the tenant (OWNER only ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â cannot remove self or OWNER). */
+/** Remove a worker from the tenant (OWNER only — cannot remove self or OWNER). */
 export async function removeTeamMember(memberId: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const caller = await requireOwnerOrAdmin();
@@ -724,7 +724,7 @@ export async function requestPasswordReset(email: string): Promise<RequestResetR
       }
     }
 
-    // No SMTP or send failed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â return the link for display in the UI
+    // No SMTP or send failed — return the link for display in the UI
     return { ok: true, emailSent: false, resetLink };
   } catch (err: any) {
     console.error("[requestPasswordReset]", err);

@@ -78,7 +78,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
   const searchParams = useSearchParams();
   const hasBack = searchParams.get("back") === "1";
 
-  // Tag state ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â local copy of which tags are assigned
+  // Tag state — local copy of which tags are assigned
   const [selectedTagIds, setSelectedTagIds] = useState<Set<number>>(
     new Set(customer.tags.map((t) => t.tagId))
   );
@@ -348,7 +348,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
           <Card>
             <CardContent className="py-3">
               <p className="text-xs text-slate-500 mb-0.5">Price</p>
-              <p className="text-lg font-bold text-slate-800">{hidePrices ? "ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“" : fmtCurrency(customer.price)}</p>
+              <p className="text-lg font-bold text-slate-800">{hidePrices ? "–" : fmtCurrency(customer.price)}</p>
               {!customer.area.isSystemArea && (
                 <p className="text-xs text-slate-400">every {customer.frequencyWeeks}w (area schedule)</p>
               )}
@@ -358,7 +358,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
             <CardContent className="py-3">
               <p className="text-xs text-slate-500 mb-0.5">Balance</p>
               <p className={`text-lg font-bold ${balance > 0 ? "text-red-600" : balance < 0 ? "text-green-600" : "text-slate-800"}`}>
-                {hidePrices ? "ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“" : (balance > 0 ? `Owes ${fmtCurrency(balance)}` : balance < 0 ? `Credit ${fmtCurrency(-balance)}` : "Settled")}
+                {hidePrices ? "–" : (balance > 0 ? `Owes ${fmtCurrency(balance)}` : balance < 0 ? `Credit ${fmtCurrency(-balance)}` : "Settled")}
               </p>
               {balance > 0 && (
                 <div className="space-y-1">
@@ -372,7 +372,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
           </Card>
         </div>
 
-        {/* Next due date ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â hidden for one-off customers */}
+        {/* Next due date — hidden for one-off customers */}
         {!customer.area.isSystemArea && (
         <Card>
           <CardContent className="flex items-center justify-between py-3">
@@ -380,7 +380,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               <p className="text-xs text-slate-500 mb-0.5">Next due</p>
               <p className={`text-sm font-semibold ${isOverdue ? "text-red-600" : "text-slate-800"}`}>
                 {fmtDate(customer.nextDueDate)}
-                {isOverdue && " ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â overdue"}
+                {isOverdue && " — overdue"}
               </p>
               {customer.lastCompletedDate && (
                 <p className="text-xs text-slate-400 mt-0.5">
@@ -514,7 +514,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                   <li key={job.id} className="flex items-center justify-between px-4 py-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-800">{(job as { name?: string }).name || "Window Cleaning"}</p>
-                      <p className="text-xs text-slate-500">{fmtDate(job.workDay.date)}{job.isOneOff ? " ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· one-off" : ""}</p>
+                      <p className="text-xs text-slate-500">{fmtDate(job.workDay.date)}{job.isOneOff ? " · one-off" : ""}</p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className={cn(
                           "text-xs px-1.5 py-0.5 rounded-full font-medium",
@@ -649,7 +649,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               <label className="block text-sm font-medium text-slate-700 mb-1">Preferred Payment</label>
               <select value={form.preferredPaymentMethod} onChange={(e) => setForm(f => ({ ...f, preferredPaymentMethod: e.target.value }))}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                <option value="">ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ No preference ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“</option>
+                <option value="">– No preference –</option>
                 <option value="CASH">Cash</option>
                 <option value="BACS">BACS</option>
                 <option value="CARD">Card</option>
@@ -833,7 +833,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
           {editingJob && (
             <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
               <p className="text-sm font-semibold text-slate-800">{(editingJob as { name?: string }).name || "Window Cleaning"}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{fmtDate(editingJob.workDay.date)} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {editingJob.status}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{fmtDate(editingJob.workDay.date)} · {editingJob.status}</p>
             </div>
           )}
           <div>
@@ -924,7 +924,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
       </Modal>
 
       {/* Invoice Modal */}
-      <Modal open={invoiceOpen} onClose={() => setInvoiceOpen(false)} title={`Invoice ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ${customer.name}`}>
+      <Modal open={invoiceOpen} onClose={() => setInvoiceOpen(false)} title={`Invoice — ${customer.name}`}>
         <div className="space-y-4">
           {/* Filter tabs */}
           <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
@@ -960,8 +960,8 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-700">{fmtDate(job.workDay.date)}</p>
                       <p className="text-xs text-slate-400">
-                        {job.status}{job.isOneOff ? " ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· one-off" : ""}
-                        {jobBalance.paid > 0 ? ` Â· paid ${fmtCurrency(jobBalance.paid)}` : ""}
+                        {job.status}{job.isOneOff ? " · one-off" : ""}
+                        {jobBalance.paid > 0 ? ` · paid ${fmtCurrency(jobBalance.paid)}` : ""}
                       </p>
                     </div>
                     <div className="text-right">
@@ -977,7 +977,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
           {/* Summary */}
           {selectedJobIds.size > 0 && (
             <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 flex items-center justify-between">
-              <p className="text-sm text-slate-600">{selectedJobIds.size} job{selectedJobIds.size !== 1 ? "s" : ""} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {fmtCurrency(invoiceTotal)} total</p>
+              <p className="text-sm text-slate-600">{selectedJobIds.size} job{selectedJobIds.size !== 1 ? "s" : ""} · {fmtCurrency(invoiceTotal)} total</p>
               <p className="text-sm font-bold text-red-600">{fmtCurrency(invoiceDue)} due</p>
             </div>
           )}
@@ -998,7 +998,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               disabled={invoiceStatus === "loading" || selectedJobIds.size === 0}
               className="flex-1">
               <Download size={14} />
-              {invoiceStatus === "loading" ? "GeneratingÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦" : "Download PDF"}
+              {invoiceStatus === "loading" ? "Generating…" : "Download PDF"}
             </Button>
             <Button
               onClick={() => handleInvoiceAction("email")}
@@ -1014,10 +1014,10 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
       </Modal>
 
       {/* Tags Modal */}
-      <Modal open={tagsOpen} onClose={() => setTagsOpen(false)} title={`Tags ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ${customer.name}`}>
+      <Modal open={tagsOpen} onClose={() => setTagsOpen(false)} title={`Tags — ${customer.name}`}>
         <div className="space-y-4">
           {allTags.length === 0 ? (
-            <p className="text-sm text-slate-500">No tags defined yet. Go to Settings ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Customer Tags to create some.</p>
+            <p className="text-sm text-slate-500">No tags defined yet. Go to Settings → Customer Tags to create some.</p>
           ) : (
             <div className="flex flex-col gap-2">
               {allTags.map((tag) => {
@@ -1050,7 +1050,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
           )}
           <div className="flex gap-2 pt-1">
             <Button onClick={handleSaveTags} disabled={tagPending} className="flex-1">
-              {tagPending ? "SavingÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦" : "Save Tags"}
+              {tagPending ? "Saving…" : "Save Tags"}
             </Button>
             <Button variant="outline" onClick={() => setTagsOpen(false)} className="flex-1">Cancel</Button>
           </div>
@@ -1058,7 +1058,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
       </Modal>
 
       {/* SMS Modal */}
-      <Modal open={smsOpen} onClose={() => setSmsOpen(false)} title={`Send SMS ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ${customer.name}`}>
+      <Modal open={smsOpen} onClose={() => setSmsOpen(false)} title={`Send SMS — ${customer.name}`}>
         <div className="space-y-3">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">To (phone number)</label>
@@ -1069,7 +1069,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               placeholder="e.g. 07700 900123 or 447700900123"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <p className="text-xs text-slate-400 mt-1">Include country code (e.g. 447700...) or local format with 0 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â we'll strip spaces.</p>
+            <p className="text-xs text-slate-400 mt-1">Include country code (e.g. 447700...) or local format with 0 — we'll strip spaces.</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -1102,7 +1102,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               className="flex-1"
             >
               <MessageSquare size={14} />
-              {smsSending ? "SendingÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦" : "Send SMS"}
+              {smsSending ? "Sending…" : "Send SMS"}
             </Button>
             <Button variant="outline" onClick={() => setSmsOpen(false)} className="flex-1">Cancel</Button>
           </div>
