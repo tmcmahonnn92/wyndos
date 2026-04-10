@@ -9,6 +9,7 @@ import { SupportSessionBanner } from "@/components/support-session-banner";
 import prisma from "@/lib/db";
 import { ACTIVE_TENANT_COOKIE, SUPPORT_ACCESS_COOKIE } from "@/lib/auth-cookies";
 import { resolveActiveMembership, resolveActivePermissions } from "@/lib/memberships";
+import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
 
 const syne = Syne({
   subsets: ["latin"],
@@ -128,6 +129,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           )}
           {children}
         </main>
+        {session?.user && <PWAInstallPrompt />}
       </body>
     </html>
   );
