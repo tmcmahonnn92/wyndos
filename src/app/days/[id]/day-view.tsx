@@ -88,6 +88,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [resolutions, setResolutions] = useState<Record<number, PendingResolution>>({});
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [openJobInPayMode, setOpenJobInPayMode] = useState(false);
   const [notesJob, setNotesJob] = useState<Job | null>(null);
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [routeOrder, setRouteOrder] = useState<number[] | null>(null);
@@ -439,6 +440,10 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
                         router.refresh();
                       })
                     }
+                    onOpenInPayMode={() => {
+                      setOpenJobInPayMode(true);
+                      setSelectedJob(job);
+                    }}
                   />
                 </div>
               ))}
@@ -611,7 +616,8 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
       {/* ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Job Action Modal ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ */}
       <JobActionModal
         job={selectedJob}
-        onClose={() => setSelectedJob(null)}
+        openInPayFormMode={openJobInPayMode}
+        onClose={() => { setSelectedJob(null); setOpenJobInPayMode(false); }}
         onDone={(price, note) => {
           if (!selectedJob) return;
           startTransition(async () => {
@@ -710,6 +716,7 @@ function JobActionModal({
   onSkip,
   isPending,
   hidePrices = false,
+  openInPayFormMode = false,
 }: {
   job: Job | null;
   onClose: () => void;
@@ -722,6 +729,7 @@ function JobActionModal({
   onSkip: (price: number, note: string) => void;
   isPending: boolean;
   hidePrices?: boolean;
+  openInPayFormMode?: boolean;
 }) {
   const [showPayForm, setShowPayForm] = useState(false);
   const [payMode, setPayMode] = useState<"amount" | "jobs">("amount");
@@ -750,9 +758,7 @@ function JobActionModal({
   // Reset the pay form whenever a different job is selected
   useEffect(() => {
     if (job) {
-      setShowPayForm(false);
       setPayMode("jobs");
-      setPayJobIds(new Set());
       setPayAmount(String(job.price));
       setPayNotes("");
       setPayMethod("CASH");
@@ -760,8 +766,17 @@ function JobActionModal({
       setCompletedDateInput(job.completedAt ? new Date(job.completedAt).toISOString().split("T")[0] : "");
       setWorkerNote(job.notes ?? "");
       setPriceInput(String(job.price));
+      if (openInPayFormMode && job.status === "PENDING") {
+        // Opened directly from card "Done & Paid" button — jump straight to pay form
+        const allJobs = [{ id: job.id }, ...customerUnpaidJobs];
+        setPayJobIds(new Set(allJobs.map(j => j.id)));
+        setShowPayForm(true);
+      } else {
+        setShowPayForm(false);
+        setPayJobIds(new Set());
+      }
     }
-  }, [job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [job?.id, openInPayFormMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const open = job !== null;
   const effectiveAmount = payAmount === "" ? 0 : parseFloat(payAmount);
@@ -1357,6 +1372,7 @@ function JobCard({
   onNotesClick,
   onQuickComplete,
   onQuickPay,
+  onOpenInPayMode,
   hidePrices = false,
 }: {
   job: Job;
@@ -1365,6 +1381,7 @@ function JobCard({
   onNotesClick?: () => void;
   onQuickComplete?: () => void;
   onQuickPay?: (includeDebt: boolean) => void;
+  onOpenInPayMode?: () => void;
   hidePrices?: boolean;
 }) {
   const isDone = job.status === "COMPLETE";
@@ -1511,8 +1528,11 @@ function JobCard({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (previousDebt > 0) setShowQuickPayChoices((prev) => !prev);
-                  else onQuickPay(false);
+                  if (previousDebt > 0) {
+                    onOpenInPayMode ? onOpenInPayMode() : setShowQuickPayChoices((prev) => !prev);
+                  } else {
+                    onQuickPay(false);
+                  }
                 }}
                 disabled={isPending}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 transition-colors disabled:opacity-50 touch-manipulation"
