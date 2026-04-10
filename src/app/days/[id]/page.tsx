@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { getWorkDay, getWorkDays } from "@/lib/actions";
-import { requirePermission } from "@/lib/tenant-context";
-import { auth } from "@/auth";
+import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { DayView } from "./day-view";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +11,8 @@ interface Props {
 
 export default async function DayPage({ params }: Props) {
   await requirePermission("schedule");
-  const session = await auth();
-  const hidePrices = session?.user?.role === "WORKER" && !(session.user.permissions ?? []).includes("viewprices");
+  const user = await getActiveUserContext();
+  const hidePrices = user.role === "WORKER" && !(user.permissions ?? []).includes("viewprices");
   const { id } = await params;
   const day = await getWorkDay(Number(id));
   if (!day) notFound();

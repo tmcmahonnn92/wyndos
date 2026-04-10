@@ -1,6 +1,5 @@
 import { getWorkDays, getAreaSchedules, getHolidays } from "@/lib/actions";
-import { requirePermission } from "@/lib/tenant-context";
-import { auth } from "@/auth";
+import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { ScheduleHeader } from "./schedule-header";
 import { SchedulePageClient } from "./schedule-page-client";
 
@@ -8,8 +7,8 @@ export const dynamic = "force-dynamic";
 
 export default async function DaysPage() {
   await requirePermission("schedule");
-  const session = await auth();
-  const hidePrices = session?.user?.role === "WORKER" && !(session.user.permissions ?? []).includes("viewprices");
+  const user = await getActiveUserContext();
+  const hidePrices = user.role === "WORKER" && !(user.permissions ?? []).includes("viewprices");
   const [days, areas, holidays] = await Promise.all([
     getWorkDays(),
     getAreaSchedules(),

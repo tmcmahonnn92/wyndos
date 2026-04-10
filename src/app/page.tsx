@@ -11,22 +11,20 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { cookies } from "next/headers";
 import { getDashboardData } from "@/lib/actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { fmtDate, fmtCurrency } from "@/lib/utils";
-import { ACTIVE_TENANT_COOKIE, requirePermission } from "@/lib/tenant-context";
+import { ACTIVE_TENANT_COOKIE, getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/auth/signin");
+  const user = await getActiveUserContext();
 
   // SUPER_ADMIN must select a tenant first — redirect them to /admin if no cookie set
-  if (session.user.role === "SUPER_ADMIN") {
+  if (user.role === "SUPER_ADMIN") {
     const cookieStore = await cookies();
     const tenantCookie = cookieStore.get(ACTIVE_TENANT_COOKIE)?.value;
     if (!tenantCookie) redirect("/admin");
@@ -35,9 +33,9 @@ export default async function DashboardPage() {
   await requirePermission("dashboard");
 
   const showPrices =
-    session.user.role === "OWNER" ||
-    session.user.role === "SUPER_ADMIN" ||
-    (session.user.permissions ?? []).includes("viewprices");
+    user.role === "OWNER" ||
+    user.role === "SUPER_ADMIN" ||
+    (user.permissions ?? []).includes("viewprices");
   const hidePrices = !showPrices;
 
   const {

@@ -24,7 +24,6 @@ export default auth((req) => {
   if (pathname === "/api/health") return NextResponse.next();
 
   if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    if (isLoggedIn) return NextResponse.redirect(new URL("/", req.nextUrl));
     return NextResponse.next();
   }
 
