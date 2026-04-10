@@ -68,6 +68,21 @@ function getJobTitle(job: { name?: string | null }) {
   return job.name?.trim() || "Window Cleaning";
 }
 
+function getPaidAfterCompletion(job: Job) {
+  if (job.status !== "COMPLETE" || !job.completedAt) return 0;
+
+  const completedAt = new Date(job.completedAt).getTime();
+  return Number(
+    (job.allocations ?? [])
+      .filter((allocation) => {
+        const paidAt = allocation.payment?.paidAt;
+        return paidAt ? new Date(paidAt).getTime() >= completedAt : false;
+      })
+      .reduce((sum, allocation) => sum + allocation.amount, 0)
+      .toFixed(2)
+  );
+}
+
 interface Props {
   day: Day;
   futureDays: FutureDay[];
@@ -624,7 +639,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
             if (note.trim()) await updateJobNotes(selectedJob.id, note.trim());
             if (price !== selectedJob.price) await updateJobPrice(selectedJob.id, price);
             await completeJob(selectedJob.id);
-            setSelectedJob(null);
+            setSelectedJob(null); setOpenJobInPayMode(false);
             router.refresh();
           });
         }}
@@ -632,7 +647,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
           if (!selectedJob) return;
           startTransition(async () => {
             await uncompleteJob(selectedJob.id);
-            setSelectedJob(null);
+            setSelectedJob(null); setOpenJobInPayMode(false);
             router.refresh();
           });
         }}
@@ -642,7 +657,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
             if (note.trim()) await updateJobNotes(selectedJob.id, note.trim());
             if (price !== selectedJob.price) await updateJobPrice(selectedJob.id, price);
             await skipJob(selectedJob.id);
-            setSelectedJob(null);
+            setSelectedJob(null); setOpenJobInPayMode(false);
             router.refresh();
           });
         }}
@@ -654,7 +669,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
             if (visitPrice !== selectedJob.price) await updateJobPrice(selectedJob.id, visitPrice);
             await completeJob(selectedJob.id);
             await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
-            setSelectedJob(null);
+            setSelectedJob(null); setOpenJobInPayMode(false);
             router.refresh();
           });
         }}
@@ -662,7 +677,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
           if (!selectedJob) return;
           startTransition(async () => {
             await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
-            setSelectedJob(null);
+            setSelectedJob(null); setOpenJobInPayMode(false);
             router.refresh();
           });
         }}
@@ -673,7 +688,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
             if (visitPrice !== selectedJob.price) await updateJobPrice(selectedJob.id, visitPrice);
             await completeJob(selectedJob.id);
             await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
-            setSelectedJob(null);
+            setSelectedJob(null); setOpenJobInPayMode(false);
             router.refresh();
           });
         }}
@@ -681,7 +696,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
           if (!selectedJob) return;
           startTransition(async () => {
             await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
-            setSelectedJob(null);
+            setSelectedJob(null); setOpenJobInPayMode(false);
             router.refresh();
           });
         }}
@@ -785,7 +800,7 @@ function JobActionModal({
     const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
     return sum + Math.max(0, j.price - paid);
   }, 0) : 0;
-  const currentOutstanding = job ? Math.max(0, job.price - (job.allocations ?? []).reduce((s, a) => s + a.amount, 0)) : 0;
+  const currentOutstanding = job ? Math.max(0, job.price - getPaidAfterCompletion(job)) : 0;
   const isSettled = currentOutstanding < 0.005;
   const cleanAndDebtAmount = Number((currentVisitAmount + previousDebt).toFixed(2));
 
@@ -1496,7 +1511,7 @@ function JobCard({
             </span>
           )}
           {job.status === "COMPLETE" && (() => {
-            const totalPaid = (job.allocations ?? []).reduce((sum, allocation) => sum + allocation.amount, 0);
+            const totalPaid = getPaidAfterCompletion(job);
             return totalPaid >= job.price - 0.005 ? (
               <span className="flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-300">
                 <Check size={10} />
@@ -1568,7 +1583,7 @@ function JobCard({
         </>
       )}
       {job.status === "COMPLETE" && (() => {
-        const totalPaid = (job.allocations ?? []).reduce((sum, allocation) => sum + allocation.amount, 0);
+        const totalPaid = getPaidAfterCompletion(job);
         return totalPaid < job.price - 0.005 ? (
           <div className="border-t border-amber-100">
             <button

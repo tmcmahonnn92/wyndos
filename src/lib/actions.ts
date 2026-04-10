@@ -503,6 +503,7 @@ export async function getCustomer(id: number) {
         take: 100,
       },
       payments: {
+        where: { voidedAt: null },
         include: { allocations: true },
         orderBy: { paidAt: "desc" },
         take: 50,
@@ -1012,7 +1013,10 @@ export async function getWorkDay(id: number) {
         include: {
           allocations: {
             where: { payment: { voidedAt: null } },
-            select: { amount: true },
+            select: {
+              amount: true,
+              payment: { select: { paidAt: true } },
+            },
           },
           customer: {
             include: {
@@ -1533,15 +1537,59 @@ export async function completeJob(jobId: number) {
 
 export async function uncompleteJob(jobId: number) {
   const tenantId = await getActiveTenantId();
-  const job = await requireTenantJob(tenantId, jobId);
+  const job = await prisma.job.findFirst({
+    where: { id: jobId, tenantId },
+    include: {
+      allocations: {
+        where: { payment: { voidedAt: null } },
+        include: {
+          payment: {
+            include: {
+              allocations: true,
+            },
+          },
+        },
+      },
+    },
+  });
   if (!job) throw new Error("Job not found");
 
-  await prisma.job.update({
-    where: { id: jobId },
-    data: { status: "PENDING", completedAt: null },
+  await prisma.$transaction(async (tx) => {
+    for (const allocation of job.allocations) {
+      const payment = allocation.payment;
+      const remainingAllocations = payment.allocations.filter((entry) => entry.id !== allocation.id);
+
+      await tx.paymentAllocation.delete({ where: { id: allocation.id } });
+
+      if (remainingAllocations.length === 0) {
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: {
+            amount: 0,
+            voidedAt: new Date(),
+            voidReason: "Auto-voided when job was reopened",
+          },
+        });
+      } else {
+        const nextAmount = Number(
+          remainingAllocations.reduce((sum, entry) => sum + entry.amount, 0).toFixed(2)
+        );
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: { amount: nextAmount },
+        });
+      }
+    }
+
+    await tx.job.update({
+      where: { id: jobId },
+      data: { status: "PENDING", completedAt: null },
+    });
   });
 
   revalidatePath(`/days/${job.workDayId}`);
+  revalidatePath(`/customers/${job.customerId}`);
+  revalidatePath("/payments");
 }
 
 export async function skipJob(jobId: number) {
@@ -2520,7 +2568,7 @@ export async function getPaymentsPage() {
   const tenantId = await getActiveTenantId();
   const [payments, customers] = await Promise.all([
     prisma.payment.findMany({
-      where: { tenantId },
+      where: { tenantId, voidedAt: null },
       include: {
         customer: true,
         allocations: { include: { job: { include: { workDay: true } } } },
