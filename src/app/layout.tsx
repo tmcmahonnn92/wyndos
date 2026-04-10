@@ -34,6 +34,15 @@ const dmMono = DM_Mono({
 export const metadata: Metadata = {
   title: "Wyndos.io – Route Management",
   description: "Window cleaning round management app",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Wyndos",
+  },
+  icons: {
+    apple: "/icons/icon-192.png",
+  },
   verification: {
     google: "Hw_XHoX_NS86rDAVSE7qL9PksCwlkcX-D0n-U05ie7A",
   },
@@ -43,6 +52,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  themeColor: "#0f172a",
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
