@@ -17,6 +17,10 @@ export default async function SchedulerPage() {
   const workers = team
     .filter((member) => member.role === "WORKER")
     .map((member) => ({ id: member.id, name: member.name, email: member.email }));
+  const schedulerWorkDays = workDays.map((workDay) => ({
+    ...workDay,
+    routeOrderingMode: (workDay.routeOrderingMode === "OPTIMISED" ? "OPTIMISED" : "MANUAL") as "MANUAL" | "OPTIMISED",
+  }));
 
   return (
     <>
@@ -31,7 +35,7 @@ export default async function SchedulerPage() {
       <div className="hidden md:block h-full">
         <SchedulerClient
           areas={areas}
-          workDays={workDays}
+          workDays={schedulerWorkDays}
           holidays={holidays}
           workers={workers}
           viewerRole={viewer.role}
