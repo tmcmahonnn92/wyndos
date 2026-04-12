@@ -10,6 +10,7 @@ export const PERMISSIONS = {
   DASHBOARD:   "dashboard",   // access the main dashboard
   SCHEDULE:    "schedule",    // view & manage work days / runs
   SCHEDULER:   "scheduler",   // access the drag-drop scheduler
+  ROUTE_OPTIMISER: "routeoptimiser", // optimise daily route order in scheduler
   CUSTOMERS:   "customers",   // view & manage customers
   AREAS:       "areas",       // view & manage round areas
   PAYMENTS:    "payments",    // view & log customer payments
@@ -20,7 +21,7 @@ export const PERMISSIONS = {
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
 
 export const ALL_PERMISSIONS: Permission[] = [
-  "dashboard", "schedule", "scheduler", "customers", "areas", "payments", "settings", "viewprices",
+  "dashboard", "schedule", "scheduler", "routeoptimiser", "customers", "areas", "payments", "settings", "viewprices",
 ];
 
 /** Permissions automatically granted to a new worker invite if none are specified. */
@@ -30,6 +31,7 @@ export const PERMISSION_LABELS: Record<Permission, { label: string; description:
   dashboard:  { label: "Dashboard",    description: "Access the main dashboard"            },
   schedule:   { label: "Schedule",     description: "View & manage work days and runs"     },
   scheduler:  { label: "Scheduler",    description: "Use the drag-drop scheduler"          },
+  routeoptimiser: { label: "Route Optimiser", description: "Optimise route order in Scheduler" },
   customers:  { label: "Customers",    description: "View & manage the customer list"      },
   areas:      { label: "Areas",        description: "View & manage round areas"            },
   payments:   { label: "Payments",     description: "View & log customer payments"         },

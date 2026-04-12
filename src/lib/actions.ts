@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
 import { calcNextDue } from "@/lib/utils";
 import { startOfDay } from "date-fns";
-import { getActiveTenantId, requireAuth } from "@/lib/tenant-context";
+import { getActiveTenantId, getActiveUserContext, requireAuth } from "@/lib/tenant-context";
 
 type PaymentMethodValue = "CASH" | "BACS" | "CARD";
 
@@ -2945,16 +2945,128 @@ export async function deleteTag(id: number) {
  * Persist a custom job order within a work day.
  * orderedJobIds: all jobIds for that day in the desired order (index = sortOrder).
  */
-export async function reorderDayJobs(workDayId: number, orderedJobIds: number[]) {
+type RouteOrderingMode = "MANUAL" | "OPTIMISED";
+
+function serialiseRouteOrder(jobIds: number[]) {
+  return JSON.stringify(jobIds);
+}
+
+function parseRouteOrder(raw: string | null | undefined): number[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is number => Number.isInteger(value))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function resolveRouteOrderSnapshot(snapshotIds: number[], liveIds: number[]) {
+  const liveIdSet = new Set(liveIds);
+  const ordered = snapshotIds.filter((id) => liveIdSet.has(id));
+  const orderedSet = new Set(ordered);
+  return [...ordered, ...liveIds.filter((id) => !orderedSet.has(id))];
+}
+
+async function persistRouteOrder(
+  tx: any,
+  workDayId: number,
+  orderedJobIds: number[],
+  mode: RouteOrderingMode,
+) {
+  await Promise.all(
+    orderedJobIds.map((id, index) =>
+      tx.job.update({ where: { id }, data: { sortOrder: index } })
+    )
+  );
+
+  await tx.workDay.update({
+    where: { id: workDayId },
+    data: mode === "MANUAL"
+      ? {
+          routeOrderingMode: mode,
+          manualRouteOrder: serialiseRouteOrder(orderedJobIds),
+        }
+      : {
+          routeOrderingMode: mode,
+          optimizedRouteOrder: serialiseRouteOrder(orderedJobIds),
+        },
+  });
+}
+
+async function requireRouteOptimiserPermission() {
+  const user = await getActiveUserContext();
+  if (user.role === "SUPER_ADMIN" || user.role === "OWNER") return;
+  if (!(user.permissions ?? []).includes("routeoptimiser")) {
+    throw new Error("You do not have permission to optimise routes.");
+  }
+}
+
+export async function reorderDayJobs(
+  workDayId: number,
+  orderedJobIds: number[],
+  mode: RouteOrderingMode = "MANUAL",
+) {
   const tenantId = await getActiveTenantId();
   await requireTenantWorkDay(tenantId, workDayId);
   const jobs = await prisma.job.findMany({ where: { tenantId, workDayId, id: { in: orderedJobIds } }, select: { id: true } });
   if (jobs.length !== orderedJobIds.length) throw new Error("One or more jobs were not found for this day");
-  await Promise.all(
-    orderedJobIds.map((id, index) =>
-      prisma.job.update({ where: { id }, data: { sortOrder: index } })
-    )
-  );
+  await prisma.$transaction(async (tx) => {
+    await persistRouteOrder(tx, workDayId, orderedJobIds, mode);
+  });
+  revalidatePath(`/days/${workDayId}`);
+  revalidatePath("/scheduler");
+}
+
+export async function applyOptimizedRouteOrder(workDayId: number, orderedJobIds: number[]) {
+  await requireRouteOptimiserPermission();
+  await reorderDayJobs(workDayId, orderedJobIds, "OPTIMISED");
+}
+
+export async function setWorkDayRouteOrderingMode(workDayId: number, mode: RouteOrderingMode) {
+  if (mode === "OPTIMISED") {
+    await requireRouteOptimiserPermission();
+  }
+
+  const tenantId = await getActiveTenantId();
+  const workDay = await prisma.workDay.findFirst({
+    where: { id: workDayId, tenantId },
+    select: {
+      id: true,
+      manualRouteOrder: true,
+      optimizedRouteOrder: true,
+      jobs: {
+        select: { id: true },
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      },
+    },
+  });
+
+  if (!workDay) {
+    throw new Error("Work day not found");
+  }
+
+  const liveIds = workDay.jobs.map((job) => job.id);
+  const snapshot = mode === "MANUAL"
+    ? parseRouteOrder(workDay.manualRouteOrder)
+    : parseRouteOrder(workDay.optimizedRouteOrder);
+
+  if (snapshot.length === 0) {
+    throw new Error(
+      mode === "MANUAL"
+        ? "No saved manual route exists for this day yet."
+        : "No optimised route has been saved for this day yet.",
+    );
+  }
+
+  const resolvedOrder = resolveRouteOrderSnapshot(snapshot, liveIds);
+
+  await prisma.$transaction(async (tx) => {
+    await persistRouteOrder(tx, workDayId, resolvedOrder, mode);
+  });
+
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/scheduler");
 }

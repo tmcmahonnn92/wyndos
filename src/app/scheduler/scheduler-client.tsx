@@ -35,9 +35,11 @@ import {
 } from "lucide-react";
 import {
   assignWorkDayWorker,
+  applyOptimizedRouteOrder,
   createArea,
   scheduleAreaRun,
   rescheduleWorkDay,
+  setWorkDayRouteOrderingMode,
   updateWorkDayNotes,
   rescheduleJobToDate,
   reorderDayJobs,
@@ -104,6 +106,9 @@ type WorkDay = {
   date: Date | string;
   status: string;
   notes: string | null;
+  routeOrderingMode: "MANUAL" | "OPTIMISED";
+  manualRouteOrder: string | null;
+  optimizedRouteOrder: string | null;
   areaId: number | null;
   assignedUser: { id: string; name: string | null; email: string | null } | null;
   area: {
@@ -122,6 +127,16 @@ type WorkDay = {
 type FullJob = Job;
 type FullWorkDay = Omit<WorkDay, "jobs"> & { jobs: FullJob[] };
 type WorkerOption = { id: string; name: string | null; email: string };
+type RouteOrderingMode = WorkDay["routeOrderingMode"];
+type GeocodeLookup = {
+  lat: number;
+  lon: number;
+  warning: string | null;
+  needsReview: boolean;
+  normalizedQuery: string;
+  matchedAddress: string | null;
+  confidence: "high" | "medium" | "low";
+};
 
 function getPreviousDebt(job: FullJob) {
   return (job.customer?.jobs ?? [])
@@ -248,13 +263,13 @@ function dayDiff(a: Date | string | null, b: Date): number {
 }
 
 // ── Route optimiser helpers ──────────────────────────────────────────────────
-async function geocodeAddress(address: string): Promise<[number, number] | null> {
+async function geocodeAddress(address: string): Promise<GeocodeLookup | null> {
   try {
     const r = await fetch(`/api/geocode?q=${encodeURIComponent(address)}`);
     if (!r.ok) return null;
     const data = await r.json();
     if (!data) return null;
-    return [data.lat, data.lon];
+    return data;
   } catch { return null; }
 }
 
@@ -1099,40 +1114,49 @@ function PendingJobChip({ job, onDragStart }: { job: PendingJob; onDragStart: (j
 // ── Route Optimiser Modal (for scheduler DayDetailModal) ────────────────────
 
 function SchedulerRouteOptimiserModal({
-  jobs, open, onClose, onApply,
+  jobs, open, onClose, onApply, warnsAboutManualOverride,
 }: {
   jobs: Job[];
   open: boolean;
   onClose: () => void;
-  onApply: (ordered: Job[]) => void;
+  onApply: (ordered: Job[]) => Promise<void> | void;
+  warnsAboutManualOverride: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [startJobId, setStartJobId] = useState<number | "">(jobs[0]?.id ?? "");
   const [orderedJobs, setOrderedJobs] = useState<Job[] | null>(null);
+  const [geocodesByJobId, setGeocodesByJobId] = useState<Record<number, GeocodeLookup | null>>({});
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
       setOrderedJobs(null);
       setError("");
       setProgress("");
+      setGeocodesByJobId({});
       setStartJobId(jobs[0]?.id ?? "");
-    }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [jobs, open]);
 
   const handleOptimise = async () => {
     setLoading(true);
     setError("");
     setOrderedJobs(null);
+    setGeocodesByJobId({});
     const coords: Array<[number, number] | null> = [];
+    const geocodeMap: Record<number, GeocodeLookup | null> = {};
     for (let i = 0; i < jobs.length; i++) {
       setProgress(`Locating ${i + 1}/${jobs.length}: ${jobs[i].customer?.name ?? ""}`);
       const addr = jobs[i].customer?.address ?? null;
-      const c = addr ? await geocodeAddress(addr) : null;
-      coords.push(c);
+      const result = addr ? await geocodeAddress(addr) : null;
+      geocodeMap[jobs[i].id] = result;
+      coords.push(result ? [result.lat, result.lon] : null);
       if (i < jobs.length - 1) await new Promise((r) => setTimeout(r, 1100));
     }
+    setGeocodesByJobId(geocodeMap);
     const resolved = coords.filter(Boolean).length;
     if (resolved < 2) {
       setError(`Could only geocode ${resolved} of ${jobs.length} addresses. Check postcodes are included.`);
@@ -1153,8 +1177,14 @@ function SchedulerRouteOptimiserModal({
     <Modal open={open} onClose={onClose} title="Route Optimiser">
       <div className="space-y-4">
         <p className="text-xs text-slate-500">
-          Geocodes each address and finds the shortest route. Choose a starting point, then preview before applying.
+          Geocodes each address from the single address field, prefers UK house-name or number plus street patterns, and flags anything that still looks weak before you apply it.
         </p>
+
+        {warnsAboutManualOverride && !orderedJobs && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Running route optimisation will switch this day away from its current manual sequence. You can still switch back later with the Manual toggle.
+          </div>
+        )}
 
         {/* Start point */}
         {!orderedJobs && (
@@ -1186,7 +1216,12 @@ function SchedulerRouteOptimiserModal({
         {/* Optimised preview */}
         {orderedJobs && (
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Optimised order</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Optimised order</p>
+              {Object.values(geocodesByJobId).some((entry) => entry?.needsReview) && (
+                <span className="text-[11px] font-medium text-amber-700">Check flagged addresses before applying</span>
+              )}
+            </div>
             <ol className="space-y-1.5">
               {orderedJobs.map((job, idx) => (
                 <li key={job.id} className="flex items-center gap-2.5 px-3 py-2 bg-slate-50 rounded-lg border border-slate-100">
@@ -1196,6 +1231,9 @@ function SchedulerRouteOptimiserModal({
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-slate-800 truncate">{job.customer?.name}</p>
                     <p className="text-xs text-slate-500 truncate">{job.customer?.address}</p>
+                    {geocodesByJobId[job.id]?.warning && (
+                      <p className="mt-1 text-[11px] text-amber-700">{geocodesByJobId[job.id]?.warning}</p>
+                    )}
                   </div>
                 </li>
               ))}
@@ -1215,10 +1253,10 @@ function SchedulerRouteOptimiserModal({
             </button>
           ) : (
             <button
-              onClick={() => onApply(orderedJobs)}
+              onClick={() => void onApply(orderedJobs!)}
               className="flex-1 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-bold transition-colors"
             >
-              Apply This Order
+              Apply Optimised Route
             </button>
           )}
           <button
@@ -1262,13 +1300,19 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
   }, []);
 
   useEffect(() => {
-    if (!workDay) { setFullDay(null); return; }
-    setLoadingFull(true);
-    setFullDay(null);
-    setEditingDate(false);
-    setPayingJobId(null);
-    reload(workDay.id);
-  }, [workDay?.id, reload]);
+    const frame = window.requestAnimationFrame(() => {
+      if (!workDay) {
+        setFullDay(null);
+        return;
+      }
+      setLoadingFull(true);
+      setFullDay(null);
+      setEditingDate(false);
+      setPayingJobId(null);
+      reload(workDay.id);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [reload, workDay]);
 
   const handleSaveDate = () => {
     if (!workDay || !dateVal) return;
@@ -1524,15 +1568,16 @@ function DayDetailModal({
   onClose,
   workers,
   canAssignWorkers,
+  canUseRouteOptimiser,
 }: {
   workDay: WorkDay | null;
   onClose: () => void;
   workers: WorkerOption[];
   canAssignWorkers: boolean;
+  canUseRouteOptimiser: boolean;
 }) {
   const router = useRouter();
   const [localJobs, setLocalJobs] = useState<FullJob[]>([]);
-  const [hasOrderChanges, setHasOrderChanges] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
   const [noteText, setNoteText] = useState("");
   const [editingPriceId, setEditingPriceId] = useState<number | null>(null);
@@ -1545,6 +1590,10 @@ function DayDetailModal({
   const [ddPayNotes, setDdPayNotes] = useState("");
   const [isSaving, startSaving] = useTransition();
   const [routeModalOpen, setRouteModalOpen] = useState(false);
+  const [routeOrderingMode, setRouteOrderingMode] = useState<RouteOrderingMode>("MANUAL");
+  const [hasOptimizedRouteSnapshot, setHasOptimizedRouteSnapshot] = useState(false);
+  const [hasManualRouteSnapshot, setHasManualRouteSnapshot] = useState(false);
+  const [routeActionError, setRouteActionError] = useState("");
   const [dragSrcIdx, setDragSrcIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [assignedWorkerId, setAssignedWorkerId] = useState("");
@@ -1588,7 +1637,13 @@ function DayDetailModal({
   // Fetch fresh full day data (includes payment info) and update localJobs
   const refreshFromServer = useCallback(async (dayId: number) => {
     const fresh = await getWorkDay(dayId);
-    if (fresh) setLocalJobs([...fresh.jobs].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)));
+    if (fresh) {
+      setLocalJobs([...fresh.jobs].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)));
+      setRouteOrderingMode((fresh.routeOrderingMode as RouteOrderingMode | undefined) ?? "MANUAL");
+      setHasOptimizedRouteSnapshot(Boolean(fresh.optimizedRouteOrder));
+      setHasManualRouteSnapshot(Boolean(fresh.manualRouteOrder));
+    }
+    return fresh;
   }, []);
 
   // Sync when modal opens for a different day
@@ -1596,11 +1651,14 @@ function DayDetailModal({
   if (workDay && workDay.id !== syncedId) {
     setSyncedId(workDay.id);
     setLocalJobs([...workDay.jobs].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)) as FullJob[]);
-    setHasOrderChanges(false);
     setEditingNoteId(null);
     setEditingPriceId(null);
     setShowAddJob(false);
     setRouteModalOpen(false);
+    setRouteOrderingMode(workDay.routeOrderingMode ?? "MANUAL");
+    setHasOptimizedRouteSnapshot(Boolean(workDay.optimizedRouteOrder));
+    setHasManualRouteSnapshot(Boolean(workDay.manualRouteOrder));
+    setRouteActionError("");
     setDragSrcIdx(null);
     setDragOverIdx(null);
     setAssignedWorkerId(workDay.assignedUser?.id ?? "");
@@ -1612,21 +1670,43 @@ function DayDetailModal({
     refreshFromServer(workDay.id);
   }, [workDay?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const persistManualOrder = useCallback((nextJobs: FullJob[]) => {
+    if (!workDay) return;
+    setLocalJobs(nextJobs);
+    setRouteOrderingMode("MANUAL");
+    setHasManualRouteSnapshot(true);
+    setRouteActionError("");
+    startSaving(async () => {
+      try {
+        await reorderDayJobs(workDay.id, nextJobs.map((job) => job.id));
+        await refreshFromServer(workDay.id);
+        router.refresh();
+      } catch (error) {
+        setRouteActionError(error instanceof Error ? error.message : "Could not save the manual route order.");
+        await refreshFromServer(workDay.id);
+      }
+    });
+  }, [refreshFromServer, router, workDay]);
+
   const moveJob = (idx: number, dir: -1 | 1) => {
     const target = idx + dir;
     if (target < 0 || target >= localJobs.length) return;
     const next = [...localJobs];
     [next[idx], next[target]] = [next[target], next[idx]];
-    setLocalJobs(next);
-    setHasOrderChanges(true);
+    persistManualOrder(next);
   };
 
-  const handleSaveOrder = () => {
-    if (!workDay) return;
+  const handleRouteModeSwitch = (mode: RouteOrderingMode) => {
+    if (!workDay || mode === routeOrderingMode) return;
+    setRouteActionError("");
     startSaving(async () => {
-      await reorderDayJobs(workDay.id, localJobs.map((j) => j.id));
-      setHasOrderChanges(false);
-      router.refresh();
+      try {
+        await setWorkDayRouteOrderingMode(workDay.id, mode);
+        await refreshFromServer(workDay.id);
+        router.refresh();
+      } catch (error) {
+        setRouteActionError(error instanceof Error ? error.message : `Could not switch to ${mode === "MANUAL" ? "manual" : "optimised"} ordering.`);
+      }
     });
   };
 
@@ -1785,13 +1865,53 @@ function DayDetailModal({
         </div>
 
         <div className="flex gap-2">
-          {hasOrderChanges && (
-            <button onClick={handleSaveOrder} disabled={isSaving}
-              className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-60">
-              {isSaving ? "Saving…" : "Save Order"}
-            </button>
-          )}
-          {localJobs.length > 1 && (
+          <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Route order</span>
+              <span className={cn(
+                "text-[11px] font-semibold",
+                routeOrderingMode === "MANUAL" ? "text-blue-700" : "text-emerald-700"
+              )}>
+                {routeOrderingMode === "MANUAL" ? "Manual active" : "Optimised active"}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleRouteModeSwitch("MANUAL")}
+                disabled={isSaving || routeOrderingMode === "MANUAL" || !hasManualRouteSnapshot}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50",
+                  routeOrderingMode === "MANUAL"
+                    ? "bg-blue-600 text-white"
+                    : "border border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                )}
+              >
+                Manual order
+              </button>
+              {canUseRouteOptimiser && (
+                <button
+                  type="button"
+                  onClick={() => handleRouteModeSwitch("OPTIMISED")}
+                  disabled={isSaving || routeOrderingMode === "OPTIMISED" || !hasOptimizedRouteSnapshot}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50",
+                    routeOrderingMode === "OPTIMISED"
+                      ? "bg-emerald-600 text-white"
+                      : "border border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:text-emerald-700"
+                  )}
+                >
+                  Optimised route
+                </button>
+              )}
+            </div>
+            <p className="mt-2 text-[11px] leading-snug text-slate-500">
+              {hasOptimizedRouteSnapshot
+                ? "Drag or move jobs to save a manual order. Switch back to the saved optimised route whenever needed."
+                : "Manual order is active. Run Route Optimiser once to save an optimised route you can toggle back to."}
+            </p>
+          </div>
+          {canUseRouteOptimiser && localJobs.length > 1 && (
             <button onClick={() => setRouteModalOpen(true)} disabled={isSaving}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-emerald-50 hover:border-emerald-400 text-slate-600 hover:text-emerald-700 text-sm font-semibold disabled:opacity-60 transition-colors flex-shrink-0">
               <Navigation2 size={13} />
@@ -1799,6 +1919,10 @@ function DayDetailModal({
             </button>
           )}
         </div>
+
+        {routeActionError && (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{routeActionError}</p>
+        )}
 
         {canAssignWorkers && (
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
@@ -1855,9 +1979,9 @@ function DayDetailModal({
             return (
               <div
                 key={job.id}
-                draggable={!isDone}
+                draggable={!isDone && !isSaving}
                 onDragStart={(e) => {
-                  if (isDone) { e.preventDefault(); return; }
+                  if (isDone || isSaving) { e.preventDefault(); return; }
                   setDragSrcIdx(idx);
                   e.dataTransfer.effectAllowed = "move";
                 }}
@@ -1872,8 +1996,7 @@ function DayDetailModal({
                     const next = [...localJobs];
                     const [moved] = next.splice(dragSrcIdx, 1);
                     next.splice(idx, 0, moved);
-                    setLocalJobs(next);
-                    setHasOrderChanges(true);
+                    persistManualOrder(next);
                   }
                   setDragSrcIdx(null);
                   setDragOverIdx(null);
@@ -1884,7 +2007,7 @@ function DayDetailModal({
                   job.status === "SKIPPED" ? "bg-slate-50 border-slate-200 opacity-60" :
                   "bg-white border-slate-200",
                   isDone && "ring-2 ring-green-400 border-green-300 bg-green-50/60",
-                  !isDone && "cursor-grab active:cursor-grabbing",
+                  !isDone && !isSaving && "cursor-grab active:cursor-grabbing",
                   dragSrcIdx === idx && "opacity-30 scale-[0.98]",
                   dragOverIdx === idx && dragSrcIdx !== idx && "ring-2 ring-blue-400 ring-offset-1"
                 )}
@@ -2469,10 +2592,33 @@ function DayDetailModal({
       jobs={localJobs}
       open={routeModalOpen}
       onClose={() => setRouteModalOpen(false)}
-      onApply={(ordered) => {
+      warnsAboutManualOverride={routeOrderingMode === "MANUAL" && hasManualRouteSnapshot}
+      onApply={async (ordered) => {
+        if (!workDay) return;
+        if (
+          routeOrderingMode === "MANUAL"
+          && hasManualRouteSnapshot
+          && !window.confirm("Applying an optimised route will replace the active manual sequence for this day. Your saved manual order will still be available via the Manual order toggle.")
+        ) {
+          return;
+        }
+
+        setRouteActionError("");
         setLocalJobs(ordered as FullJob[]);
-        setHasOrderChanges(true);
-        setRouteModalOpen(false);
+        setRouteOrderingMode("OPTIMISED");
+        setHasOptimizedRouteSnapshot(true);
+
+        startSaving(async () => {
+          try {
+            await applyOptimizedRouteOrder(workDay.id, ordered.map((job) => job.id));
+            await refreshFromServer(workDay.id);
+            setRouteModalOpen(false);
+            router.refresh();
+          } catch (error) {
+            setRouteActionError(error instanceof Error ? error.message : "Could not apply the optimised route.");
+            await refreshFromServer(workDay.id);
+          }
+        });
       }}
     />
   </>
@@ -2481,16 +2627,18 @@ function DayDetailModal({
 
 // ── Main Scheduler Client ─────────────────────────────────────────────────────
 
-export function SchedulerClient({ areas, workDays, holidays: initialHolidays, workers, viewerRole }: {
+export function SchedulerClient({ areas, workDays, holidays: initialHolidays, workers, viewerRole, viewerPermissions }: {
   areas: Area[];
   workDays: WorkDay[];
   holidays: Holiday[];
   workers: WorkerOption[];
   viewerRole: "SUPER_ADMIN" | "OWNER" | "WORKER";
+  viewerPermissions: string[];
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const canManageSchedule = viewerRole !== "WORKER";
+  const canUseRouteOptimiser = viewerRole !== "WORKER" || viewerPermissions.includes("routeoptimiser");
 
   const [calendarView, setCalendarView] = useState<"week" | "month">("week");
   const [weekStart, setWeekStart] = useState<Date>(() => getMondayOfWeek(new Date()));
@@ -3073,6 +3221,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
         workDay={expandedDay}
         workers={workers}
         canAssignWorkers={canManageSchedule}
+        canUseRouteOptimiser={canUseRouteOptimiser}
         onClose={() => setExpandedDay(null)}
       />
       <CompletedWorkDayModal

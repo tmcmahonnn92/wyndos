@@ -314,6 +314,9 @@ model WorkDay {
   assignedUserId String?
   assignedUser   User?    @relation("AssignedWorkerWorkDays", fields: [assignedUserId], references: [id], onDelete: SetNull)
   status    WorkDayStatus @default(PLANNED)
+  routeOrderingMode String @default("MANUAL")
+  manualRouteOrder  String?
+  optimizedRouteOrder String?
   notes     String?
   createdAt DateTime      @default(now())
   jobs      Job[]

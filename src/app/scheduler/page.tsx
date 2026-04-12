@@ -29,7 +29,14 @@ export default async function SchedulerPage() {
         </div>
       </div>
       <div className="hidden md:block h-full">
-        <SchedulerClient areas={areas} workDays={workDays} holidays={holidays} workers={workers} viewerRole={viewer.role} />
+        <SchedulerClient
+          areas={areas}
+          workDays={workDays}
+          holidays={holidays}
+          workers={workers}
+          viewerRole={viewer.role}
+          viewerPermissions={viewer.permissions}
+        />
       </div>
     </>
   );
