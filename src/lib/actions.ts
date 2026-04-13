@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
+import { getExpenseCategory, EXPENSE_CATEGORIES } from "@/lib/accounting";
 import { calcNextDue } from "@/lib/utils";
 import { startOfDay } from "date-fns";
 import { getActiveTenantId, getActiveUserContext, requireAuth } from "@/lib/tenant-context";
@@ -41,6 +42,12 @@ async function requireTenantWorkDay(tenantId: number, workDayId: number) {
   });
   if (!workDay) throw new Error("Work day not found");
   return workDay;
+}
+
+async function requireTenantExpense(tenantId: number, expenseId: number) {
+  const expense = await prisma.expense.findFirst({ where: { id: expenseId, tenantId } });
+  if (!expense) throw new Error("Expense not found");
+  return expense;
 }
 
 async function requireTenantPayment(tenantId: number, paymentId: number) {
@@ -2633,6 +2640,159 @@ export async function getPaymentsPage() {
     .sort((a, b) => b.debt - a.debt);
 
   return { payments, customersWithDebt: debtors };
+}
+
+const ACCOUNTING_MONTHS = 12;
+const MAX_RECEIPT_IMAGE_LENGTH = 3_500_000;
+
+function getUtcMonthStart(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
+
+function addUtcMonths(date: Date, months: number) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+}
+
+function getMonthKey(date: Date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function getMonthLabel(date: Date) {
+  return date.toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+export async function createExpense(data: {
+  category: string;
+  supplier?: string;
+  amount: number;
+  expenseDate: Date;
+  notes?: string;
+  isRecurring?: boolean;
+  receiptImage?: string | null;
+  receiptFilename?: string | null;
+}) {
+  const tenantId = await getActiveTenantId();
+  const category = getExpenseCategory(data.category);
+  const amount = Number(data.amount);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Expense amount must be greater than zero.");
+  }
+
+  const expenseDate = new Date(data.expenseDate);
+  if (Number.isNaN(expenseDate.getTime())) {
+    throw new Error("Expense date is invalid.");
+  }
+
+  const receiptImage = data.receiptImage?.trim() || null;
+  if (receiptImage && !receiptImage.startsWith("data:image/")) {
+    throw new Error("Receipt upload must be an image.");
+  }
+  if (receiptImage && receiptImage.length > MAX_RECEIPT_IMAGE_LENGTH) {
+    throw new Error("Receipt image is too large. Please upload a smaller image.");
+  }
+
+  await prisma.expense.create({
+    data: {
+      tenantId,
+      category: category.value,
+      hmrcCategory: category.hmrcCategory,
+      supplier: data.supplier?.trim() || "",
+      amount,
+      expenseDate,
+      notes: data.notes?.trim() || null,
+      isRecurring: Boolean(data.isRecurring),
+      receiptImage,
+      receiptFilename: data.receiptFilename?.trim() || null,
+    },
+  });
+
+  revalidatePath("/accounting");
+}
+
+export async function deleteExpense(expenseId: number) {
+  const tenantId = await getActiveTenantId();
+  const expense = await requireTenantExpense(tenantId, expenseId);
+  await prisma.expense.delete({ where: { id: expense.id } });
+  revalidatePath("/accounting");
+}
+
+export async function getAccountingPage() {
+  const tenantId = await getActiveTenantId();
+  const currentMonthStart = getUtcMonthStart(new Date());
+  const rangeStart = addUtcMonths(currentMonthStart, -(ACCOUNTING_MONTHS - 1));
+
+  const [payments, expenses] = await Promise.all([
+    prisma.payment.findMany({
+      where: { tenantId, voidedAt: null, paidAt: { gte: rangeStart } },
+      select: { id: true, amount: true, paidAt: true, method: true, customer: { select: { id: true, name: true } } },
+      orderBy: { paidAt: "desc" },
+    }),
+    prisma.expense.findMany({
+      where: { tenantId, expenseDate: { gte: rangeStart } },
+      orderBy: { expenseDate: "desc" },
+    }),
+  ]);
+
+  const incomeByMonth = new Map<string, number>();
+  const expenseByMonth = new Map<string, number>();
+  const expenseCountByMonth = new Map<string, number>();
+  const paymentCountByMonth = new Map<string, number>();
+  const expenseCategoryBreakdown = new Map<string, Record<string, number>>();
+
+  for (const payment of payments) {
+    const key = getMonthKey(payment.paidAt);
+    incomeByMonth.set(key, Number(((incomeByMonth.get(key) ?? 0) + payment.amount).toFixed(2)));
+    paymentCountByMonth.set(key, (paymentCountByMonth.get(key) ?? 0) + 1);
+  }
+
+  for (const expense of expenses) {
+    const key = getMonthKey(expense.expenseDate);
+    expenseByMonth.set(key, Number(((expenseByMonth.get(key) ?? 0) + expense.amount).toFixed(2)));
+    expenseCountByMonth.set(key, (expenseCountByMonth.get(key) ?? 0) + 1);
+
+    const current = expenseCategoryBreakdown.get(key) ?? {};
+    current[expense.category] = Number(((current[expense.category] ?? 0) + expense.amount).toFixed(2));
+    expenseCategoryBreakdown.set(key, current);
+  }
+
+  const monthlySummaries = Array.from({ length: ACCOUNTING_MONTHS }, (_, index) => {
+    const monthStart = addUtcMonths(rangeStart, index);
+    const monthKey = getMonthKey(monthStart);
+    const income = incomeByMonth.get(monthKey) ?? 0;
+    const expenseTotal = expenseByMonth.get(monthKey) ?? 0;
+    return {
+      monthKey,
+      monthLabel: getMonthLabel(monthStart),
+      income,
+      expenses: expenseTotal,
+      net: Number((income - expenseTotal).toFixed(2)),
+      paymentCount: paymentCountByMonth.get(monthKey) ?? 0,
+      expenseCount: expenseCountByMonth.get(monthKey) ?? 0,
+      categoryBreakdown: expenseCategoryBreakdown.get(monthKey) ?? {},
+    };
+  });
+
+  const totalIncome = Number(monthlySummaries.reduce((sum, month) => sum + month.income, 0).toFixed(2));
+  const totalExpenses = Number(monthlySummaries.reduce((sum, month) => sum + month.expenses, 0).toFixed(2));
+  const totalNet = Number((totalIncome - totalExpenses).toFixed(2));
+
+  return {
+    monthlySummaries,
+    recentExpenses: expenses.slice(0, 40).map((expense) => ({
+      ...expense,
+      categoryLabel: getExpenseCategory(expense.category).label,
+      hmrcLabel: getExpenseCategory(expense.category).hmrcLabel,
+    })),
+    recentPayments: payments.slice(0, 25),
+    totals: {
+      income: totalIncome,
+      expenses: totalExpenses,
+      net: totalNet,
+    },
+    expenseCategories: EXPENSE_CATEGORIES,
+    exportGeneratedAt: new Date().toISOString(),
+  };
 }
 
 export async function getOutstandingJobs() {

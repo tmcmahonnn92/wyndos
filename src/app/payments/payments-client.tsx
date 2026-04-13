@@ -458,62 +458,72 @@ export function DebtorsPanel({
       <div className="divide-y divide-slate-100">
         {filteredDebtors.map((c) => (
           <div key={c.id} className={cn(
-            "flex items-center gap-2 py-3 px-1 transition-colors",
+            "px-1 py-3 transition-colors",
             selected.has(c.id) && "bg-blue-50/60"
           )}>
-            <button onClick={() => toggleSelect(c.id)} className="p-0.5 text-slate-300 hover:text-blue-600 flex-shrink-0">
-              {selected.has(c.id)
-                ? <CheckSquare size={15} className="text-blue-600" />
-                : <Square size={15} />}
-            </button>
-            <Link href={`/customers/${c.id}`} className="flex-1 min-w-0 group">
-              <p className="text-sm font-medium text-slate-800 group-hover:text-blue-600 truncate">{c.name}</p>
-              <p className="text-xs text-slate-400 truncate">{c.address}{c.areaName ? ` · ${c.areaName}` : ""}</p>
-              <p className="text-[11px] text-slate-400 truncate">{c.unpaidJobs.length} unpaid job{c.unpaidJobs.length !== 1 ? "s" : ""}</p>
-            </Link>
-            <span className="text-sm font-bold text-red-600 flex-shrink-0">{fmtCurrency(Number(c.debt))}</span>
+            <div className="flex items-start gap-2 sm:items-center">
+              <button onClick={() => toggleSelect(c.id)} className="p-0.5 text-slate-300 hover:text-blue-600 flex-shrink-0 mt-0.5 sm:mt-0">
+                {selected.has(c.id)
+                  ? <CheckSquare size={15} className="text-blue-600" />
+                  : <Square size={15} />}
+              </button>
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <Link href={`/customers/${c.id}`} className="min-w-0 flex-1 group">
+                    <p className="text-sm font-medium text-slate-800 group-hover:text-blue-600 truncate">{c.name}</p>
+                    <p className="text-xs text-slate-500 leading-snug break-words sm:truncate">{c.address}</p>
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      {c.areaName ? `${c.areaName} · ` : ""}{c.unpaidJobs.length} unpaid job{c.unpaidJobs.length !== 1 ? "s" : ""}
+                    </p>
+                  </Link>
+                  <span className="text-sm font-bold text-red-600 flex-shrink-0 whitespace-nowrap">{fmtCurrency(Number(c.debt))}</span>
+                </div>
 
-            {/* Invoice button */}
-            <button
-              onClick={() => sendInvoice(c)}
-              disabled={!emailInvoicingEnabled || invoicing.has(c.id)}
-              title={emailInvoicingEnabled ? (c.email ? `Invoice ${c.email}` : "No email — add one to their profile") : "Email invoicing is disabled for this rollout pass"}
-              className={cn(
-                "flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-semibold transition-colors flex-shrink-0",
-                emailInvoicingEnabled && c.email
-                  ? "border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white hover:border-blue-600"
-                  : "border-slate-200 text-slate-400 cursor-not-allowed",
-                "disabled:opacity-60"
-              )}
-            >
-              {invoicing.has(c.id)
-                ? <Loader2 size={11} className="animate-spin" />
-                : <Receipt size={11} />}
-              Invoice
-            </button>
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+                  <button
+                    onClick={() => sendInvoice(c)}
+                    disabled={!emailInvoicingEnabled || invoicing.has(c.id)}
+                    title={emailInvoicingEnabled ? (c.email ? `Invoice ${c.email}` : "No email — add one to their profile") : "Email invoicing is disabled for this rollout pass"}
+                    className={cn(
+                      "flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border text-xs font-semibold transition-colors",
+                      emailInvoicingEnabled && c.email
+                        ? "border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white hover:border-blue-600"
+                        : "border-slate-200 text-slate-400 cursor-not-allowed",
+                      "disabled:opacity-60"
+                    )}
+                  >
+                    {invoicing.has(c.id)
+                      ? <Loader2 size={11} className="animate-spin" />
+                      : <Receipt size={11} />}
+                    Invoice
+                  </button>
 
-            {/* SMS reminder button */}
-            <button
-              onClick={() => smsRemindersEnabled && setSmsDebtor(c)}
-              title={smsRemindersEnabled ? (c.phone ? `Text ${c.phone}` : "No phone — add one to their profile") : "SMS reminders are disabled for this rollout pass"}
-              className={cn(
-                "flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-semibold transition-colors flex-shrink-0",
-                smsRemindersEnabled && c.phone
-                  ? "border-slate-200 text-slate-600 hover:bg-slate-700 hover:text-white hover:border-slate-700"
-                  : "border-slate-200 text-slate-400 cursor-not-allowed"
-              )}
-            >
-              <MessageSquare size={11} />
-              Remind
-            </button>
+                  <button
+                    onClick={() => smsRemindersEnabled && setSmsDebtor(c)}
+                    title={smsRemindersEnabled ? (c.phone ? `Text ${c.phone}` : "No phone — add one to their profile") : "SMS reminders are disabled for this rollout pass"}
+                    className={cn(
+                      "flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border text-xs font-semibold transition-colors",
+                      smsRemindersEnabled && c.phone
+                        ? "border-slate-200 text-slate-600 hover:bg-slate-700 hover:text-white hover:border-slate-700"
+                        : "border-slate-200 text-slate-400 cursor-not-allowed"
+                    )}
+                  >
+                    <MessageSquare size={11} />
+                    Remind
+                  </button>
 
-            <LogPaymentForm
-              customers={debtors}
-              initialCustomerId={c.id}
-              buttonLabel="Log Payment"
-              buttonVariant="outline"
-              buttonClassName="text-xs"
-            />
+                  <div className="col-span-2 sm:col-span-1">
+                    <LogPaymentForm
+                      customers={debtors}
+                      initialCustomerId={c.id}
+                      buttonLabel="Log Payment"
+                      buttonVariant="outline"
+                      buttonClassName="w-full justify-center text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         ))}
       </div>

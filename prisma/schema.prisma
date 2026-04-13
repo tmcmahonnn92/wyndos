@@ -29,6 +29,7 @@ model Tenant {
   areas     Area[]
   customers Customer[]
   workDays  WorkDay[]
+  expenses  Expense[]
   tags      Tag[]
   holidays  Holiday[]
   invites   Invite[]
@@ -375,6 +376,27 @@ model Payment {
   @@index([tenantId, goCardlessStatus])
   @@index([paidAt])
   @@index([voidedAt])
+}
+
+model Expense {
+  id              Int       @id @default(autoincrement())
+  tenantId        Int
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category        String    @default("OTHER")
+  hmrcCategory    String    @default("OTHER")
+  supplier        String    @default("")
+  amount          Float
+  expenseDate     DateTime  @default(now())
+  notes           String?
+  isRecurring     Boolean   @default(false)
+  receiptImage    String?
+  receiptFilename String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, expenseDate])
+  @@index([tenantId, category])
 }
 
 model PaymentAllocation {

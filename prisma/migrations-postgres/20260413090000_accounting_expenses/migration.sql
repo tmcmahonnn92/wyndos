@@ -1,0 +1,23 @@
+CREATE TABLE "Expense" (
+    "id" SERIAL NOT NULL,
+    "tenantId" INTEGER NOT NULL,
+    "category" TEXT NOT NULL DEFAULT 'OTHER',
+    "hmrcCategory" TEXT NOT NULL DEFAULT 'OTHER',
+    "supplier" TEXT NOT NULL DEFAULT '',
+    "amount" DOUBLE PRECISION NOT NULL,
+    "expenseDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "notes" TEXT,
+    "isRecurring" BOOLEAN NOT NULL DEFAULT false,
+    "receiptImage" TEXT,
+    "receiptFilename" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Expense_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "Expense" ADD CONSTRAINT "Expense_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE INDEX "Expense_tenantId_idx" ON "Expense"("tenantId");
+CREATE INDEX "Expense_tenantId_expenseDate_idx" ON "Expense"("tenantId", "expenseDate");
+CREATE INDEX "Expense_tenantId_category_idx" ON "Expense"("tenantId", "category");

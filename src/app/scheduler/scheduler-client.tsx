@@ -2640,7 +2640,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
   const canManageSchedule = viewerRole !== "WORKER";
   const canUseRouteOptimiser = viewerRole !== "WORKER" || viewerPermissions.includes("routeoptimiser");
 
-  const [calendarView, setCalendarView] = useState<"week" | "month">("week");
+  const [calendarView, setCalendarView] = useState<"week" | "month">("month");
   const [weekStart, setWeekStart] = useState<Date>(() => getMondayOfWeek(new Date()));
   const [monthStart, setMonthStart] = useState<Date>(() => startOfMonth(new Date()));
   const goToPrevWeek = () => setWeekStart((w) => addDays(w, -7));

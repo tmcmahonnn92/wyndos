@@ -11,6 +11,7 @@ import {
   Users,
   Layers,
   CreditCard,
+  Receipt,
   Settings,
   Sun,
   Moon,
@@ -27,6 +28,7 @@ const navItems = [
   { href: "/customers", label: "Customers", icon: Users,          desktopOnly: false, permission: "customers"  },
   { href: "/areas",     label: "Areas",     icon: Layers,         desktopOnly: false, permission: "areas"      },
   { href: "/payments",  label: "Payments",  icon: CreditCard,     desktopOnly: false, permission: "payments"   },
+  { href: "/accounting",label: "Accounting",icon: Receipt,        desktopOnly: false, permission: "payments"   },
   { href: "/settings",  label: "Settings",  icon: Settings,       desktopOnly: false, permission: "settings"   },
 ];
 
