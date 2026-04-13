@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
-import { getExpenseCategory, getOtherIncomeCategory, EXPENSE_CATEGORIES, OTHER_INCOME_CATEGORIES } from "@/lib/accounting";
+import { getExpenseCategory, getOtherIncomeCategory, getTaxTreatment, EXPENSE_CATEGORIES, OTHER_INCOME_CATEGORIES, TAX_TREATMENT_OPTIONS } from "@/lib/accounting";
 import { calcNextDue } from "@/lib/utils";
 import { startOfDay } from "date-fns";
 import { getActiveTenantId, getActiveUserContext, requireAuth } from "@/lib/tenant-context";
@@ -2760,10 +2760,158 @@ function getCurrentTaxYearStart(now = new Date()) {
   return now >= getTaxYearStartDate(year) ? year : year - 1;
 }
 
+function calculateTaxBreakdown(amount: number, taxTreatmentValue: string | null | undefined) {
+  const taxTreatment = getTaxTreatment(taxTreatmentValue);
+  const rate = taxTreatment.vatRate;
+  if (rate <= 0) {
+    return {
+      taxTreatment: taxTreatment.value,
+      vatRate: rate,
+      vatAmount: 0,
+      netAmount: Number(amount.toFixed(2)),
+    };
+  }
+
+  const netAmount = Number((amount / (1 + rate / 100)).toFixed(2));
+  const vatAmount = Number((amount - netAmount).toFixed(2));
+  return {
+    taxTreatment: taxTreatment.value,
+    vatRate: rate,
+    vatAmount,
+    netAmount,
+  };
+}
+
+async function materialiseRecurringExpenseTemplates(tenantId: number) {
+  const today = utcDay(new Date());
+  const templates = await prisma.expense.findMany({
+    where: {
+      tenantId,
+      isRecurring: true,
+      recurrenceTemplateId: null,
+      nextScheduledAt: { not: null, lte: today },
+    },
+    orderBy: { id: "asc" },
+  });
+
+  for (const template of templates) {
+    if (!template.nextScheduledAt || !template.repeatEvery || !isValidRepeatUnit(template.repeatUnit)) continue;
+
+    let nextScheduledAt = utcDay(template.nextScheduledAt);
+    const repeatEndsAt = template.repeatEndsAt ? utcDay(template.repeatEndsAt) : null;
+    const repeatEvery = template.repeatEvery;
+    const repeatUnit = template.repeatUnit;
+
+    await prisma.$transaction(async (tx) => {
+      while (nextScheduledAt <= today && (!repeatEndsAt || nextScheduledAt <= repeatEndsAt)) {
+        const existing = await tx.expense.findFirst({
+          where: {
+            tenantId,
+            recurrenceTemplateId: template.id,
+            expenseDate: nextScheduledAt,
+          },
+          select: { id: true },
+        });
+
+        if (!existing) {
+          await tx.expense.create({
+            data: {
+              tenantId,
+              recurrenceTemplateId: template.id,
+              category: template.category,
+              hmrcCategory: template.hmrcCategory,
+              supplier: template.supplier,
+              amount: template.amount,
+              netAmount: template.netAmount,
+              vatAmount: template.vatAmount,
+              vatRate: template.vatRate,
+              taxTreatment: template.taxTreatment,
+              expenseDate: nextScheduledAt,
+              notes: template.notes,
+              isRecurring: false,
+              receiptImage: template.receiptImage,
+              receiptFilename: template.receiptFilename,
+            },
+          });
+        }
+
+        nextScheduledAt = utcDay(addRepeatInterval(nextScheduledAt, repeatEvery, repeatUnit));
+      }
+
+      await tx.expense.update({
+        where: { id: template.id },
+        data: { nextScheduledAt: repeatEndsAt && nextScheduledAt > repeatEndsAt ? null : nextScheduledAt },
+      });
+    });
+  }
+}
+
+async function materialiseRecurringOtherIncomeTemplates(tenantId: number) {
+  const today = utcDay(new Date());
+  const templates = await prisma.otherIncome.findMany({
+    where: {
+      tenantId,
+      isRecurring: true,
+      recurrenceTemplateId: null,
+      nextScheduledAt: { not: null, lte: today },
+    },
+    orderBy: { id: "asc" },
+  });
+
+  for (const template of templates) {
+    if (!template.nextScheduledAt || !template.repeatEvery || !isValidRepeatUnit(template.repeatUnit)) continue;
+
+    let nextScheduledAt = utcDay(template.nextScheduledAt);
+    const repeatEndsAt = template.repeatEndsAt ? utcDay(template.repeatEndsAt) : null;
+    const repeatEvery = template.repeatEvery;
+    const repeatUnit = template.repeatUnit;
+
+    await prisma.$transaction(async (tx) => {
+      while (nextScheduledAt <= today && (!repeatEndsAt || nextScheduledAt <= repeatEndsAt)) {
+        const existing = await tx.otherIncome.findFirst({
+          where: {
+            tenantId,
+            recurrenceTemplateId: template.id,
+            receivedAt: nextScheduledAt,
+          },
+          select: { id: true },
+        });
+
+        if (!existing) {
+          await tx.otherIncome.create({
+            data: {
+              tenantId,
+              recurrenceTemplateId: template.id,
+              category: template.category,
+              source: template.source,
+              amount: template.amount,
+              netAmount: template.netAmount,
+              vatAmount: template.vatAmount,
+              vatRate: template.vatRate,
+              taxTreatment: template.taxTreatment,
+              receivedAt: nextScheduledAt,
+              notes: template.notes,
+              isRecurring: false,
+            },
+          });
+        }
+
+        nextScheduledAt = utcDay(addRepeatInterval(nextScheduledAt, repeatEvery, repeatUnit));
+      }
+
+      await tx.otherIncome.update({
+        where: { id: template.id },
+        data: { nextScheduledAt: repeatEndsAt && nextScheduledAt > repeatEndsAt ? null : nextScheduledAt },
+      });
+    });
+  }
+}
+
 export async function createExpense(data: {
   category: string;
   supplier?: string;
   amount: number;
+  taxTreatment?: string;
   expenseDate: Date;
   notes?: string;
   isRecurring?: boolean;
@@ -2803,6 +2951,7 @@ export async function createExpense(data: {
     repeatEndsAt: data.repeatEndsAt,
     entryDate: expenseDate,
   });
+  const taxBreakdown = calculateTaxBreakdown(amount, data.taxTreatment);
 
   await prisma.expense.create({
     data: {
@@ -2811,6 +2960,10 @@ export async function createExpense(data: {
       hmrcCategory: category.hmrcCategory,
       supplier: data.supplier?.trim() || "",
       amount,
+      netAmount: taxBreakdown.netAmount,
+      vatAmount: taxBreakdown.vatAmount,
+      vatRate: taxBreakdown.vatRate,
+      taxTreatment: taxBreakdown.taxTreatment,
       expenseDate,
       notes: data.notes?.trim() || null,
       isRecurring: recurringSchedule.isRecurring,
@@ -2831,6 +2984,7 @@ export async function createOtherIncome(data: {
   category: string;
   source?: string;
   amount: number;
+  taxTreatment?: string;
   receivedAt: Date;
   notes?: string;
   isRecurring?: boolean;
@@ -2860,6 +3014,7 @@ export async function createOtherIncome(data: {
     repeatEndsAt: data.repeatEndsAt,
     entryDate: receivedAt,
   });
+  const taxBreakdown = calculateTaxBreakdown(amount, data.taxTreatment);
 
   await prisma.otherIncome.create({
     data: {
@@ -2867,6 +3022,10 @@ export async function createOtherIncome(data: {
       category: category.value,
       source: data.source?.trim() || "",
       amount,
+      netAmount: taxBreakdown.netAmount,
+      vatAmount: taxBreakdown.vatAmount,
+      vatRate: taxBreakdown.vatRate,
+      taxTreatment: taxBreakdown.taxTreatment,
       receivedAt,
       notes: data.notes?.trim() || null,
       isRecurring: recurringSchedule.isRecurring,
@@ -2895,14 +3054,27 @@ export async function deleteOtherIncome(otherIncomeId: number) {
   revalidatePath("/accounting");
 }
 
-export async function getAccountingPage(options?: { taxYearStart?: number | null }) {
+export async function getAccountingPage(options?: {
+  taxYearStart?: number | null;
+  dateFrom?: Date | null;
+  dateTo?: Date | null;
+}) {
   const tenantId = await getActiveTenantId();
+  await Promise.all([
+    materialiseRecurringExpenseTemplates(tenantId),
+    materialiseRecurringOtherIncomeTemplates(tenantId),
+  ]);
+
   const currentTaxYearStart = getCurrentTaxYearStart();
   const selectedTaxYearStart = Number.isInteger(options?.taxYearStart)
     ? Number(options?.taxYearStart)
     : currentTaxYearStart;
-  const rangeStart = getTaxYearStartDate(selectedTaxYearStart);
-  const rangeEnd = getTaxYearStartDate(selectedTaxYearStart + 1);
+  const taxYearRangeStart = getTaxYearStartDate(selectedTaxYearStart);
+  const taxYearRangeEnd = getTaxYearStartDate(selectedTaxYearStart + 1);
+  const customDateFrom = options?.dateFrom ? utcDay(new Date(options.dateFrom)) : null;
+  const customDateToExclusive = options?.dateTo ? addUtcDays(utcDay(new Date(options.dateTo)), 1) : null;
+  const rangeStart = customDateFrom && customDateFrom > taxYearRangeStart ? customDateFrom : taxYearRangeStart;
+  const rangeEnd = customDateToExclusive && customDateToExclusive < taxYearRangeEnd ? customDateToExclusive : taxYearRangeEnd;
   const monthSeriesStart = getUtcMonthStart(rangeStart);
 
   const [payments, expenses, otherIncomeEntries] = await Promise.all([
@@ -2926,6 +3098,8 @@ export async function getAccountingPage(options?: { taxYearStart?: number | null
   const expenseCountByMonth = new Map<string, number>();
   const paymentCountByMonth = new Map<string, number>();
   const expenseCategoryBreakdown = new Map<string, Record<string, number>>();
+  const incomeVatByMonth = new Map<string, number>();
+  const expenseVatByMonth = new Map<string, number>();
 
   for (const payment of payments) {
     const key = getMonthKey(payment.paidAt);
@@ -2937,20 +3111,26 @@ export async function getAccountingPage(options?: { taxYearStart?: number | null
     const key = getMonthKey(income.receivedAt);
     incomeByMonth.set(key, Number(((incomeByMonth.get(key) ?? 0) + income.amount).toFixed(2)));
     paymentCountByMonth.set(key, (paymentCountByMonth.get(key) ?? 0) + 1);
+    incomeVatByMonth.set(key, Number(((incomeVatByMonth.get(key) ?? 0) + income.vatAmount).toFixed(2)));
   }
 
   for (const expense of expenses) {
     const key = getMonthKey(expense.expenseDate);
     expenseByMonth.set(key, Number(((expenseByMonth.get(key) ?? 0) + expense.amount).toFixed(2)));
     expenseCountByMonth.set(key, (expenseCountByMonth.get(key) ?? 0) + 1);
+    expenseVatByMonth.set(key, Number(((expenseVatByMonth.get(key) ?? 0) + expense.vatAmount).toFixed(2)));
 
     const current = expenseCategoryBreakdown.get(key) ?? {};
     current[expense.category] = Number(((current[expense.category] ?? 0) + expense.amount).toFixed(2));
     expenseCategoryBreakdown.set(key, current);
   }
 
-  const monthlySummaries = Array.from({ length: ACCOUNTING_MONTHS }, (_, index) => {
-    const monthStart = addUtcMonths(monthSeriesStart, index);
+  const monthStarts: Date[] = [];
+  for (let cursor = monthSeriesStart; cursor < rangeEnd; cursor = addUtcMonths(cursor, 1)) {
+    monthStarts.push(cursor);
+  }
+
+  const monthlySummaries = monthStarts.map((monthStart) => {
     const monthKey = getMonthKey(monthStart);
     const income = incomeByMonth.get(monthKey) ?? 0;
     const expenseTotal = expenseByMonth.get(monthKey) ?? 0;
@@ -2958,7 +3138,9 @@ export async function getAccountingPage(options?: { taxYearStart?: number | null
       monthKey,
       monthLabel: getMonthLabel(monthStart),
       income,
+      incomeVat: incomeVatByMonth.get(monthKey) ?? 0,
       expenses: expenseTotal,
+      expenseVat: expenseVatByMonth.get(monthKey) ?? 0,
       net: Number((income - expenseTotal).toFixed(2)),
       paymentCount: paymentCountByMonth.get(monthKey) ?? 0,
       expenseCount: expenseCountByMonth.get(monthKey) ?? 0,
@@ -2968,6 +3150,8 @@ export async function getAccountingPage(options?: { taxYearStart?: number | null
 
   const totalIncome = Number(monthlySummaries.reduce((sum, month) => sum + month.income, 0).toFixed(2));
   const totalExpenses = Number(monthlySummaries.reduce((sum, month) => sum + month.expenses, 0).toFixed(2));
+  const totalIncomeVat = Number(monthlySummaries.reduce((sum, month) => sum + month.incomeVat, 0).toFixed(2));
+  const totalExpenseVat = Number(monthlySummaries.reduce((sum, month) => sum + month.expenseVat, 0).toFixed(2));
   const totalNet = Number((totalIncome - totalExpenses).toFixed(2));
 
   return {
@@ -2976,27 +3160,34 @@ export async function getAccountingPage(options?: { taxYearStart?: number | null
       ...expense,
       categoryLabel: getExpenseCategory(expense.category).label,
       hmrcLabel: getExpenseCategory(expense.category).hmrcLabel,
+      taxTreatmentLabel: getTaxTreatment(expense.taxTreatment).label,
     })),
     recentPayments: payments.slice(0, 25).map((payment) => ({ ...payment, sourceLabel: "Customer payment", sourceType: "PAYMENT" as const })),
     recentOtherIncome: otherIncomeEntries.slice(0, 25).map((income) => ({
       ...income,
       categoryLabel: getOtherIncomeCategory(income.category).label,
       sourceLabel: income.source || getOtherIncomeCategory(income.category).label,
+      taxTreatmentLabel: getTaxTreatment(income.taxTreatment).label,
       sourceType: "OTHER_INCOME" as const,
     })),
     totals: {
       income: totalIncome,
       expenses: totalExpenses,
       net: totalNet,
+      incomeVat: totalIncomeVat,
+      expenseVat: totalExpenseVat,
     },
     selectedTaxYearStart,
     selectedTaxYearLabel: getTaxYearLabel(selectedTaxYearStart),
+    activeDateFrom: rangeStart.toISOString().slice(0, 10),
+    activeDateTo: addUtcDays(rangeEnd, -1).toISOString().slice(0, 10),
     availableTaxYears: Array.from({ length: 5 }, (_, index) => {
       const yearStart = currentTaxYearStart - index;
       return { value: yearStart, label: getTaxYearLabel(yearStart) };
     }),
     expenseCategories: EXPENSE_CATEGORIES,
     otherIncomeCategories: OTHER_INCOME_CATEGORIES,
+    taxTreatmentOptions: TAX_TREATMENT_OPTIONS,
     exportGeneratedAt: new Date().toISOString(),
   };
 }

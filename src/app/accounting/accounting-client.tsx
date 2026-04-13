@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Camera, Download, Loader2, Plus, Receipt, TrendingDown, TrendingUp, Trash2, Wallet, X } from "lucide-react";
 import { createExpense, createOtherIncome, deleteExpense, deleteOtherIncome } from "@/lib/actions";
-import type { ExpenseCategoryDefinition, OtherIncomeCategoryDefinition } from "@/lib/accounting";
+import type { ExpenseCategoryDefinition, OtherIncomeCategoryDefinition, TaxTreatmentDefinition } from "@/lib/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn, fmtCurrency } from "@/lib/utils";
 
@@ -12,7 +12,9 @@ type MonthlySummary = {
   monthKey: string;
   monthLabel: string;
   income: number;
+  incomeVat: number;
   expenses: number;
+  expenseVat: number;
   net: number;
   paymentCount: number;
   expenseCount: number;
@@ -26,9 +28,15 @@ type RecentExpense = {
   hmrcLabel: string;
   supplier: string;
   amount: number;
+  netAmount: number;
+  vatAmount: number;
+  vatRate: number;
+  taxTreatment: string;
+  taxTreatmentLabel: string;
   expenseDate: string | Date;
   notes: string | null;
   isRecurring: boolean;
+  recurrenceTemplateId?: number | null;
   repeatEvery?: number | null;
   repeatUnit?: string | null;
   nextScheduledAt?: string | Date | null;
@@ -53,9 +61,15 @@ type RecentOtherIncome = {
   source: string;
   sourceLabel: string;
   amount: number;
+  netAmount: number;
+  vatAmount: number;
+  vatRate: number;
+  taxTreatment: string;
+  taxTreatmentLabel: string;
   receivedAt: string | Date;
   notes: string | null;
   isRecurring: boolean;
+  recurrenceTemplateId?: number | null;
   repeatEvery?: number | null;
   repeatUnit?: string | null;
   nextScheduledAt?: string | Date | null;
@@ -157,8 +171,11 @@ export function AccountingClient({
   totals,
   expenseCategories,
   otherIncomeCategories,
+  taxTreatmentOptions,
   selectedTaxYearStart,
   selectedTaxYearLabel,
+  activeDateFrom,
+  activeDateTo,
   availableTaxYears,
   exportGeneratedAt,
 }: {
@@ -166,11 +183,14 @@ export function AccountingClient({
   recentExpenses: RecentExpense[];
   recentPayments: RecentPayment[];
   recentOtherIncome: RecentOtherIncome[];
-  totals: { income: number; expenses: number; net: number };
+  totals: { income: number; expenses: number; net: number; incomeVat: number; expenseVat: number };
   expenseCategories: ExpenseCategoryDefinition[];
   otherIncomeCategories: OtherIncomeCategoryDefinition[];
+  taxTreatmentOptions: TaxTreatmentDefinition[];
   selectedTaxYearStart: number;
   selectedTaxYearLabel: string;
+  activeDateFrom: string;
+  activeDateTo: string;
   availableTaxYears: TaxYearOption[];
   exportGeneratedAt: string;
 }) {
@@ -184,10 +204,12 @@ export function AccountingClient({
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState({ start: activeDateFrom, end: activeDateTo });
   const [expenseForm, setExpenseForm] = useState({
     category: expenseCategories[0]?.value ?? "OTHER",
     supplier: "",
     amount: "",
+    taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
     expenseDate: defaultDateString(),
     notes: "",
     isRecurring: false,
@@ -202,6 +224,7 @@ export function AccountingClient({
     category: otherIncomeCategories[0]?.value ?? "OTHER",
     source: "",
     amount: "",
+    taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
     receivedAt: defaultDateString(),
     notes: "",
     isRecurring: false,
@@ -216,30 +239,57 @@ export function AccountingClient({
     setFormSuccess(null);
   }, [quickAddMode, quickAddOpen]);
 
+  useEffect(() => {
+    setDateRange({ start: activeDateFrom, end: activeDateTo });
+  }, [activeDateFrom, activeDateTo]);
+
   const updateTaxYear = (value: number) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("taxYear", String(value));
     router.push(`${pathname}?${params.toString()}`);
   };
 
+  const applyDateRange = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("taxYear", String(selectedTaxYearStart));
+    if (dateRange.start) params.set("start", dateRange.start);
+    else params.delete("start");
+    if (dateRange.end) params.set("end", dateRange.end);
+    else params.delete("end");
+    router.push(`${pathname}?${params.toString()}`);
+  };
+
+  const clearDateRange = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("start");
+    params.delete("end");
+    router.push(`${pathname}?${params.toString()}`);
+  };
+
   const exportMonthlySummary = () => {
     downloadCsv(`accounting-tax-year-${selectedTaxYearStart}-summary.csv`, [
       ["Tax Year", selectedTaxYearLabel],
-      ["Month", "Income", "Expenses", "Net", "Income Entries", "Expense Entries"],
-      ...monthlySummaries.map((month) => [month.monthLabel, month.income.toFixed(2), month.expenses.toFixed(2), month.net.toFixed(2), month.paymentCount, month.expenseCount]),
+      ["Date Range", `${activeDateFrom} to ${activeDateTo}`],
+      ["Month", "Income", "Income VAT", "Expenses", "Expense VAT", "Net", "Income Entries", "Expense Entries"],
+      ...monthlySummaries.map((month) => [month.monthLabel, month.income.toFixed(2), month.incomeVat.toFixed(2), month.expenses.toFixed(2), month.expenseVat.toFixed(2), month.net.toFixed(2), month.paymentCount, month.expenseCount]),
     ]);
   };
 
   const exportExpenses = () => {
     downloadCsv(`accounting-tax-year-${selectedTaxYearStart}-expenses.csv`, [
       ["Tax Year", selectedTaxYearLabel],
-      ["Date", "Supplier", "Category", "HMRC Category", "Amount", "Recurring", "Repeat Every", "Repeat Unit", "Notes", "Receipt Filename", "Generated At"],
+      ["Date Range", `${activeDateFrom} to ${activeDateTo}`],
+      ["Date", "Supplier", "Category", "HMRC Category", "Gross Amount", "Net Amount", "VAT Amount", "VAT Rate", "Tax Treatment", "Recurring", "Repeat Every", "Repeat Unit", "Notes", "Receipt Filename", "Generated At"],
       ...recentExpenses.map((expense) => [
         new Date(expense.expenseDate).toISOString().slice(0, 10),
         expense.supplier,
         expense.categoryLabel,
         expense.hmrcLabel,
         expense.amount.toFixed(2),
+        expense.netAmount.toFixed(2),
+        expense.vatAmount.toFixed(2),
+        expense.vatRate.toFixed(2),
+        expense.taxTreatmentLabel,
         expense.isRecurring ? "Yes" : "No",
         expense.repeatEvery ?? "",
         expense.repeatUnit ?? "",
@@ -285,6 +335,7 @@ export function AccountingClient({
           category: expenseForm.category,
           supplier: expenseForm.supplier,
           amount,
+          taxTreatment: expenseForm.taxTreatment,
           expenseDate: new Date(expenseForm.expenseDate),
           notes: expenseForm.notes,
           isRecurring: expenseForm.isRecurring,
@@ -299,6 +350,7 @@ export function AccountingClient({
           category: expenseCategories[0]?.value ?? "OTHER",
           supplier: "",
           amount: "",
+          taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
           expenseDate: defaultDateString(),
           notes: "",
           isRecurring: false,
@@ -331,6 +383,7 @@ export function AccountingClient({
           category: incomeForm.category,
           source: incomeForm.source,
           amount,
+          taxTreatment: incomeForm.taxTreatment,
           receivedAt: new Date(incomeForm.receivedAt),
           notes: incomeForm.notes,
           isRecurring: incomeForm.isRecurring,
@@ -343,6 +396,7 @@ export function AccountingClient({
           category: otherIncomeCategories[0]?.value ?? "OTHER",
           source: "",
           amount: "",
+          taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
           receivedAt: defaultDateString(),
           notes: "",
           isRecurring: false,
@@ -416,6 +470,10 @@ export function AccountingClient({
               <label className="mb-1 block text-xs font-medium text-slate-700">Amount</label>
               <input type="number" min="0" step="0.01" value={expenseForm.amount} onChange={(event) => setExpenseForm((prev) => ({ ...prev, amount: event.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-slate-700">Tax / VAT treatment</label>
+              <select value={expenseForm.taxTreatment} onChange={(event) => setExpenseForm((prev) => ({ ...prev, taxTreatment: event.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">{taxTreatmentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+            </div>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-700">Notes</label>
@@ -457,6 +515,10 @@ export function AccountingClient({
               <label className="mb-1 block text-xs font-medium text-slate-700">Amount</label>
               <input type="number" min="0" step="0.01" value={incomeForm.amount} onChange={(event) => setIncomeForm((prev) => ({ ...prev, amount: event.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-slate-700">Tax / VAT treatment</label>
+              <select value={incomeForm.taxTreatment} onChange={(event) => setIncomeForm((prev) => ({ ...prev, taxTreatment: event.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">{taxTreatmentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+            </div>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-700">Notes</label>
@@ -483,17 +545,26 @@ export function AccountingClient({
         </div>
         <div className="flex flex-wrap gap-2">
           <select value={selectedTaxYearStart} onChange={(event) => updateTaxYear(Number(event.target.value))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">{availableTaxYears.map((option) => <option key={option.value} value={option.value}>Tax year {option.label}</option>)}</select>
+          <input type="date" value={dateRange.start} onChange={(event) => setDateRange((prev) => ({ ...prev, start: event.target.value }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" />
+          <input type="date" value={dateRange.end} onChange={(event) => setDateRange((prev) => ({ ...prev, end: event.target.value }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" />
+          <button type="button" onClick={applyDateRange} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Apply range</button>
+          <button type="button" onClick={clearDateRange} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Reset range</button>
           <button type="button" onClick={exportMonthlySummary} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><Download size={14} />Export summary CSV</button>
           <button type="button" onClick={exportExpenses} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><Receipt size={14} />Export expenses CSV</button>
         </div>
       </div>
 
-      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">Viewing tax year {selectedTaxYearLabel}. Income includes customer payments plus manual other-income entries from 6 April to 5 April.</div>
+      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">Viewing tax year {selectedTaxYearLabel} with a filtered range of {activeDateFrom} to {activeDateTo}. Income includes customer payments plus manual and generated recurring other-income entries.</div>
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card><CardHeader><CardTitle className="flex items-center gap-2"><TrendingUp size={14} className="text-green-600" />Income</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-slate-800">{fmtCurrency(totals.income)}</p><p className="mt-1 text-xs text-slate-500">Customer payments and other income in {selectedTaxYearLabel}</p></CardContent></Card>
         <Card><CardHeader><CardTitle className="flex items-center gap-2"><TrendingDown size={14} className="text-red-600" />Expenses</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-slate-800">{fmtCurrency(totals.expenses)}</p><p className="mt-1 text-xs text-slate-500">Manual and recurring expenditure in the selected tax year</p></CardContent></Card>
         <Card><CardHeader><CardTitle className="flex items-center gap-2"><Wallet size={14} className="text-blue-600" />Net</CardTitle></CardHeader><CardContent><p className={cn("text-2xl font-bold", totals.net >= 0 ? "text-green-700" : "text-red-700")}>{fmtCurrency(totals.net)}</p><p className="mt-1 text-xs text-slate-500">Profit view for the selected tax year</p></CardContent></Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card><CardHeader><CardTitle>VAT On Income</CardTitle></CardHeader><CardContent><p className="text-xl font-bold text-slate-800">{fmtCurrency(totals.incomeVat)}</p><p className="mt-1 text-xs text-slate-500">Output VAT inside the selected filter range</p></CardContent></Card>
+        <Card><CardHeader><CardTitle>VAT On Expenses</CardTitle></CardHeader><CardContent><p className="text-xl font-bold text-slate-800">{fmtCurrency(totals.expenseVat)}</p><p className="mt-1 text-xs text-slate-500">Input VAT inside the selected filter range</p></CardContent></Card>
       </div>
 
       {formError && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{formError}</p>}
@@ -514,9 +585,9 @@ export function AccountingClient({
                     <p className={cn("text-sm font-bold", month.net >= 0 ? "text-green-700" : "text-red-700")}>{fmtCurrency(month.net)}</p>
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                    <div className="rounded-lg border border-slate-200 bg-white px-2 py-2"><p className="text-slate-400">Income</p><p className="mt-1 font-semibold text-slate-800">{fmtCurrency(month.income)}</p></div>
-                    <div className="rounded-lg border border-slate-200 bg-white px-2 py-2"><p className="text-slate-400">Expenses</p><p className="mt-1 font-semibold text-slate-800">{fmtCurrency(month.expenses)}</p></div>
-                    <div className="rounded-lg border border-slate-200 bg-white px-2 py-2"><p className="text-slate-400">Net</p><p className={cn("mt-1 font-semibold", month.net >= 0 ? "text-green-700" : "text-red-700")}>{fmtCurrency(month.net)}</p></div>
+                    <div className="rounded-lg border border-slate-200 bg-white px-2 py-2"><p className="text-slate-400">Income</p><p className="mt-1 font-semibold text-slate-800">{fmtCurrency(month.income)}</p><p className="text-[11px] text-slate-400">VAT {fmtCurrency(month.incomeVat)}</p></div>
+                    <div className="rounded-lg border border-slate-200 bg-white px-2 py-2"><p className="text-slate-400">Expenses</p><p className="mt-1 font-semibold text-slate-800">{fmtCurrency(month.expenses)}</p><p className="text-[11px] text-slate-400">VAT {fmtCurrency(month.expenseVat)}</p></div>
+                    <div className="rounded-lg border border-slate-200 bg-white px-2 py-2"><p className="text-slate-400">Net</p><p className={cn("mt-1 font-semibold", month.net >= 0 ? "text-green-700" : "text-red-700")}>{fmtCurrency(month.net)}</p><p className="text-[11px] text-slate-400">Gross view</p></div>
                   </div>
                   {Object.keys(month.categoryBreakdown).length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{Object.entries(month.categoryBreakdown).map(([category, amount]) => { const definition = expenseCategories.find((entry) => entry.value === category); return <span key={category} className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">{definition?.label ?? category}: {fmtCurrency(amount)}</span>; })}</div>}
                 </div>
@@ -531,7 +602,7 @@ export function AccountingClient({
                 const isOtherIncome = "receivedAt" in entry;
                 const date = isOtherIncome ? entry.receivedAt : entry.paidAt;
                 const label = isOtherIncome ? entry.sourceLabel : entry.customer.name;
-                const subtitle = isOtherIncome ? `${entry.categoryLabel}${formatRepeatSummary(entry) ? ` · ${formatRepeatSummary(entry)}` : ""}` : entry.method;
+                const subtitle = isOtherIncome ? `${entry.categoryLabel} · ${entry.taxTreatmentLabel}${formatRepeatSummary(entry) ? ` · ${formatRepeatSummary(entry)}` : ""}` : entry.method;
                 return (
                   <div key={`${entry.sourceType}-${entry.id}`} className="rounded-lg border border-slate-200 px-3 py-2">
                     <div className="flex items-start justify-between gap-3">
@@ -539,6 +610,7 @@ export function AccountingClient({
                         <p className="truncate text-sm font-medium text-slate-800">{label}</p>
                         <p className="text-xs text-slate-500">{new Date(date).toLocaleDateString("en-GB")} · {subtitle}</p>
                         {isOtherIncome && entry.notes && <p className="mt-1 text-xs text-slate-500">{entry.notes}</p>}
+                        {isOtherIncome && entry.vatAmount > 0 && <p className="mt-1 text-[11px] text-slate-500">VAT {fmtCurrency(entry.vatAmount)} on {fmtCurrency(entry.netAmount)} net</p>}
                       </div>
                       <div className="flex flex-col items-end gap-2">
                         <span className="text-sm font-bold text-green-700">{fmtCurrency(entry.amount)}</span>
@@ -568,6 +640,7 @@ export function AccountingClient({
                         <p className="text-xs text-slate-500">{new Date(expense.expenseDate).toLocaleDateString("en-GB")} · {expense.categoryLabel} · {expense.hmrcLabel}</p>
                         {expense.notes && <p className="mt-1 text-xs text-slate-500">{expense.notes}</p>}
                         {repeatSummary && <p className="mt-1 text-[11px] font-medium text-blue-700">{repeatSummary}</p>}
+                        <p className="mt-1 text-[11px] text-slate-500">{expense.taxTreatmentLabel}{expense.vatAmount > 0 ? ` · VAT ${fmtCurrency(expense.vatAmount)} on ${fmtCurrency(expense.netAmount)} net` : ""}</p>
                       </div>
                       <div className="flex flex-col items-end gap-2">
                         <span className="text-sm font-bold text-red-600">{fmtCurrency(expense.amount)}</span>

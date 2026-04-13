@@ -383,10 +383,15 @@ model Expense {
   id              Int       @id @default(autoincrement())
   tenantId        Int
   tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recurrenceTemplateId Int?
   category        String    @default("OTHER")
   hmrcCategory    String    @default("OTHER")
   supplier        String    @default("")
   amount          Float
+  netAmount       Float     @default(0)
+  vatAmount       Float     @default(0)
+  vatRate         Float     @default(0)
+  taxTreatment    String    @default("NO_VAT")
   expenseDate     DateTime  @default(now())
   notes           String?
   isRecurring     Boolean   @default(false)
@@ -403,15 +408,21 @@ model Expense {
   @@index([tenantId])
   @@index([tenantId, expenseDate])
   @@index([tenantId, category])
+  @@index([tenantId, recurrenceTemplateId])
 }
 
 model OtherIncome {
   id          Int       @id @default(autoincrement())
   tenantId    Int
   tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recurrenceTemplateId Int?
   category    String    @default("OTHER")
   source      String    @default("")
   amount      Float
+  netAmount   Float     @default(0)
+  vatAmount   Float     @default(0)
+  vatRate     Float     @default(0)
+  taxTreatment String   @default("NO_VAT")
   receivedAt  DateTime  @default(now())
   notes       String?
   isRecurring Boolean   @default(false)
@@ -426,6 +437,7 @@ model OtherIncome {
   @@index([tenantId])
   @@index([tenantId, receivedAt])
   @@index([tenantId, category])
+  @@index([tenantId, recurrenceTemplateId])
 }
 
 model PaymentAllocation {
