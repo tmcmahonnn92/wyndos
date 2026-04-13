@@ -30,6 +30,7 @@ model Tenant {
   customers Customer[]
   workDays  WorkDay[]
   expenses  Expense[]
+  otherIncomeEntries OtherIncome[]
   tags      Tag[]
   holidays  Holiday[]
   invites   Invite[]
@@ -389,6 +390,11 @@ model Expense {
   expenseDate     DateTime  @default(now())
   notes           String?
   isRecurring     Boolean   @default(false)
+  repeatEvery     Int?
+  repeatUnit      String?
+  repeatAnchorDate DateTime?
+  nextScheduledAt DateTime?
+  repeatEndsAt    DateTime?
   receiptImage    String?
   receiptFilename String?
   createdAt       DateTime  @default(now())
@@ -396,6 +402,29 @@ model Expense {
 
   @@index([tenantId])
   @@index([tenantId, expenseDate])
+  @@index([tenantId, category])
+}
+
+model OtherIncome {
+  id          Int       @id @default(autoincrement())
+  tenantId    Int
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category    String    @default("OTHER")
+  source      String    @default("")
+  amount      Float
+  receivedAt  DateTime  @default(now())
+  notes       String?
+  isRecurring Boolean   @default(false)
+  repeatEvery Int?
+  repeatUnit  String?
+  repeatAnchorDate DateTime?
+  nextScheduledAt DateTime?
+  repeatEndsAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, receivedAt])
   @@index([tenantId, category])
 }
 

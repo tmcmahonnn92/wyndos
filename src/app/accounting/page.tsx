@@ -4,9 +4,17 @@ import { AccountingClient } from "./accounting-client";
 
 export const dynamic = "force-dynamic";
 
-export default async function AccountingPage() {
+export default async function AccountingPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ taxYear?: string }>;
+}) {
   await requirePermission("payments");
-  const accounting = await getAccountingPage();
+  const params = (await searchParams) ?? {};
+  const parsedTaxYear = Number.parseInt(params.taxYear ?? "", 10);
+  const accounting = await getAccountingPage({
+    taxYearStart: Number.isFinite(parsedTaxYear) ? parsedTaxYear : null,
+  });
 
   return <AccountingClient {...accounting} />;
 }

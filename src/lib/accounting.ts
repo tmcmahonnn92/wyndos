@@ -5,6 +5,11 @@ export type ExpenseCategoryDefinition = {
   hmrcLabel: string;
 };
 
+export type OtherIncomeCategoryDefinition = {
+  value: string;
+  label: string;
+};
+
 export const EXPENSE_CATEGORIES: ExpenseCategoryDefinition[] = [
   { value: "FUEL", label: "Fuel and travel", hmrcCategory: "carVanTravel", hmrcLabel: "Car, van and travel" },
   { value: "SUPPLIES", label: "Cleaning supplies", hmrcCategory: "costOfGoods", hmrcLabel: "Cost of goods bought for resale" },
@@ -20,8 +25,21 @@ export const EXPENSE_CATEGORIES: ExpenseCategoryDefinition[] = [
   { value: "OTHER", label: "Other", hmrcCategory: "otherAllowableBusinessExpenses", hmrcLabel: "Other allowable expenses" },
 ];
 
+export const OTHER_INCOME_CATEGORIES: OtherIncomeCategoryDefinition[] = [
+  { value: "OTHER", label: "Other income" },
+  { value: "COMMERCIAL", label: "Commercial work" },
+  { value: "BONUS", label: "Bonus / tip" },
+  { value: "EQUIPMENT_SALE", label: "Equipment sale" },
+  { value: "ADJUSTMENT", label: "Adjustment" },
+];
+
 const EXPENSE_CATEGORY_MAP = new Map(EXPENSE_CATEGORIES.map((category) => [category.value, category]));
+const OTHER_INCOME_CATEGORY_MAP = new Map(OTHER_INCOME_CATEGORIES.map((category) => [category.value, category]));
 
 export function getExpenseCategory(value: string | null | undefined) {
   return EXPENSE_CATEGORY_MAP.get(value ?? "") ?? EXPENSE_CATEGORY_MAP.get("OTHER")!;
+}
+
+export function getOtherIncomeCategory(value: string | null | undefined) {
+  return OTHER_INCOME_CATEGORY_MAP.get(value ?? "") ?? OTHER_INCOME_CATEGORY_MAP.get("OTHER")!;
 }

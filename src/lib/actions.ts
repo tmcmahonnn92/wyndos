@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
-import { getExpenseCategory, EXPENSE_CATEGORIES } from "@/lib/accounting";
+import { getExpenseCategory, getOtherIncomeCategory, EXPENSE_CATEGORIES, OTHER_INCOME_CATEGORIES } from "@/lib/accounting";
 import { calcNextDue } from "@/lib/utils";
 import { startOfDay } from "date-fns";
 import { getActiveTenantId, getActiveUserContext, requireAuth } from "@/lib/tenant-context";
@@ -48,6 +48,12 @@ async function requireTenantExpense(tenantId: number, expenseId: number) {
   const expense = await prisma.expense.findFirst({ where: { id: expenseId, tenantId } });
   if (!expense) throw new Error("Expense not found");
   return expense;
+}
+
+async function requireTenantOtherIncome(tenantId: number, otherIncomeId: number) {
+  const income = await prisma.otherIncome.findFirst({ where: { id: otherIncomeId, tenantId } });
+  if (!income) throw new Error("Income entry not found");
+  return income;
 }
 
 async function requireTenantPayment(tenantId: number, paymentId: number) {
@@ -2644,6 +2650,86 @@ export async function getPaymentsPage() {
 
 const ACCOUNTING_MONTHS = 12;
 const MAX_RECEIPT_IMAGE_LENGTH = 3_500_000;
+const REPEAT_UNITS = ["DAY", "WEEK", "MONTH", "YEAR"] as const;
+
+function isValidRepeatUnit(value: string | null | undefined): value is (typeof REPEAT_UNITS)[number] {
+  return REPEAT_UNITS.includes((value ?? "") as (typeof REPEAT_UNITS)[number]);
+}
+
+function addRepeatInterval(date: Date, count: number, unit: (typeof REPEAT_UNITS)[number]) {
+  switch (unit) {
+    case "DAY":
+      return addUtcDays(date, count);
+    case "WEEK":
+      return addUtcDays(date, count * 7);
+    case "MONTH":
+      return addUtcMonths(date, count);
+    case "YEAR":
+      return new Date(Date.UTC(date.getUTCFullYear() + count, date.getUTCMonth(), date.getUTCDate()));
+  }
+}
+
+function getNextScheduledDate(anchorDate: Date, repeatEvery: number, repeatUnit: (typeof REPEAT_UNITS)[number]) {
+  const today = utcDay(new Date());
+  let next = utcDay(anchorDate);
+  while (next <= today) {
+    next = utcDay(addRepeatInterval(next, repeatEvery, repeatUnit));
+  }
+  return next;
+}
+
+function normaliseRecurringSchedule(data: {
+  isRecurring?: boolean;
+  repeatEvery?: number | null;
+  repeatUnit?: string | null;
+  repeatAnchorDate?: Date | null;
+  repeatEndsAt?: Date | null;
+  entryDate: Date;
+}) {
+  const recurring = Boolean(data.isRecurring);
+  if (!recurring) {
+    return {
+      isRecurring: false,
+      repeatEvery: null,
+      repeatUnit: null,
+      repeatAnchorDate: null,
+      nextScheduledAt: null,
+      repeatEndsAt: null,
+    };
+  }
+
+  const repeatEvery = Number(data.repeatEvery);
+  if (!Number.isInteger(repeatEvery) || repeatEvery <= 0) {
+    throw new Error("Repeat schedule must be every 1 or more units.");
+  }
+  if (!isValidRepeatUnit(data.repeatUnit)) {
+    throw new Error("Repeat unit must be day, week, month, or year.");
+  }
+
+  const repeatAnchorDate = utcDay(data.repeatAnchorDate ? new Date(data.repeatAnchorDate) : data.entryDate);
+  if (Number.isNaN(repeatAnchorDate.getTime())) {
+    throw new Error("Repeat anchor date is invalid.");
+  }
+
+  const repeatEndsAt = data.repeatEndsAt ? utcDay(new Date(data.repeatEndsAt)) : null;
+  if (repeatEndsAt && Number.isNaN(repeatEndsAt.getTime())) {
+    throw new Error("Repeat end date is invalid.");
+  }
+
+  const nextScheduledAt = getNextScheduledDate(repeatAnchorDate, repeatEvery, data.repeatUnit);
+  if (repeatEndsAt && nextScheduledAt > repeatEndsAt) {
+    throw new Error("Repeat end date falls before the next scheduled date.");
+  }
+
+  return {
+    isRecurring: true,
+    repeatEvery,
+    repeatUnit: data.repeatUnit,
+    repeatAnchorDate,
+    nextScheduledAt,
+    repeatEndsAt,
+  };
+}
 
 function getUtcMonthStart(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
@@ -2661,6 +2747,19 @@ function getMonthLabel(date: Date) {
   return date.toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
+function getTaxYearStartDate(taxYearStart: number) {
+  return new Date(Date.UTC(taxYearStart, 3, 6));
+}
+
+function getTaxYearLabel(taxYearStart: number) {
+  return `${taxYearStart}/${String((taxYearStart + 1) % 100).padStart(2, "0")}`;
+}
+
+function getCurrentTaxYearStart(now = new Date()) {
+  const year = now.getUTCFullYear();
+  return now >= getTaxYearStartDate(year) ? year : year - 1;
+}
+
 export async function createExpense(data: {
   category: string;
   supplier?: string;
@@ -2668,6 +2767,10 @@ export async function createExpense(data: {
   expenseDate: Date;
   notes?: string;
   isRecurring?: boolean;
+  repeatEvery?: number | null;
+  repeatUnit?: string | null;
+  repeatAnchorDate?: Date | null;
+  repeatEndsAt?: Date | null;
   receiptImage?: string | null;
   receiptFilename?: string | null;
 }) {
@@ -2692,6 +2795,15 @@ export async function createExpense(data: {
     throw new Error("Receipt image is too large. Please upload a smaller image.");
   }
 
+  const recurringSchedule = normaliseRecurringSchedule({
+    isRecurring: data.isRecurring,
+    repeatEvery: data.repeatEvery,
+    repeatUnit: data.repeatUnit,
+    repeatAnchorDate: data.repeatAnchorDate,
+    repeatEndsAt: data.repeatEndsAt,
+    entryDate: expenseDate,
+  });
+
   await prisma.expense.create({
     data: {
       tenantId,
@@ -2701,9 +2813,68 @@ export async function createExpense(data: {
       amount,
       expenseDate,
       notes: data.notes?.trim() || null,
-      isRecurring: Boolean(data.isRecurring),
+      isRecurring: recurringSchedule.isRecurring,
+      repeatEvery: recurringSchedule.repeatEvery,
+      repeatUnit: recurringSchedule.repeatUnit,
+      repeatAnchorDate: recurringSchedule.repeatAnchorDate,
+      nextScheduledAt: recurringSchedule.nextScheduledAt,
+      repeatEndsAt: recurringSchedule.repeatEndsAt,
       receiptImage,
       receiptFilename: data.receiptFilename?.trim() || null,
+    },
+  });
+
+  revalidatePath("/accounting");
+}
+
+export async function createOtherIncome(data: {
+  category: string;
+  source?: string;
+  amount: number;
+  receivedAt: Date;
+  notes?: string;
+  isRecurring?: boolean;
+  repeatEvery?: number | null;
+  repeatUnit?: string | null;
+  repeatAnchorDate?: Date | null;
+  repeatEndsAt?: Date | null;
+}) {
+  const tenantId = await getActiveTenantId();
+  const category = getOtherIncomeCategory(data.category);
+  const amount = Number(data.amount);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Income amount must be greater than zero.");
+  }
+
+  const receivedAt = new Date(data.receivedAt);
+  if (Number.isNaN(receivedAt.getTime())) {
+    throw new Error("Income date is invalid.");
+  }
+
+  const recurringSchedule = normaliseRecurringSchedule({
+    isRecurring: data.isRecurring,
+    repeatEvery: data.repeatEvery,
+    repeatUnit: data.repeatUnit,
+    repeatAnchorDate: data.repeatAnchorDate,
+    repeatEndsAt: data.repeatEndsAt,
+    entryDate: receivedAt,
+  });
+
+  await prisma.otherIncome.create({
+    data: {
+      tenantId,
+      category: category.value,
+      source: data.source?.trim() || "",
+      amount,
+      receivedAt,
+      notes: data.notes?.trim() || null,
+      isRecurring: recurringSchedule.isRecurring,
+      repeatEvery: recurringSchedule.repeatEvery,
+      repeatUnit: recurringSchedule.repeatUnit,
+      repeatAnchorDate: recurringSchedule.repeatAnchorDate,
+      nextScheduledAt: recurringSchedule.nextScheduledAt,
+      repeatEndsAt: recurringSchedule.repeatEndsAt,
     },
   });
 
@@ -2717,20 +2888,36 @@ export async function deleteExpense(expenseId: number) {
   revalidatePath("/accounting");
 }
 
-export async function getAccountingPage() {
+export async function deleteOtherIncome(otherIncomeId: number) {
   const tenantId = await getActiveTenantId();
-  const currentMonthStart = getUtcMonthStart(new Date());
-  const rangeStart = addUtcMonths(currentMonthStart, -(ACCOUNTING_MONTHS - 1));
+  const income = await requireTenantOtherIncome(tenantId, otherIncomeId);
+  await prisma.otherIncome.delete({ where: { id: income.id } });
+  revalidatePath("/accounting");
+}
 
-  const [payments, expenses] = await Promise.all([
+export async function getAccountingPage(options?: { taxYearStart?: number | null }) {
+  const tenantId = await getActiveTenantId();
+  const currentTaxYearStart = getCurrentTaxYearStart();
+  const selectedTaxYearStart = Number.isInteger(options?.taxYearStart)
+    ? Number(options?.taxYearStart)
+    : currentTaxYearStart;
+  const rangeStart = getTaxYearStartDate(selectedTaxYearStart);
+  const rangeEnd = getTaxYearStartDate(selectedTaxYearStart + 1);
+  const monthSeriesStart = getUtcMonthStart(rangeStart);
+
+  const [payments, expenses, otherIncomeEntries] = await Promise.all([
     prisma.payment.findMany({
-      where: { tenantId, voidedAt: null, paidAt: { gte: rangeStart } },
+      where: { tenantId, voidedAt: null, paidAt: { gte: rangeStart, lt: rangeEnd } },
       select: { id: true, amount: true, paidAt: true, method: true, customer: { select: { id: true, name: true } } },
       orderBy: { paidAt: "desc" },
     }),
     prisma.expense.findMany({
-      where: { tenantId, expenseDate: { gte: rangeStart } },
+      where: { tenantId, expenseDate: { gte: rangeStart, lt: rangeEnd } },
       orderBy: { expenseDate: "desc" },
+    }),
+    prisma.otherIncome.findMany({
+      where: { tenantId, receivedAt: { gte: rangeStart, lt: rangeEnd } },
+      orderBy: { receivedAt: "desc" },
     }),
   ]);
 
@@ -2746,6 +2933,12 @@ export async function getAccountingPage() {
     paymentCountByMonth.set(key, (paymentCountByMonth.get(key) ?? 0) + 1);
   }
 
+  for (const income of otherIncomeEntries) {
+    const key = getMonthKey(income.receivedAt);
+    incomeByMonth.set(key, Number(((incomeByMonth.get(key) ?? 0) + income.amount).toFixed(2)));
+    paymentCountByMonth.set(key, (paymentCountByMonth.get(key) ?? 0) + 1);
+  }
+
   for (const expense of expenses) {
     const key = getMonthKey(expense.expenseDate);
     expenseByMonth.set(key, Number(((expenseByMonth.get(key) ?? 0) + expense.amount).toFixed(2)));
@@ -2757,7 +2950,7 @@ export async function getAccountingPage() {
   }
 
   const monthlySummaries = Array.from({ length: ACCOUNTING_MONTHS }, (_, index) => {
-    const monthStart = addUtcMonths(rangeStart, index);
+    const monthStart = addUtcMonths(monthSeriesStart, index);
     const monthKey = getMonthKey(monthStart);
     const income = incomeByMonth.get(monthKey) ?? 0;
     const expenseTotal = expenseByMonth.get(monthKey) ?? 0;
@@ -2784,13 +2977,26 @@ export async function getAccountingPage() {
       categoryLabel: getExpenseCategory(expense.category).label,
       hmrcLabel: getExpenseCategory(expense.category).hmrcLabel,
     })),
-    recentPayments: payments.slice(0, 25),
+    recentPayments: payments.slice(0, 25).map((payment) => ({ ...payment, sourceLabel: "Customer payment", sourceType: "PAYMENT" as const })),
+    recentOtherIncome: otherIncomeEntries.slice(0, 25).map((income) => ({
+      ...income,
+      categoryLabel: getOtherIncomeCategory(income.category).label,
+      sourceLabel: income.source || getOtherIncomeCategory(income.category).label,
+      sourceType: "OTHER_INCOME" as const,
+    })),
     totals: {
       income: totalIncome,
       expenses: totalExpenses,
       net: totalNet,
     },
+    selectedTaxYearStart,
+    selectedTaxYearLabel: getTaxYearLabel(selectedTaxYearStart),
+    availableTaxYears: Array.from({ length: 5 }, (_, index) => {
+      const yearStart = currentTaxYearStart - index;
+      return { value: yearStart, label: getTaxYearLabel(yearStart) };
+    }),
     expenseCategories: EXPENSE_CATEGORIES,
+    otherIncomeCategories: OTHER_INCOME_CATEGORIES,
     exportGeneratedAt: new Date().toISOString(),
   };
 }
