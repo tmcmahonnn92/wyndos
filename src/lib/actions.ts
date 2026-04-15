@@ -819,6 +819,42 @@ async function autoAddToScheduledDays(tenantId: number, customerId: number, area
   if (affectedDayIds.length > 0) revalidatePath("/days");
 }
 
+async function removeCustomerFromPreviousAreaScheduledDays(
+  tenantId: number,
+  customerId: number,
+  oldAreaId: number,
+  newAreaId: number
+) {
+  if (oldAreaId === newAreaId) return;
+
+  const staleJobs = await prisma.job.findMany({
+    where: {
+      tenantId,
+      customerId,
+      status: { in: ["PENDING", "SKIPPED"] },
+      workDay: {
+        areaId: oldAreaId,
+        status: { in: ["PLANNED", "IN_PROGRESS"] },
+      },
+    },
+    select: { id: true, workDayId: true },
+  });
+
+  if (staleJobs.length === 0) return;
+
+  const staleJobIds = staleJobs.map((job) => job.id);
+  const affectedDayIds = [...new Set(staleJobs.map((job) => job.workDayId))];
+
+  await prisma.job.deleteMany({
+    where: { tenantId, id: { in: staleJobIds } },
+  });
+
+  for (const dayId of affectedDayIds) {
+    revalidatePath(`/days/${dayId}`);
+  }
+  revalidatePath("/days");
+}
+
 export async function createCustomer(data: {
   name: string;
   address: string;
@@ -892,6 +928,7 @@ export async function updateCustomer(
   if (!current) throw new Error("Customer not found");
 
   const resolvedAreaId = data.areaId ?? current.areaId;
+  const areaChanged = current.areaId !== resolvedAreaId;
   const area = await requireTenantArea(tenantId, resolvedAreaId);
 
   // Customers always inherit frequency from their area.
@@ -912,6 +949,9 @@ export async function updateCustomer(
   };
 
   await prisma.customer.update({ where: { id }, data: updateData });
+  if (areaChanged) {
+    await removeCustomerFromPreviousAreaScheduledDays(tenantId, id, current.areaId, resolvedAreaId);
+  }
   revalidatePath("/customers");
   revalidatePath(`/customers/${id}`);
   revalidatePath("/areas");
@@ -932,6 +972,12 @@ export async function bulkUpdateCustomers(
   }>
 ) {
   const tenantId = await getActiveTenantId();
+  const previousCustomers = await prisma.customer.findMany({
+    where: { tenantId, id: { in: updates.map((update) => update.id) } },
+    select: { id: true, areaId: true },
+  });
+  const previousAreaByCustomerId = new Map(previousCustomers.map((customer) => [customer.id, customer.areaId]));
+
   await prisma.$transaction(async (tx) => {
     for (const update of updates) {
       const current = await tx.customer.findFirst({
@@ -958,6 +1004,15 @@ export async function bulkUpdateCustomers(
       });
     }
   });
+  for (const update of updates) {
+    if (update.areaId === undefined) continue;
+
+    const previousAreaId = previousAreaByCustomerId.get(update.id);
+    if (previousAreaId === undefined || previousAreaId === update.areaId) continue;
+
+    await removeCustomerFromPreviousAreaScheduledDays(tenantId, update.id, previousAreaId, update.areaId);
+    await autoAddToScheduledDays(tenantId, update.id, update.areaId);
+  }
   revalidatePath("/customers");
   revalidatePath("/areas");
   revalidatePath("/scheduler");
@@ -1473,13 +1528,18 @@ export async function moveCustomerToArea(
   addToWorkDayId?: number
 ) {
   const tenantId = await getActiveTenantId();
-  await Promise.all([
+  const [customer, area] = await Promise.all([
     requireTenantCustomer(tenantId, customerId),
     requireTenantArea(tenantId, newAreaId),
     addToWorkDayId ? requireTenantWorkDay(tenantId, addToWorkDayId) : Promise.resolve(null),
   ]);
+  const oldAreaId = customer.areaId;
   // Clear skip flag — moving to a new area is a clean slate
-  await prisma.customer.updateMany({ where: { tenantId, id: customerId }, data: { areaId: newAreaId, skipNextAreaRun: false } });
+  await prisma.customer.updateMany({
+    where: { tenantId, id: customerId },
+    data: { areaId: newAreaId, frequencyWeeks: area.frequencyWeeks, skipNextAreaRun: false },
+  });
+  await removeCustomerFromPreviousAreaScheduledDays(tenantId, customerId, oldAreaId, newAreaId);
   revalidatePath("/customers");
 
   if (addToWorkDayId) {
@@ -1495,15 +1555,16 @@ export async function moveCustomerToArea(
 export async function bulkMoveCustomersToArea(customerIds: number[], newAreaId: number) {
   const tenantId = await getActiveTenantId();
   const area = await requireTenantArea(tenantId, newAreaId);
-  const customers = await prisma.customer.findMany({ where: { tenantId, id: { in: customerIds } }, select: { id: true } });
+  const customers = await prisma.customer.findMany({ where: { tenantId, id: { in: customerIds } }, select: { id: true, areaId: true } });
   if (customers.length !== customerIds.length) throw new Error("One or more customers were not found");
   await prisma.customer.updateMany({
     where: { tenantId, id: { in: customerIds } },
     // Clear skip flag — moving to a new area is a clean slate
     data: { areaId: newAreaId, frequencyWeeks: area.frequencyWeeks, skipNextAreaRun: false },
   });
-  for (const id of customerIds) {
-    await autoAddToScheduledDays(tenantId, id, newAreaId);
+  for (const customer of customers) {
+    await removeCustomerFromPreviousAreaScheduledDays(tenantId, customer.id, customer.areaId, newAreaId);
+    await autoAddToScheduledDays(tenantId, customer.id, newAreaId);
   }
   revalidatePath("/customers");
   revalidatePath("/areas");
