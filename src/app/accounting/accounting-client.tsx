@@ -1,11 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Camera, Download, Eye, Loader2, Pencil, Plus, Receipt, TrendingDown, TrendingUp, Trash2, Wallet, X } from "lucide-react";
+import { Download, Loader2, Pencil, Plus, Receipt, TrendingDown, TrendingUp, Trash2, Wallet, X } from "lucide-react";
 import { createExpense, createOtherIncome, deleteExpense, deleteOtherIncome, updateExpense } from "@/lib/actions";
-import { extractReceiptData } from "@/lib/receipt-ocr";
-import type { ReceiptExtraction } from "@/lib/receipt-ocr";
 import type { ExpenseCategoryDefinition, OtherIncomeCategoryDefinition, TaxTreatmentDefinition } from "@/lib/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn, fmtCurrency } from "@/lib/utils";
@@ -42,8 +40,6 @@ type RecentExpense = {
   repeatEvery?: number | null;
   repeatUnit?: string | null;
   nextScheduledAt?: string | Date | null;
-  receiptImage: string | null;
-  receiptFilename: string | null;
 };
 
 type RecentPayment = {
@@ -202,17 +198,12 @@ export function AccountingClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
-  const receiptInputRef = useRef<HTMLInputElement | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddMode, setQuickAddMode] = useState<QuickAddMode>("expense");
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
-  const [ocrScanning, setOcrScanning] = useState(false);
-  const [ocrResult, setOcrResult] = useState<ReceiptExtraction | null>(null);
-  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
-  const [viewingReceiptUrl, setViewingReceiptUrl] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState({ start: activeDateFrom, end: activeDateTo });
   const [expenseForm, setExpenseForm] = useState({
     category: "",
@@ -226,8 +217,6 @@ export function AccountingClient({
     repeatUnit: "MONTH" as RepeatUnit,
     repeatAnchorDate: defaultDateString(),
     repeatEndsAt: "",
-    receiptImage: "",
-    receiptFilename: "",
   });
   const [incomeForm, setIncomeForm] = useState({
     category: otherIncomeCategories[0]?.value ?? "OTHER",
@@ -253,12 +242,7 @@ export function AccountingClient({
   }, [activeDateFrom, activeDateTo]);
 
   useEffect(() => {
-    if (initialAction === "scan-receipt") {
-      setQuickAddMode("expense");
-      setQuickAddOpen(true);
-      // Auto-trigger file picker after the panel renders
-      setTimeout(() => receiptInputRef.current?.click(), 350);
-    } else if (initialAction === "new-expense") {
+    if (initialAction === "new-expense") {
       setQuickAddMode("expense");
       setQuickAddOpen(true);
     }
@@ -304,7 +288,7 @@ export function AccountingClient({
     downloadCsv(`accounting-tax-year-${selectedTaxYearStart}-expenses.csv`, [
       ["Tax Year", selectedTaxYearLabel],
       ["Date Range", `${activeDateFrom} to ${activeDateTo}`],
-      ["Date", "Supplier", "Category", "HMRC Category", "Gross Amount", "Net Amount", "VAT Amount", "VAT Rate", "Tax Treatment", "Recurring", "Repeat Every", "Repeat Unit", "Notes", "Receipt Filename", "Generated At"],
+      ["Date", "Supplier", "Category", "HMRC Category", "Gross Amount", "Net Amount", "VAT Amount", "VAT Rate", "Tax Treatment", "Recurring", "Repeat Every", "Repeat Unit", "Notes", "Generated At"],
       ...recentExpenses.map((expense) => [
         new Date(expense.expenseDate).toISOString().slice(0, 10),
         expense.supplier,
@@ -319,55 +303,9 @@ export function AccountingClient({
         expense.repeatEvery ?? "",
         expense.repeatUnit ?? "",
         expense.notes ?? "",
-        expense.receiptFilename ?? "",
         exportGeneratedAt,
       ]),
     ]);
-  };
-
-  const handleReceiptSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setFormError("Receipt upload must be an image.");
-      return;
-    }
-    if (file.size > 2_500_000) {
-      setFormError("Receipt image is too large. Keep it below roughly 2.5MB.");
-      return;
-    }
-
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ""));
-      reader.onerror = () => reject(new Error("Could not read the receipt image."));
-      reader.readAsDataURL(file);
-    });
-
-    setExpenseForm((prev) => ({ ...prev, receiptImage: dataUrl, receiptFilename: file.name }));
-    setReceiptPreview(dataUrl);
-    setFormError(null);
-
-    // Auto-run OCR extraction
-    setOcrScanning(true);
-    setOcrResult(null);
-    try {
-      const extracted = await extractReceiptData(dataUrl);
-      setOcrResult(extracted);
-      // Auto-fill form fields from OCR — user can still override everything
-      setExpenseForm((prev) => ({
-        ...prev,
-        supplier: extracted.supplier || prev.supplier,
-        amount: extracted.amount || prev.amount,
-        expenseDate: extracted.date || prev.expenseDate,
-        category: extracted.category || prev.category,
-      }));
-    } catch {
-      // OCR failed — not critical, user fills manually
-      setFormError("Could not read the receipt automatically. Please fill the fields manually.");
-    } finally {
-      setOcrScanning(false);
-    }
   };
 
   const submitExpense = () => {
@@ -394,8 +332,6 @@ export function AccountingClient({
           repeatUnit: expenseForm.isRecurring ? expenseForm.repeatUnit : null,
           repeatAnchorDate: expenseForm.isRecurring ? new Date(expenseForm.repeatAnchorDate) : null,
           repeatEndsAt: expenseForm.isRecurring && expenseForm.repeatEndsAt ? new Date(expenseForm.repeatEndsAt) : null,
-          receiptImage: expenseForm.receiptImage || null,
-          receiptFilename: expenseForm.receiptFilename || null,
         });
         setExpenseForm({
           category: "",
@@ -409,12 +345,7 @@ export function AccountingClient({
           repeatUnit: "MONTH",
           repeatAnchorDate: defaultDateString(),
           repeatEndsAt: "",
-          receiptImage: "",
-          receiptFilename: "",
         });
-        if (receiptInputRef.current) receiptInputRef.current.value = "";
-        setReceiptPreview(null);
-        setOcrResult(null);
         setFormSuccess("Expense saved.");
         setQuickAddOpen(false);
         setEditingExpenseId(null);
@@ -517,11 +448,7 @@ export function AccountingClient({
       repeatUnit: (expense.repeatUnit ?? "MONTH") as RepeatUnit,
       repeatAnchorDate: defaultDateString(),
       repeatEndsAt: "",
-      receiptImage: expense.receiptImage ?? "",
-      receiptFilename: expense.receiptFilename ?? "",
     });
-    setReceiptPreview(expense.receiptImage ?? null);
-    setOcrResult(null);
     setQuickAddMode("expense");
     setQuickAddOpen(true);
   };
@@ -546,15 +473,10 @@ export function AccountingClient({
           taxTreatment: expenseForm.taxTreatment,
           expenseDate: new Date(expenseForm.expenseDate),
           notes: expenseForm.notes,
-          receiptImage: expenseForm.receiptImage || null,
-          receiptFilename: expenseForm.receiptFilename || null,
         });
         setFormSuccess("Expense updated.");
         setEditingExpenseId(null);
-        setReceiptPreview(null);
-        setOcrResult(null);
         setQuickAddOpen(false);
-        if (receiptInputRef.current) receiptInputRef.current.value = "";
         setExpenseForm({
           category: "",
           supplier: "",
@@ -567,8 +489,6 @@ export function AccountingClient({
           repeatUnit: "MONTH",
           repeatAnchorDate: defaultDateString(),
           repeatEndsAt: "",
-          receiptImage: "",
-          receiptFilename: "",
         });
         router.refresh();
       } catch (error) {
@@ -586,72 +506,23 @@ export function AccountingClient({
 
       {quickAddMode === "expense" ? (
         <div className="space-y-3">
-          {/* ── Scan receipt first ── */}
-          <div className="rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/60 p-4 text-center">
-            {receiptPreview ? (
-              <div className="space-y-2">
-                <button type="button" onClick={() => setViewingReceiptUrl(receiptPreview)} className="mx-auto block max-h-40 overflow-hidden rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all">
-                  <img src={receiptPreview} alt="Receipt preview" className="mx-auto max-h-40 object-contain" />
-                </button>
-                {ocrScanning && (
-                  <div className="flex items-center justify-center gap-2 text-sm text-blue-700">
-                    <Loader2 size={14} className="animate-spin" />
-                    Scanning receipt...
-                  </div>
-                )}
-                {ocrResult && !ocrScanning && (
-                  <p className="text-xs text-green-700 font-medium">Fields auto-filled from receipt — please check and correct below.</p>
-                )}
-                <div className="flex justify-center gap-2">
-                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
-                    <Camera size={12} />
-                    Re-scan
-                    <input ref={receiptInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleReceiptSelected} />
-                  </label>
-                  <button type="button" onClick={() => { setReceiptPreview(null); setExpenseForm((prev) => ({ ...prev, receiptImage: "", receiptFilename: "" })); setOcrResult(null); if (receiptInputRef.current) receiptInputRef.current.value = ""; }} className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">
-                    <X size={12} /> Remove
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <label className="block cursor-pointer space-y-2">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-100">
-                  <Camera size={28} className="text-blue-600" />
-                </div>
-                <p className="text-sm font-semibold text-blue-800">Scan a receipt</p>
-                <p className="text-xs text-blue-600">Take a photo and we&apos;ll try to auto-fill the details.</p>
-                <span className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors">
-                  <Camera size={14} />
-                  Open camera
-                </span>
-                <input ref={receiptInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleReceiptSelected} />
-              </label>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="flex-1 h-px bg-slate-200" />
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Or fill manually</span>
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
-
-          {/* ── Manual fields (also used for validation of OCR results) ── */}
+          {/* ── Expense fields ── */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">Category {ocrResult?.category && <span className="text-green-600 text-[10px]">(auto-filled)</span>}</label>
-              <select value={expenseForm.category} onChange={(event) => setExpenseForm((prev) => ({ ...prev, category: event.target.value }))} className={cn("w-full rounded-lg border px-3 py-2 text-sm", ocrResult?.category ? "border-green-300 bg-green-50" : expenseForm.category ? "border-slate-200" : "border-slate-200 text-slate-400")}><option value="" disabled>Select a category…</option>{expenseCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select>
+              <label className="mb-1 block text-xs font-medium text-slate-700">Category</label>
+              <select value={expenseForm.category} onChange={(event) => setExpenseForm((prev) => ({ ...prev, category: event.target.value }))} className={cn("w-full rounded-lg border px-3 py-2 text-sm", expenseForm.category ? "border-slate-200" : "border-slate-200 text-slate-400")}><option value="" disabled>Select a category…</option>{expenseCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">Date {ocrResult?.date && <span className="text-green-600 text-[10px]">(auto-filled)</span>}</label>
-              <input type="date" value={expenseForm.expenseDate} onChange={(event) => setExpenseForm((prev) => ({ ...prev, expenseDate: event.target.value }))} className={cn("w-full rounded-lg border px-3 py-2 text-sm", ocrResult?.date ? "border-green-300 bg-green-50" : "border-slate-200")} />
+              <label className="mb-1 block text-xs font-medium text-slate-700">Date</label>
+              <input type="date" value={expenseForm.expenseDate} onChange={(event) => setExpenseForm((prev) => ({ ...prev, expenseDate: event.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">Supplier {ocrResult?.supplier && <span className="text-green-600 text-[10px]">(auto-filled)</span>}</label>
-              <input type="text" value={expenseForm.supplier} onChange={(event) => setExpenseForm((prev) => ({ ...prev, supplier: event.target.value }))} placeholder="e.g. Screwfix" className={cn("w-full rounded-lg border px-3 py-2 text-sm", ocrResult?.supplier ? "border-green-300 bg-green-50" : "border-slate-200")} />
+              <label className="mb-1 block text-xs font-medium text-slate-700">Supplier</label>
+              <input type="text" value={expenseForm.supplier} onChange={(event) => setExpenseForm((prev) => ({ ...prev, supplier: event.target.value }))} placeholder="e.g. Screwfix" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">Amount (£) {ocrResult?.amount && <span className="text-green-600 text-[10px]">(auto-filled)</span>}</label>
-              <input type="number" min="0" step="0.01" value={expenseForm.amount} onChange={(event) => setExpenseForm((prev) => ({ ...prev, amount: event.target.value }))} className={cn("w-full rounded-lg border px-3 py-2 text-sm", ocrResult?.amount ? "border-green-300 bg-green-50" : "border-slate-200")} />
+              <label className="mb-1 block text-xs font-medium text-slate-700">Amount (£)</label>
+              <input type="number" min="0" step="0.01" value={expenseForm.amount} onChange={(event) => setExpenseForm((prev) => ({ ...prev, amount: event.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-xs font-medium text-slate-700">Tax / VAT treatment</label>
@@ -663,7 +534,7 @@ export function AccountingClient({
             <textarea value={expenseForm.notes} onChange={(event) => setExpenseForm((prev) => ({ ...prev, notes: event.target.value }))} rows={2} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </div>
           <RecurringFields form={expenseForm} onChange={(patch) => setExpenseForm((prev) => ({ ...prev, ...patch }))} noun="expense" />
-          <button type="button" onClick={editingExpenseId ? submitEditExpense : submitExpense} disabled={isPending || ocrScanning} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{isPending ? <Loader2 size={14} className="animate-spin" /> : <Receipt size={14} />}{editingExpenseId ? "Update expense" : "Save expense"}</button>
+          <button type="button" onClick={editingExpenseId ? submitEditExpense : submitExpense} disabled={isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{isPending ? <Loader2 size={14} className="animate-spin" /> : <Receipt size={14} />}{editingExpenseId ? "Update expense" : "Save expense"}</button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -814,16 +685,6 @@ export function AccountingClient({
                         </div>
                       </div>
                     </div>
-                    {expense.receiptImage && (
-                      <div className="mt-3">
-                        <button type="button" onClick={() => setViewingReceiptUrl(expense.receiptImage)} className="group relative inline-block rounded-lg border border-slate-200 overflow-hidden hover:ring-2 hover:ring-blue-400 transition-all">
-                          <img src={expense.receiptImage} alt="Receipt" className="h-16 w-auto object-cover" />
-                          <span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Eye size={16} className="text-white" />
-                          </span>
-                        </button>
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -840,26 +701,15 @@ export function AccountingClient({
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-base font-semibold text-slate-800">{editingExpenseId ? "Edit expense" : "Quick add"}</p>
-                <p className="text-xs text-slate-500">{editingExpenseId ? "Update expense details below." : "Scan a receipt or add an expense / income manually."}</p>
+                <p className="text-xs text-slate-500">{editingExpenseId ? "Update expense details below." : "Add an expense or income."}</p>
               </div>
-              <button type="button" onClick={() => { setQuickAddOpen(false); setEditingExpenseId(null); setReceiptPreview(null); setOcrResult(null); }} className="rounded-full border border-slate-200 p-2 text-slate-500"><X size={16} /></button>
+              <button type="button" onClick={() => { setQuickAddOpen(false); setEditingExpenseId(null); }} className="rounded-full border border-slate-200 p-2 text-slate-500"><X size={16} /></button>
             </div>
             {quickAddPanel}
           </div>
         </div>
       )}
 
-      {/* ── Receipt image lightbox viewer ── */}
-      {viewingReceiptUrl && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={() => setViewingReceiptUrl(null)}>
-          <div className="relative max-h-[90vh] max-w-[90vw] overflow-auto rounded-2xl bg-white p-2 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <button type="button" onClick={() => setViewingReceiptUrl(null)} className="absolute right-3 top-3 z-10 rounded-full bg-white/90 p-2 text-slate-600 shadow hover:bg-white hover:text-slate-800">
-              <X size={18} />
-            </button>
-            <img src={viewingReceiptUrl} alt="Receipt" className="max-h-[85vh] max-w-full object-contain rounded-xl" />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

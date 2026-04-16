@@ -186,7 +186,6 @@ export function Nav({
   const rightMobileItems = mobilePrimaryItems.slice(2);
   const mobileQuickActions = [
     { href: "/customers?action=new-customer", label: "New Customer", icon: UserPlus },
-    { href: "/accounting?action=scan-receipt", label: "Scan Receipt", icon: Receipt },
     { href: "/days?action=new-one-off", label: "One-off Job", icon: Zap },
   ];
 

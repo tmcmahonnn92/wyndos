@@ -6,7 +6,6 @@ import { compare } from "bcryptjs";
 import prisma from "@/lib/db";
 import authConfig from "@/auth.config";
 import { normalizeMemberships, serializeMemberships } from "@/lib/memberships";
-import { verifyPasskeyGrant } from "@/lib/passkeys";
 
 const googleEnabled = Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);
 
@@ -137,30 +136,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(db),
   secret: getAuthSecret(),
   providers: [
-    Credentials({
-      id: "passkey",
-      name: "Passkey",
-      credentials: {
-        grant: { label: "Passkey grant", type: "text" },
-      },
-      async authorize(credentials) {
-        const userId = verifyPasskeyGrant(String(credentials?.grant ?? ""));
-        if (!userId) return null;
-
-        const user = await db.user.findUnique({ where: { id: userId } });
-        if (!user) return null;
-
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          image: user.image,
-          role: user.role,
-          tenantId: user.tenantId,
-          onboardingComplete: user.onboardingComplete,
-        } as never;
-      },
-    }),
     Credentials({
       name: "Email & Password",
       credentials: {

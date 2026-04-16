@@ -2869,7 +2869,6 @@ export async function getPaymentsPage() {
 }
 
 const ACCOUNTING_MONTHS = 12;
-const MAX_RECEIPT_IMAGE_LENGTH = 3_500_000;
 const REPEAT_UNITS = ["DAY", "WEEK", "MONTH", "YEAR"] as const;
 
 function isValidRepeatUnit(value: string | null | undefined): value is (typeof REPEAT_UNITS)[number] {
@@ -3049,8 +3048,6 @@ async function materialiseRecurringExpenseTemplates(tenantId: number) {
               expenseDate: nextScheduledAt,
               notes: template.notes,
               isRecurring: false,
-              receiptImage: template.receiptImage,
-              receiptFilename: template.receiptFilename,
             },
           });
         }
@@ -3139,8 +3136,6 @@ export async function createExpense(data: {
   repeatUnit?: string | null;
   repeatAnchorDate?: Date | null;
   repeatEndsAt?: Date | null;
-  receiptImage?: string | null;
-  receiptFilename?: string | null;
 }) {
   const tenantId = await getActiveTenantId();
   const category = getExpenseCategory(data.category);
@@ -3153,14 +3148,6 @@ export async function createExpense(data: {
   const expenseDate = new Date(data.expenseDate);
   if (Number.isNaN(expenseDate.getTime())) {
     throw new Error("Expense date is invalid.");
-  }
-
-  const receiptImage = data.receiptImage?.trim() || null;
-  if (receiptImage && !receiptImage.startsWith("data:image/")) {
-    throw new Error("Receipt upload must be an image.");
-  }
-  if (receiptImage && receiptImage.length > MAX_RECEIPT_IMAGE_LENGTH) {
-    throw new Error("Receipt image is too large. Please upload a smaller image.");
   }
 
   const recurringSchedule = normaliseRecurringSchedule({
@@ -3192,8 +3179,6 @@ export async function createExpense(data: {
       repeatAnchorDate: recurringSchedule.repeatAnchorDate,
       nextScheduledAt: recurringSchedule.nextScheduledAt,
       repeatEndsAt: recurringSchedule.repeatEndsAt,
-      receiptImage,
-      receiptFilename: data.receiptFilename?.trim() || null,
     },
   });
 
@@ -3209,8 +3194,6 @@ export async function updateExpense(
     taxTreatment?: string;
     expenseDate?: Date;
     notes?: string;
-    receiptImage?: string | null;
-    receiptFilename?: string | null;
   }
 ) {
   const tenantId = await getActiveTenantId();
@@ -3255,14 +3238,6 @@ export async function updateExpense(
     const d = new Date(data.expenseDate);
     if (Number.isNaN(d.getTime())) throw new Error("Expense date is invalid.");
     updates.expenseDate = d;
-  }
-
-  if (data.receiptImage !== undefined) {
-    const img = data.receiptImage?.trim() || null;
-    if (img && !img.startsWith("data:image/")) throw new Error("Receipt upload must be an image.");
-    if (img && img.length > MAX_RECEIPT_IMAGE_LENGTH) throw new Error("Receipt image is too large.");
-    updates.receiptImage = img;
-    updates.receiptFilename = data.receiptFilename?.trim() || null;
   }
 
   await prisma.expense.update({

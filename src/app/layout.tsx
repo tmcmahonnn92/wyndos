@@ -10,7 +10,6 @@ import prisma from "@/lib/db";
 import { ACTIVE_TENANT_COOKIE, SUPPORT_ACCESS_COOKIE } from "@/lib/auth-cookies";
 import { resolveActiveMembership, resolveActivePermissions } from "@/lib/memberships";
 import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
-import { AppLockGate } from "@/components/app-lock-gate";
 import { OfflineStatus } from "@/components/offline-status";
 
 const syne = Syne({
@@ -66,15 +65,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   let activePermissions: string[] = [];
   const companyCount = session?.user?.memberships?.length ?? 0;
   let supportSession: { reason: string; startedAt: string } | null = null;
-  let hasPasskeys = false;
 
   if (session?.user) {
-    try {
-      hasPasskeys = Boolean(await prisma.passkeyCredential.count({ where: { userId: session.user.id } }));
-    } catch (error) {
-      console.error("Passkey lookup failed during layout render", error);
-      hasPasskeys = false;
-    }
     const role = session.user.role;
 
     if (role === "SUPER_ADMIN") {
@@ -139,7 +131,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         </main>
         {session?.user && <PWAInstallPrompt />}
         {session?.user && <OfflineStatus />}
-        {session?.user && <AppLockGate hasPasskeys={hasPasskeys} />}
       </body>
     </html>
   );
