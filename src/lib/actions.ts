@@ -459,6 +459,45 @@ function isoToUTC(dateISO: string): Date {
   return d;
 }
 
+async function getConflictingOpenAreaDay(
+  tenantId: number,
+  areaId: number,
+  excludeWorkDayId?: number
+) {
+  return prisma.workDay.findFirst({
+    where: {
+      tenantId,
+      areaId,
+      status: { in: ["PLANNED", "IN_PROGRESS"] },
+      ...(excludeWorkDayId ? { id: { not: excludeWorkDayId } } : {}),
+    },
+    select: { id: true, date: true, status: true },
+    orderBy: { date: "asc" },
+  });
+}
+
+async function assertNoConflictingOpenAreaDay(
+  tenantId: number,
+  areaId: number,
+  targetDate: Date,
+  excludeWorkDayId?: number
+) {
+  const conflictingDay = await getConflictingOpenAreaDay(tenantId, areaId, excludeWorkDayId);
+  if (!conflictingDay) return;
+
+  if (conflictingDay.date.getTime() === targetDate.getTime()) {
+    return;
+  }
+
+  const conflictDate = conflictingDay.date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+  const statusLabel = conflictingDay.status === "IN_PROGRESS" ? "in progress" : "planned";
+  throw new Error(`This area already has a ${statusLabel} day on ${conflictDate}. Open that day instead of creating another incomplete run.`);
+}
+
 /**
  * Create a single WorkDay for the dropped date, populate it with eligible
  * customers for the area, and mark the area's nextDueDate as this date.
@@ -469,6 +508,8 @@ export async function scheduleAreaRun(areaId: number, dateISO: string, assignedU
   const d = isoToUTC(dateISO);
   const area = await requireTenantArea(tenantId, areaId);
   const workerId = await resolveAssignedWorkerId(tenantId, assignedUserId);
+
+  await assertNoConflictingOpenAreaDay(tenantId, areaId, d);
 
   const [, eligibleCustomers] = await Promise.all([
     area,
@@ -1271,6 +1312,7 @@ export async function createWorkDay(date: Date, areaId?: number, assignedUserId?
   let day;
   if (areaId) {
     await requireTenantArea(tenantId, areaId);
+    await assertNoConflictingOpenAreaDay(tenantId, areaId, d);
     // For area-linked days: enforce one per (date, area) pair
     day = await prisma.workDay.upsert({
       where: { tenantId_date_areaId: { tenantId, date: d, areaId } },
@@ -2069,7 +2111,10 @@ export async function completeDay(
 
 export async function reopenDay(workDayId: number) {
   const tenantId = await getActiveTenantId();
-  await requireTenantWorkDay(tenantId, workDayId);
+  const workDay = await requireTenantWorkDay(tenantId, workDayId);
+  if (workDay.areaId) {
+    await assertNoConflictingOpenAreaDay(tenantId, workDay.areaId, workDay.date, workDay.id);
+  }
   await prisma.workDay.update({
     where: { id: workDayId },
     data: { status: "PLANNED" },

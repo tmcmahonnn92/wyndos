@@ -14,6 +14,16 @@ interface Area {
   nextDueDate: Date | string | null;
 }
 
+function normaliseUkPostcode(value: string) {
+  const compact = value.toUpperCase().replace(/\s+/g, "").trim();
+  if (compact.length <= 3) return compact;
+  return `${compact.slice(0, -3)} ${compact.slice(-3)}`;
+}
+
+function composeAddress(line1: string, line2: string, postcode: string) {
+  return [line1.trim(), line2.trim(), normaliseUkPostcode(postcode)].filter(Boolean).join(", ");
+}
+
 export function AddCustomerModal({ areas }: { areas: Area[] }) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -21,7 +31,9 @@ export function AddCustomerModal({ areas }: { areas: Area[] }) {
 
   const [form, setForm] = useState({
     name: "",
-    address: "",
+    addressLine1: "",
+    addressLine2: "",
+    postcode: "",
     areaId: "",
     price: "",
     phone: "",
@@ -35,13 +47,14 @@ export function AddCustomerModal({ areas }: { areas: Area[] }) {
   const set = (k: string, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
 
   const selectedArea = areas.find((a) => String(a.id) === form.areaId);
+  const fullAddress = composeAddress(form.addressLine1, form.addressLine2, form.postcode);
 
   const handleSubmit = () => {
-    if (!form.name || !form.areaId || !form.price) return;
+    if (!form.name || !form.areaId || !form.price || !form.addressLine1 || !form.postcode) return;
     startTransition(async () => {
       await createCustomer({
         name: form.name,
-        address: form.address,
+        address: fullAddress,
         areaId: Number(form.areaId),
         price: Number(form.price),
         phone: form.phone || undefined,
@@ -51,7 +64,7 @@ export function AddCustomerModal({ areas }: { areas: Area[] }) {
         preferredPaymentMethod: form.preferredPaymentMethod || undefined,
         notes: form.notes || undefined,
       });
-      setForm({ name: "", address: "", areaId: "", price: "", phone: "", email: "", jobName: "Window Cleaning", advanceNotice: false, preferredPaymentMethod: "", notes: "" });
+      setForm({ name: "", addressLine1: "", addressLine2: "", postcode: "", areaId: "", price: "", phone: "", email: "", jobName: "Window Cleaning", advanceNotice: false, preferredPaymentMethod: "", notes: "" });
       setOpen(false);
       router.refresh();
     });
@@ -78,17 +91,45 @@ export function AddCustomerModal({ areas }: { areas: Area[] }) {
             />
           </div>
 
-          {/* Address */}
+          <div className="grid gap-3 sm:grid-cols-[1.25fr_0.75fr]">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Address Line 1 *</label>
+              <input
+                type="text"
+                placeholder="House number and street"
+                value={form.addressLine1}
+                onChange={(e) => set("addressLine1", e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Postcode *</label>
+              <input
+                type="text"
+                placeholder="S12 3AB"
+                value={form.postcode}
+                onChange={(e) => set("postcode", normaliseUkPostcode(e.target.value))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Address Line 2</label>
             <input
               type="text"
-              placeholder="Street address"
-              value={form.address}
-              onChange={(e) => set("address", e.target.value)}
+              placeholder="Area, estate, village or extra directions"
+              value={form.addressLine2}
+              onChange={(e) => set("addressLine2", e.target.value)}
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+
+          {fullAddress && (
+            <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+              Saved address: <strong>{fullAddress}</strong>
+            </p>
+          )}
 
           {/* Phone + Email */}
           <div className="grid grid-cols-2 gap-3">
@@ -211,7 +252,7 @@ export function AddCustomerModal({ areas }: { areas: Area[] }) {
           <div className="flex gap-2 pt-1">
             <Button
               onClick={handleSubmit}
-              disabled={isPending || !form.name || !form.areaId || !form.price}
+              disabled={isPending || !form.name || !form.areaId || !form.price || !form.addressLine1 || !form.postcode}
               className="flex-1"
             >
               {isPending ? "Adding..." : "Add Customer"}

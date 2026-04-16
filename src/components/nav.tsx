@@ -18,6 +18,8 @@ import {
   LogOut,
   ShieldCheck,
   ArrowLeftRight,
+  Plus,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -149,9 +151,14 @@ export function Nav({
   const isSuperAdmin = user.role === "SUPER_ADMIN";
   const currentRole = activeRole ?? user.role;
   const isWorker = currentRole === "WORKER";
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
 
   const handleSignOut = async () => {
     await signOut({ callbackUrl: "/auth/signin" });
@@ -165,6 +172,12 @@ export function Nav({
       ? [{ href: "/admin", label: "Admin", icon: ShieldCheck, desktopOnly: false, permission: null }]
       : []),
   ];
+
+  const mobilePrimaryHrefs = ["/", "/days", "/customers", "/payments"];
+  const mobilePrimaryItems = shownNavItems.filter((item) => mobilePrimaryHrefs.includes(item.href));
+  const mobileMoreItems = shownNavItems.filter((item) => !mobilePrimaryHrefs.includes(item.href));
+  const leftMobileItems = mobilePrimaryItems.slice(0, 2);
+  const rightMobileItems = mobilePrimaryItems.slice(2, 4);
 
   return (
     <>
@@ -262,21 +275,81 @@ export function Nav({
       </header>
 
       {/* ── Mobile bottom tab bar ────────────────────────────── */}
+      {mobileMenuOpen && <button type="button" onClick={() => setMobileMenuOpen(false)} className="md:hidden fixed inset-0 z-40 bg-slate-950/45" aria-label="Close mobile actions" />}
+
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0A0E1A] border-t border-[#1E2840]">
-        <div className="flex items-center justify-around h-16 px-2">
-          {shownNavItems.filter((n) => !n.desktopOnly).map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                "flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg transition-colors min-w-0 flex-1",
-                isActive(href) ? "text-[#3D8EF5]" : "text-[#4A5568]"
-              )}
-            >
-              <Icon size={20} />
-              <span className="text-[10px] font-medium truncate">{label}</span>
-            </Link>
-          ))}
+        {mobileMenuOpen && (
+          <div className="absolute bottom-20 left-4 right-4 rounded-3xl border border-[#1E2840] bg-[#0F1626] p-3 shadow-2xl">
+            <div className="mb-2 flex items-center justify-between px-1">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#4A5568]">Quick Access</p>
+                <p className="text-sm text-[#cbd5e1]">Jump to the rest of the app</p>
+              </div>
+              <button type="button" onClick={() => setMobileMenuOpen(false)} className="rounded-full border border-[#1E2840] p-2 text-[#94a3b8]">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {mobileMoreItems.map(({ href, label, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className={cn(
+                    "flex items-center gap-2 rounded-2xl border px-3 py-3 text-sm font-medium transition-colors",
+                    isActive(href)
+                      ? "border-[#3D8EF5] bg-[#16233D] text-[#F8FAFF]"
+                      : "border-[#1E2840] bg-[#131929] text-[#cbd5e1]"
+                  )}
+                >
+                  <Icon size={16} />
+                  <span className="truncate">{label}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="relative flex items-center h-16 px-2">
+          <div className="flex flex-1 items-center justify-around pr-8">
+            {leftMobileItems.map(({ href, label, icon: Icon }) => (
+              <Link
+                key={href}
+                href={href}
+                className={cn(
+                  "flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg transition-colors min-w-0 flex-1",
+                  isActive(href) ? "text-[#3D8EF5]" : "text-[#4A5568]"
+                )}
+              >
+                <Icon size={20} />
+                <span className="text-[10px] font-medium truncate">{label}</span>
+              </Link>
+            ))}
+          </div>
+          <div className="flex flex-1 items-center justify-around pl-8">
+            {rightMobileItems.map(({ href, label, icon: Icon }) => (
+              <Link
+                key={href}
+                href={href}
+                className={cn(
+                  "flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg transition-colors min-w-0 flex-1",
+                  isActive(href) ? "text-[#3D8EF5]" : "text-[#4A5568]"
+                )}
+              >
+                <Icon size={20} />
+                <span className="text-[10px] font-medium truncate">{label}</span>
+              </Link>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((open) => !open)}
+            className={cn(
+              "absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 inline-flex h-14 w-14 items-center justify-center rounded-full border-4 border-[#0A0E1A] shadow-lg transition-colors",
+              mobileMenuOpen ? "bg-white text-[#0A0E1A]" : "bg-[#3D8EF5] text-white"
+            )}
+            aria-label={mobileMenuOpen ? "Close quick access" : "Open quick access"}
+          >
+            {mobileMenuOpen ? <X size={20} /> : <Plus size={22} />}
+          </button>
         </div>
       </nav>
     </>

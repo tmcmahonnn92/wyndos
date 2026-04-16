@@ -111,6 +111,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
   const [routeOrder, setRouteOrder] = useState<number[] | null>(null);
   const [dayNotesEditing, setDayNotesEditing] = useState(false);
   const [dayNotesText, setDayNotesText] = useState(day.notes ?? "");
+  const [actionError, setActionError] = useState<string | null>(null);
   const [completionDate, setCompletionDate] = useState(todayDateValue);
   const [dragJobId, setDragJobId] = useState<number | null>(null);
   const router = useRouter();
@@ -179,8 +180,13 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
 
   const handleReopenDay = () => {
     startTransition(async () => {
-      await reopenDay(day.id);
-      router.refresh();
+      try {
+        setActionError(null);
+        await reopenDay(day.id);
+        router.refresh();
+      } catch (issue) {
+        setActionError(issue instanceof Error ? issue.message : "Could not reopen this day.");
+      }
     });
   };
 
@@ -306,6 +312,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
       </div>
 
       <div className="px-4 py-4 space-y-4">
+        {actionError && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</div>}
         {/* Action buttons */}
         {day.status === "COMPLETE" ? (
           <div className="space-y-2">
