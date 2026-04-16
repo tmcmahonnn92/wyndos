@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OneOffJobModal } from "./one-off-job-modal";
@@ -12,10 +12,17 @@ interface Area {
 
 interface Props {
   areas: Area[];
+  initialOneOffOpen?: boolean;
 }
 
-export function ScheduleHeader({ areas: _areas }: Props) {
-  const [oneOffOpen, setOneOffOpen] = useState(false);
+export function ScheduleHeader({ areas: _areas, initialOneOffOpen = false }: Props) {
+  const [oneOffOpen, setOneOffOpen] = useState(initialOneOffOpen);
+
+  useEffect(() => {
+    if (initialOneOffOpen) {
+      setOneOffOpen(true);
+    }
+  }, [initialOneOffOpen]);
 
   return (
     <div className="flex items-center justify-between">

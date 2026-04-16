@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
+import { matchesLooseCustomerSearch } from "@/lib/customer-search";
 import { getExpenseCategory, getOtherIncomeCategory, getTaxTreatment, EXPENSE_CATEGORIES, OTHER_INCOME_CATEGORIES, TAX_TREATMENT_OPTIONS } from "@/lib/accounting";
 import { calcNextDue } from "@/lib/utils";
 import { addDays, startOfDay } from "date-fns";
@@ -607,20 +608,12 @@ export async function createOneOffJob(data: {
 
 export async function getCustomers(areaIds?: number[], search?: string, includeInactive = false, tagIds?: number[], onlyOneOff = false) {
   const tenantId = await getActiveTenantId();
-  return prisma.customer.findMany({ where: { tenantId,
+  const customers = await prisma.customer.findMany({ where: { tenantId,
       ...(includeInactive ? {} : { active: true }),
       ...(onlyOneOff
         ? { area: { isSystemArea: true } }
         : areaIds && areaIds.length > 0 ? { areaId: { in: areaIds } } : {}),
       ...(tagIds && tagIds.length > 0 ? { tags: { some: { tagId: { in: tagIds } } } } : {}),
-      ...(search
-        ? {
-            OR: [
-              { name: { contains: search } },
-              { address: { contains: search } },
-            ],
-          }
-        : {}),
     },
     include: {
       area: true,
@@ -638,6 +631,14 @@ export async function getCustomers(areaIds?: number[], search?: string, includeI
     },
     orderBy: [{ area: { sortOrder: "asc" } }, { name: "asc" }],
   });
+
+  if (!search?.trim()) {
+    return customers;
+  }
+
+  return customers.filter((customer) =>
+    matchesLooseCustomerSearch(search, [customer.name, customer.address, customer.email, customer.phone])
+  );
 }
 
 export async function getCustomer(id: number) {

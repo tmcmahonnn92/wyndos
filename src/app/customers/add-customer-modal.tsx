@@ -24,8 +24,8 @@ function composeAddress(line1: string, line2: string, postcode: string) {
   return [line1.trim(), line2.trim(), normaliseUkPostcode(postcode)].filter(Boolean).join(", ");
 }
 
-export function AddCustomerModal({ areas }: { areas: Area[] }) {
-  const [open, setOpen] = useState(false);
+export function AddCustomerModal({ areas, initialOpen = false }: { areas: Area[]; initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 

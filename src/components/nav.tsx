@@ -9,6 +9,8 @@ import {
   CalendarDays,
   CalendarClock,
   Users,
+  UserPlus,
+  Zap,
   Layers,
   CreditCard,
   Receipt,
@@ -182,6 +184,11 @@ export function Nav({
   const mobileMoreItems = shownNavItems.filter((item) => !mobilePrimaryHrefSet.has(item.href));
   const leftMobileItems = mobilePrimaryItems.slice(0, 2);
   const rightMobileItems = mobilePrimaryItems.slice(2, 4);
+  const mobileQuickActions = [
+    { href: "/customers?action=new-customer", label: "New Customer", icon: UserPlus },
+    { href: "/accounting?action=scan-receipt", label: "Scan Receipt", icon: Receipt },
+    { href: "/days?action=new-one-off", label: "One-off Job", icon: Zap },
+  ];
 
   return (
     <>
@@ -287,22 +294,20 @@ export function Nav({
             <div className="mb-2 flex items-center justify-between px-1">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#4A5568]">Quick Access</p>
-                <p className="text-sm text-[#cbd5e1]">Jump to the rest of the app</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#4A5568]">Quick Add</p>
+                <p className="text-sm text-[#cbd5e1]">Start the job you actually need to add</p>
               </div>
               <button type="button" onClick={() => setMobileMenuOpen(false)} className="rounded-full border border-[#1E2840] p-2 text-[#94a3b8]">
                 <X size={14} />
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              {mobileMoreItems.map(({ href, label, icon: Icon }) => (
+            <div className="grid grid-cols-1 gap-2">
+              {mobileQuickActions.map(({ href, label, icon: Icon }) => (
                 <Link
                   key={href}
                   href={href}
                   className={cn(
-                    "flex items-center gap-2 rounded-2xl border px-3 py-3 text-sm font-medium transition-colors",
-                    isActive(href)
-                      ? "border-[#3D8EF5] bg-[#16233D] text-[#F8FAFF]"
-                      : "border-[#1E2840] bg-[#131929] text-[#cbd5e1]"
+                    "flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-medium transition-colors border-[#1E2840] bg-[#131929] text-[#cbd5e1] hover:bg-[#16233D] hover:text-[#F8FAFF]"
                   )}
                 >
                   <Icon size={16} />

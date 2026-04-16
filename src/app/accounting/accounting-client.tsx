@@ -178,6 +178,7 @@ export function AccountingClient({
   activeDateTo,
   availableTaxYears,
   exportGeneratedAt,
+  initialAction,
 }: {
   monthlySummaries: MonthlySummary[];
   recentExpenses: RecentExpense[];
@@ -193,6 +194,7 @@ export function AccountingClient({
   activeDateTo: string;
   availableTaxYears: TaxYearOption[];
   exportGeneratedAt: string;
+  initialAction?: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -242,6 +244,17 @@ export function AccountingClient({
   useEffect(() => {
     setDateRange({ start: activeDateFrom, end: activeDateTo });
   }, [activeDateFrom, activeDateTo]);
+
+  useEffect(() => {
+    if (initialAction === "scan-receipt" || initialAction === "new-expense") {
+      setQuickAddMode("expense");
+      setQuickAddOpen(true);
+    }
+    if (initialAction === "new-income") {
+      setQuickAddMode("income");
+      setQuickAddOpen(true);
+    }
+  }, [initialAction]);
 
   const updateTaxYear = (value: number) => {
     const params = new URLSearchParams(searchParams.toString());

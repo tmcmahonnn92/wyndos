@@ -13,14 +13,14 @@ import { CustomerActiveToggle } from "./customer-active-toggle";
 export const dynamic = "force-dynamic";
 
 interface Props {
-  searchParams: Promise<{ areas?: string; tags?: string; q?: string; inactive?: string; oneoff?: string }>;
+  searchParams: Promise<{ areas?: string; tags?: string; q?: string; inactive?: string; oneoff?: string; action?: string }>;
 }
 
 export default async function CustomersPage({ searchParams }: Props) {
   await requirePermission("customers");
   const user = await getActiveUserContext();
   const hidePrices = user.role === "WORKER" && !(user.permissions ?? []).includes("viewprices");
-  const { areas: areasParam, tags: tagsParam, q, inactive, oneoff } = await searchParams;
+  const { areas: areasParam, tags: tagsParam, q, inactive, oneoff, action } = await searchParams;
   const showInactive = inactive === "1";
   const onlyOneOff = oneoff === "1";
   const selectedAreaIds = areasParam
@@ -75,7 +75,7 @@ export default async function CustomersPage({ searchParams }: Props) {
             <TableProperties size={14} />
             Bulk Edit
           </Link>
-          <AddCustomerModal areas={areas} />
+          <AddCustomerModal areas={areas} initialOpen={action === "new-customer"} />
         </div>
       </div>
 

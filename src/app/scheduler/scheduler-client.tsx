@@ -954,26 +954,34 @@ function MonthCalendarCell({
           <span className="bg-white/90 px-2 py-0.5 rounded-full shadow-sm border">{dropLabel}</span>
         </div>
       )}
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div>
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="min-w-0">
           <p className={cn("text-xs font-semibold", isToday ? "text-blue-600" : isCurrentMonth ? "text-slate-700" : "text-slate-400")}>
             {date.toLocaleDateString("en-GB", { weekday: "short" })}
           </p>
           <p className={cn("text-sm font-bold", isToday ? "text-blue-700" : isCurrentMonth ? "text-slate-900" : "text-slate-400")}>
             {date.getDate()}
           </p>
+        </div>
+        <div className="flex flex-col items-end gap-1 text-right">
           {customerCount > 0 && (
-            <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400 tabular-nums">
-              <span className="inline-flex items-center gap-0.5"><Users size={10} />{customerCount}</span>
-              <span className="inline-flex items-center gap-0.5"><PoundSterling size={10} />{totalValue.toFixed(0)}</span>
+            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm tabular-nums">
+              <span className="inline-flex items-center gap-1 rounded-full bg-white px-1.5 py-0.5 text-slate-500">
+                <Users size={10} className="text-slate-400" />
+                {customerCount}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-white px-1.5 py-0.5 text-slate-700">
+                <PoundSterling size={10} className="text-emerald-600" />
+                {totalValue.toFixed(0)}
+              </span>
             </div>
           )}
+          {isHoliday && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 border border-red-200">
+              {holidayLabel ?? "Holiday"}
+            </span>
+          )}
         </div>
-        {isHoliday && (
-          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
-            {holidayLabel ?? "Holiday"}
-          </span>
-        )}
       </div>
 
       <div className="space-y-1.5">

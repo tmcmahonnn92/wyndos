@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import { getActiveTenantId } from "@/lib/tenant-context";
+import { matchesLooseCustomerSearch } from "@/lib/customer-search";
 
 export async function GET(req: NextRequest) {
   try {
@@ -55,17 +56,16 @@ export async function GET(req: NextRequest) {
       where: {
         tenantId,
         active: true,
-        OR: [
-          { name: { contains: q } },
-          { address: { contains: q } },
-        ],
       },
       include: { area: true },
       orderBy: [{ area: { sortOrder: "asc" } }, { name: "asc" }],
-      take: 20,
     });
 
-    return NextResponse.json(customers);
+    const matchedCustomers = customers
+      .filter((customer) => matchesLooseCustomerSearch(q, [customer.name, customer.address, customer.email, customer.phone]))
+      .slice(0, 20);
+
+    return NextResponse.json(matchedCustomers);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unauthorized" },

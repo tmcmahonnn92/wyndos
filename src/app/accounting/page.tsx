@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default async function AccountingPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ taxYear?: string; start?: string; end?: string }>;
+  searchParams?: Promise<{ taxYear?: string; start?: string; end?: string; action?: string }>;
 }) {
   await requirePermission("payments");
   const params = (await searchParams) ?? {};
@@ -21,4 +21,5 @@ export default async function AccountingPage({
   });
 
   return <AccountingClient {...accounting} />;
+  return <AccountingClient {...accounting} initialAction={params.action ?? null} />;
 }
