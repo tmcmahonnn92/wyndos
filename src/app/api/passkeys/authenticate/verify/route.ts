@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyAuthenticationResponse } from "@simplewebauthn/server";
+import { isoBase64URL } from "@simplewebauthn/server/helpers";
 import prisma from "@/lib/db";
 import {
   clearPasskeyChallenge,
@@ -12,6 +13,17 @@ import {
 type AuthenticationInfoShape = {
   newCounter?: number;
 };
+
+type StoredAuthenticator = NonNullable<Parameters<typeof verifyAuthenticationResponse>[0]["authenticator"]>;
+
+function parseTransports(raw: string): StoredAuthenticator["transports"] {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed as NonNullable<StoredAuthenticator["transports"]> : [];
+  } catch {
+    return [];
+  }
+}
 
 export async function POST(request: Request) {
   const storedChallenge = await readPasskeyChallenge("authenticate");
@@ -40,11 +52,11 @@ export async function POST(request: Request) {
     expectedOrigin: getPasskeyOrigin(),
     expectedRPID: getPasskeyRpID(),
     requireUserVerification: true,
-    credential: {
-      id: credential.credentialID,
-      publicKey: Buffer.from(credential.publicKey, "base64url"),
+    authenticator: {
+      credentialID: isoBase64URL.toBuffer(credential.credentialID),
+      credentialPublicKey: isoBase64URL.toBuffer(credential.publicKey),
       counter: credential.counter,
-      transports: JSON.parse(credential.transports || "[]"),
+      transports: parseTransports(credential.transports),
     },
   });
 

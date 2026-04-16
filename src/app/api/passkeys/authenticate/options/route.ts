@@ -1,8 +1,22 @@
 import { NextResponse } from "next/server";
 import { generateAuthenticationOptions } from "@simplewebauthn/server";
+import { isoBase64URL } from "@simplewebauthn/server/helpers";
 import prisma from "@/lib/db";
 import { auth } from "@/auth";
 import { storePasskeyChallenge, getPasskeyRpID } from "@/lib/passkeys";
+
+type AllowCredentialDescriptor = NonNullable<
+  NonNullable<Parameters<typeof generateAuthenticationOptions>[0]>["allowCredentials"]
+>[number];
+
+function parseTransports(raw: string): AllowCredentialDescriptor["transports"] {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed as NonNullable<AllowCredentialDescriptor["transports"]> : [];
+  } catch {
+    return [];
+  }
+}
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -28,15 +42,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No passkeys are set up for this account." }, { status: 404 });
   }
 
+  const allowCredentials: AllowCredentialDescriptor[] = credentials.map((credential) => ({
+    id: isoBase64URL.toBuffer(credential.credentialID),
+    type: "public-key",
+    transports: parseTransports(credential.transports),
+  }));
+
   const options = await generateAuthenticationOptions({
     rpID: getPasskeyRpID(),
     timeout: 60000,
     userVerification: "required",
-    allowCredentials: credentials.map((credential: { credentialID: string; transports: string }) => ({
-      id: credential.credentialID,
-      type: "public-key" as const,
-      transports: JSON.parse(credential.transports || "[]"),
-    })),
+    allowCredentials,
   });
 
   await storePasskeyChallenge({
