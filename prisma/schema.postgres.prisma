@@ -130,11 +130,29 @@ model User {
   accounts           Account[]
   sessions           Session[]
   memberships        Membership[]
+  passkeys           PasskeyCredential[]
   assignedWorkDays   WorkDay[] @relation("AssignedWorkerWorkDays")
   supportAccessLogs  SupportAccessLog[] @relation("SupportAdminLogs")
   endedSupportAccessLogs SupportAccessLog[] @relation("EndedSupportAccessLogs")
 
   @@index([tenantId])
+}
+
+model PasskeyCredential {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String   @default("Passkey")
+  credentialID String   @unique
+  publicKey    String
+  counter      Int      @default(0)
+  transports   String   @default("[]")
+  deviceType   String   @default("singleDevice")
+  backedUp     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime?
+
+  @@index([userId])
 }
 
 model Membership {

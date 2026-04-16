@@ -27,6 +27,7 @@ import {
   Umbrella,
   CalendarOff,
   CreditCard,
+  PoundSterling,
   Search,
   MapPin,
   Users,
@@ -520,6 +521,16 @@ function workDayChipStyle(_status: string, areaColor?: string | null): CSSProper
   return { backgroundColor: areaColor || "#3B82F6" };
 }
 
+function getCalendarDayTotals(workDays: WorkDay[]) {
+  return {
+    customerCount: workDays.reduce((sum, workDay) => sum + workDay.jobs.length, 0),
+    totalValue: workDays.reduce(
+      (sum, workDay) => sum + workDay.jobs.reduce((jobSum, job) => jobSum + job.price, 0),
+      0
+    ),
+  };
+}
+
 function scheduleLabel(area: Area): string {
   if (area.scheduleType === "MONTHLY") {
     const d = area.monthlyDay ?? 1;
@@ -901,6 +912,7 @@ function MonthCalendarCell({
   const isCurrentMonth = date.getMonth() === monthStart.getMonth();
   const visibleDays = workDays.slice(0, 3);
   const hiddenCount = Math.max(0, workDays.length - visibleDays.length);
+  const { customerCount, totalValue } = getCalendarDayTotals(workDays);
 
   const dropColour: DropColour =
     !isHoliday && isDragOver && dragState?.type === "area"
@@ -950,6 +962,12 @@ function MonthCalendarCell({
           <p className={cn("text-sm font-bold", isToday ? "text-blue-700" : isCurrentMonth ? "text-slate-900" : "text-slate-400")}>
             {date.getDate()}
           </p>
+          {customerCount > 0 && (
+            <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400 tabular-nums">
+              <span className="inline-flex items-center gap-0.5"><Users size={10} />{customerCount}</span>
+              <span className="inline-flex items-center gap-0.5"><PoundSterling size={10} />{totalValue.toFixed(0)}</span>
+            </div>
+          )}
         </div>
         {isHoliday && (
           <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
@@ -1046,6 +1064,7 @@ function AreaPanelCard({ area, onDragStart, overdueWorkDay }: {
 
   return (
     <div
+      id={`scheduler-area-${area.id}`}
       draggable
       onDragStart={() => onDragStart(area)}
       className={cn(
@@ -2766,6 +2785,16 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
       const db = nextExpectedDateForArea(b)?.getTime() ?? Infinity;
       return da - db;
     });
+  const unscheduledAreas = sortedAreas.filter((area) => !overdueAreas.some((entry) => entry.id === area.id));
+
+  const revealAreaCard = useCallback((areaId: number) => {
+    setAreasCollapsed(false);
+    requestAnimationFrame(() => {
+      areasScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      const areaCard = document.getElementById(`scheduler-area-${areaId}`);
+      areaCard?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  }, []);
 
   const handleAreaDragStart = useCallback((area: Area) => setDragState({ type: "area", area }), []);
   const handleWorkDayDragStart = useCallback((wd: WorkDay) => setDragState({ type: "workday", workDay: wd }), []);
@@ -3046,8 +3075,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                 const iso = isoDate(d);
                 const isToday = iso === todayISO();
                 const cellWDs = workDaysByDate.get(iso) ?? [];
-                const colJobs = cellWDs.reduce((s, wd) => s + wd.jobs.length, 0);
-                const colValue = cellWDs.reduce((s, wd) => wd.jobs.reduce((s2, j) => s2 + j.price, s), 0);
+                const { customerCount, totalValue } = getCalendarDayTotals(cellWDs);
                 return (
                   <div key={i} className={cn(
                     "px-1 py-2 text-center border-r border-slate-100 last:border-r-0",
@@ -3057,10 +3085,11 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                       isToday ? "text-blue-600" : "text-slate-500")}>{DAY_LABELS[i]}</p>
                     <p className={cn("text-sm font-bold",
                       isToday ? "text-blue-600" : "text-slate-700")}>{fmtDayNum(d)}</p>
-                    {colJobs > 0 && (
-                      <p className="text-[9px] text-slate-400 mt-0.5 tabular-nums leading-tight">
-                        {colJobs}j · £{colValue.toFixed(0)}
-                      </p>
+                    {customerCount > 0 && (
+                      <div className="mt-0.5 flex items-center justify-center gap-2 text-[9px] text-slate-400 tabular-nums leading-tight">
+                        <span className="inline-flex items-center gap-0.5"><Users size={9} />{customerCount}</span>
+                        <span className="inline-flex items-center gap-0.5"><PoundSterling size={9} />{totalValue.toFixed(0)}</span>
+                      </div>
                     )}
                   </div>
                 );
@@ -3177,6 +3206,50 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {(overdueAreas.length > 0 || unscheduledAreas.length > 0) && (
+          <div className="border-t border-slate-200 bg-slate-50 px-3 py-2.5 flex-shrink-0 space-y-2">
+            {overdueAreas.length > 0 && (
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <AlertCircle size={12} className="text-red-500" />
+                  Overdue Areas
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {overdueAreas.slice(0, 8).map((area) => (
+                    <button
+                      key={area.id}
+                      onClick={() => revealAreaCard(area.id)}
+                      className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                    >
+                      {area.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {unscheduledAreas.length > 0 && (
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <CalendarOff size={12} className="text-slate-500" />
+                  Unscheduled Areas
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {unscheduledAreas.slice(0, 8).map((area) => (
+                    <button
+                      key={area.id}
+                      onClick={() => revealAreaCard(area.id)}
+                      className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      {area.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

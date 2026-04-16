@@ -96,6 +96,8 @@ type PendingResolution = {
 };
 
 export function DayView({ day, futureDays, hidePrices = false }: Props) {
+  const todayDateValue = new Date().toISOString().slice(0, 10);
+  const scheduledDateValue = new Date(day.date).toISOString().slice(0, 10);
   const [isPending, startTransition] = useTransition();
   const [completeDayOpen, setCompleteDayOpen] = useState(false);
   const [addJobOpen, setAddJobOpen] = useState(false);
@@ -109,6 +111,8 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
   const [routeOrder, setRouteOrder] = useState<number[] | null>(null);
   const [dayNotesEditing, setDayNotesEditing] = useState(false);
   const [dayNotesText, setDayNotesText] = useState(day.notes ?? "");
+  const [completionDate, setCompletionDate] = useState(todayDateValue);
+  const [dragJobId, setDragJobId] = useState<number | null>(null);
   const router = useRouter();
 
   // Drag-to-reorder state for pending jobs.
@@ -129,6 +133,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
 
   const totalValue = day.jobs.reduce((s, j) => s + j.price, 0);
   const doneValue = doneJobs.reduce((s, j) => s + j.price, 0);
+  const shouldPromptForCompletedDate = day.status !== "COMPLETE" && scheduledDateValue !== todayDateValue;
 
   const handleJobDrop = (targetJobId: number) => {
     const dragId = dragJobIdRef.current;
@@ -146,6 +151,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
     newOrder.splice(to, 0, dragId);
     setRouteOrder(newOrder);
     dragJobIdRef.current = null;
+    setDragJobId(null);
     setDragOverJobId(null);
     startTransition(async () => {
       await reorderDayJobs(day.id, newOrder);
@@ -179,17 +185,18 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
   };
 
   const handleCompleteDay = () => {
-    if (pendingJobs.length > 0) {
+    if (pendingJobs.length > 0 || shouldPromptForCompletedDate) {
       // Initialise all pending jobs with default resolution
       const init: Record<number, PendingResolution> = {};
       pendingJobs.forEach((j) => {
         init[j.id] = { jobId: j.id, action: "skip" };
       });
       setResolutions(init);
+      setCompletionDate(todayDateValue);
       setCompleteDayOpen(true);
     } else {
       startTransition(async () => {
-        const result = await completeDay(day.id, []);
+        const result = await completeDay(day.id, [], todayDateValue);
         if (result) setNextRunInfo(result);
         router.refresh();
       });
@@ -207,7 +214,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
   const handleConfirmCompleteDay = () => {
     const res = Object.values(resolutions);
     startTransition(async () => {
-      const result = await completeDay(day.id, res);
+      const result = await completeDay(day.id, res, completionDate);
       if (result) setNextRunInfo(result);
       setCompleteDayOpen(false);
       router.refresh();
@@ -417,14 +424,14 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
                 <div
                   key={job.id}
                   draggable
-                  onDragStart={() => { dragJobIdRef.current = job.id; }}
-                  onDragEnd={() => { dragJobIdRef.current = null; setDragOverJobId(null); }}
+                  onDragStart={() => { dragJobIdRef.current = job.id; setDragJobId(job.id); }}
+                  onDragEnd={() => { dragJobIdRef.current = null; setDragJobId(null); setDragOverJobId(null); }}
                   onDragOver={(e) => { e.preventDefault(); setDragOverJobId(job.id); }}
                   onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverJobId(null); }}
                   onDrop={(e) => { e.preventDefault(); handleJobDrop(job.id); }}
                   className={cn(
                     "rounded-xl transition-all",
-                    dragOverJobId === job.id && dragJobIdRef.current !== job.id && "ring-2 ring-blue-400 ring-offset-1"
+                    dragOverJobId === job.id && dragJobId !== job.id && "ring-2 ring-blue-400 ring-offset-1"
                   )}
                 >
                   <JobCard
@@ -526,93 +533,118 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
       <Modal
         open={completeDayOpen}
         onClose={() => setCompleteDayOpen(false)}
-        title="Complete Day – Resolve Pending Jobs"
+        title="Complete Day"
       >
         <div className="space-y-4">
-          <p className="text-sm text-slate-600">
-            {pendingJobs.length} job{pendingJobs.length !== 1 ? "s" : ""} still pending. Choose what to do with each:
-          </p>
-
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                const init: Record<number, PendingResolution> = {};
-                pendingJobs.forEach((j) => { init[j.id] = { jobId: j.id, action: "skip" }; });
-                setResolutions(init);
-              }}
-              className="flex-1 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-400 hover:bg-slate-50 transition-colors"
-            >
-              Skip all
-            </button>
-
-          </div>
-
-          <div className="space-y-3">
-            {pendingJobs.map((job) => {
-              const res = resolutions[job.id] ?? { action: "skip" };
-              return (
-                <div key={job.id} className="border border-slate-200 rounded-xl p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">{job.customer.name}</p>
-                      <p className="text-xs font-medium text-blue-700">{getJobTitle(job)}</p>
-                      <p className="text-xs text-slate-500">{job.customer.address}{!hidePrices && ` · ${fmtCurrency(job.price)}`}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button
-                      onClick={() => handleResolutionChange(job.id, "skip")}
-                      className={cn(
-                        "flex flex-col items-center gap-1 p-2 rounded-lg border text-xs font-medium transition-colors",
-                        res.action === "skip"
-                          ? "border-slate-600 bg-slate-600 text-white"
-                          : "border-slate-200 text-slate-600 hover:border-slate-400"
-                      )}
-                    >
-                      <SkipForward size={14} />
-                      Skip
-                    </button>
-                    <button
-                      onClick={() => handleResolutionChange(job.id, "move")}
-                      className={cn(
-                        "flex flex-col items-center gap-1 p-2 rounded-lg border text-xs font-medium transition-colors",
-                        res.action === "move"
-                          ? "border-blue-600 bg-blue-600 text-white"
-                          : "border-slate-200 text-slate-600 hover:border-blue-300"
-                      )}
-                    >
-                      <ArrowRight size={14} />
-                      Move
-                    </button>
-                  </div>
-
-                  {res.action === "move" && (
-                    <select
-                      value={res.targetDayId ?? ""}
-                      onChange={(e) =>
-                        handleResolutionChange(job.id, "move", Number(e.target.value))
-                      }
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    >
-                      <option value="">– Select a day –</option>
-                      {futureDays.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {fmtDate(d.date)} ({d.area?.name ?? d.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off"})
-                        </option>
-                      ))}
-                    </select>
-                  )}
+          {shouldPromptForCompletedDate && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 space-y-2">
+              <div className="flex items-start gap-2 text-blue-900">
+                <CalendarDays size={16} className="mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold">When was this run actually completed?</p>
+                  <p className="text-xs text-blue-800/80">
+                    It was scheduled for {fmtDate(day.date)}. The next run will be calculated from the date you choose here.
+                  </p>
                 </div>
-              );
-            })}
-          </div>
+              </div>
+              <input
+                type="date"
+                value={completionDate}
+                onChange={(e) => setCompletionDate(e.target.value)}
+                className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              />
+            </div>
+          )}
+
+          {pendingJobs.length > 0 && (
+            <>
+              <p className="text-sm text-slate-600">
+                {pendingJobs.length} job{pendingJobs.length !== 1 ? "s" : ""} still pending. Choose what to do with each:
+              </p>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const init: Record<number, PendingResolution> = {};
+                    pendingJobs.forEach((j) => { init[j.id] = { jobId: j.id, action: "skip" }; });
+                    setResolutions(init);
+                  }}
+                  className="flex-1 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-400 hover:bg-slate-50 transition-colors"
+                >
+                  Skip all
+                </button>
+
+              </div>
+
+              <div className="space-y-3">
+                {pendingJobs.map((job) => {
+                  const res = resolutions[job.id] ?? { action: "skip" };
+                  return (
+                    <div key={job.id} className="border border-slate-200 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">{job.customer.name}</p>
+                          <p className="text-xs font-medium text-blue-700">{getJobTitle(job)}</p>
+                          <p className="text-xs text-slate-500">{job.customer.address}{!hidePrices && ` · ${fmtCurrency(job.price)}`}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          onClick={() => handleResolutionChange(job.id, "skip")}
+                          className={cn(
+                            "flex flex-col items-center gap-1 p-2 rounded-lg border text-xs font-medium transition-colors",
+                            res.action === "skip"
+                              ? "border-slate-600 bg-slate-600 text-white"
+                              : "border-slate-200 text-slate-600 hover:border-slate-400"
+                          )}
+                        >
+                          <SkipForward size={14} />
+                          Skip
+                        </button>
+                        <button
+                          onClick={() => handleResolutionChange(job.id, "move")}
+                          className={cn(
+                            "flex flex-col items-center gap-1 p-2 rounded-lg border text-xs font-medium transition-colors",
+                            res.action === "move"
+                              ? "border-blue-600 bg-blue-600 text-white"
+                              : "border-slate-200 text-slate-600 hover:border-blue-300"
+                          )}
+                        >
+                          <ArrowRight size={14} />
+                          Move
+                        </button>
+                      </div>
+
+                      {res.action === "move" && (
+                        <select
+                          value={res.targetDayId ?? ""}
+                          onChange={(e) =>
+                            handleResolutionChange(job.id, "move", Number(e.target.value))
+                          }
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                        >
+                          <option value="">– Select a day –</option>
+                          {futureDays.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {fmtDate(d.date)} ({d.area?.name ?? d.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off"})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
           <div className="flex gap-2 pt-1">
             <Button
               onClick={handleConfirmCompleteDay}
               disabled={
                 isPending ||
+                !completionDate ||
                 Object.values(resolutions).some(
                   (r) => r.action === "move" && !r.targetDayId
                 )

@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useTransition, useRef, useCallback } from "react";
+import { useState, useTransition, useRef, useCallback, useEffect } from "react";
+import { startRegistration } from "@simplewebauthn/browser";
 import {
   Save, Upload, X, Building2, Mail, Eye, EyeOff,
   Tag as TagIcon, Plus, Trash2, MessageSquare, Send,
   Loader2, CheckCircle2, AlertCircle, FileText,
   ExternalLink, ShieldCheck, ChevronDown, ChevronUp,
-  Users, UserX, Link2, RefreshCw,
+  Users, UserX, Link2, RefreshCw, Smartphone,
 } from "lucide-react";
 import { updateBusinessSettings, createTag, deleteTag } from "@/lib/actions";
-import { createInvite, listTeamMembers, listPendingInvites, revokeInvite, removeTeamMember, updateWorkerPermissions, changePassword } from "@/lib/auth-actions";
+import { createInvite, listTeamMembers, listPendingInvites, revokeInvite, removeTeamMember, updateWorkerPermissions, changePassword, deletePasskeyDevice, listPasskeyDevices, type PasskeyDevice } from "@/lib/auth-actions";
 import { ALL_PERMISSIONS, PERMISSION_LABELS, DEFAULT_WORKER_PERMISSIONS, type Permission } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -141,6 +142,7 @@ export function SettingsClient({
   customers,
   initialTeam,
   initialInvites,
+  initialPasskeys,
 }: {
   settings: Settings;
   canManageProviderSettings: boolean;
@@ -148,6 +150,7 @@ export function SettingsClient({
   customers: BroadcastCustomer[];
   initialTeam: TeamMember[];
   initialInvites: PendingInvite[];
+  initialPasskeys: PasskeyDevice[];
 }) {
   const [tab, setTab] = useState<Tab>("general");
   const visibleTabs = TABS.filter(
@@ -320,6 +323,29 @@ export function SettingsClient({
   const [pwStatus, setPwStatus] = useState<"idle" | "success" | "error">("idle");
   const [pwMessage, setPwMessage] = useState("");
   const [pwPending, startPwTransition] = useTransition();
+  const [passkeys, setPasskeys] = useState<PasskeyDevice[]>(initialPasskeys);
+  const [passkeyPending, setPasskeyPending] = useState(false);
+  const [passkeyStatus, setPasskeyStatus] = useState<"idle" | "success" | "error">("idle");
+  const [passkeyMessage, setPasskeyMessage] = useState("");
+  const [appLockEnabled, setAppLockEnabled] = useState(false);
+
+  useEffect(() => {
+    try {
+      setAppLockEnabled(localStorage.getItem("wyndos-app-lock") === "enabled");
+    } catch {
+      setAppLockEnabled(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (passkeys.length > 0) return;
+    try {
+      localStorage.removeItem("wyndos-app-lock");
+    } catch {
+      // Ignore storage errors.
+    }
+    setAppLockEnabled(false);
+  }, [passkeys.length]);
 
   const handleChangePassword = () => {
     setPwMessage("");
@@ -337,6 +363,87 @@ export function SettingsClient({
         setPwMessage(res.error ?? "Failed to change password.");
       }
     });
+  };
+
+  const updateAppLockPreference = (enabled: boolean) => {
+    setAppLockEnabled(enabled);
+    try {
+      if (enabled) localStorage.setItem("wyndos-app-lock", "enabled");
+      else localStorage.removeItem("wyndos-app-lock");
+    } catch {
+      // Ignore storage errors.
+    }
+  };
+
+  const inferDeviceName = () => {
+    if (typeof window === "undefined") return "This device";
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches;
+    const userAgent = navigator.userAgent.toLowerCase();
+    const platform = navigator.platform.toLowerCase();
+
+    if (userAgent.includes("iphone") || userAgent.includes("android")) {
+      return isStandalone ? "This phone" : "This mobile device";
+    }
+    if (platform.includes("mac")) return "This Mac";
+    if (platform.includes("win")) return "This Windows device";
+    return "This device";
+  };
+
+  const handleCreatePasskey = async () => {
+    setPasskeyPending(true);
+    setPasskeyStatus("idle");
+    setPasskeyMessage("");
+
+    try {
+      const optionsRes = await fetch("/api/passkeys/register/options", { method: "POST" });
+      const options = await optionsRes.json();
+      if (!optionsRes.ok) {
+        throw new Error(options.error ?? "Could not start passkey setup.");
+      }
+
+      const response = await startRegistration(options);
+      const verifyRes = await fetch("/api/passkeys/register/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response, name: inferDeviceName() }),
+      });
+      const verify = await verifyRes.json();
+      if (!verifyRes.ok) {
+        throw new Error(verify.error ?? "Could not verify the passkey.");
+      }
+
+      const refreshed = await listPasskeyDevices();
+      setPasskeys(refreshed);
+      setPasskeyStatus("success");
+      setPasskeyMessage("Passkey ready. You can now use fingerprint, face unlock, or your device PIN.");
+      if (!appLockEnabled) updateAppLockPreference(true);
+    } catch (error) {
+      setPasskeyStatus("error");
+      setPasskeyMessage(error instanceof Error ? error.message : "Passkey setup failed.");
+    } finally {
+      setPasskeyPending(false);
+    }
+  };
+
+  const handleDeletePasskey = async (id: string) => {
+    setPasskeyPending(true);
+    setPasskeyStatus("idle");
+    setPasskeyMessage("");
+
+    try {
+      const result = await deletePasskeyDevice(id);
+      if (!result.ok) {
+        throw new Error(result.error ?? "Could not remove the passkey.");
+      }
+      setPasskeys((prev) => prev.filter((passkey) => passkey.id !== id));
+      setPasskeyStatus("success");
+      setPasskeyMessage("Passkey removed.");
+    } catch (error) {
+      setPasskeyStatus("error");
+      setPasskeyMessage(error instanceof Error ? error.message : "Could not remove the passkey.");
+    } finally {
+      setPasskeyPending(false);
+    }
   };
 
   const filteredCustomers = customers.filter(
@@ -1251,6 +1358,83 @@ export function SettingsClient({
       {/* ── SECURITY ──────────────────────────────────────────────────────── */}
       {tab === "security" && (
         <div className="space-y-6 max-w-md">
+          <Card>
+            <CardHeader>
+              <CardTitle><Smartphone size={16} className="inline mr-2 text-emerald-600" />Biometric Unlock</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-slate-500">
+                Set up a passkey on this device to unlock Wyndos with fingerprint, face unlock, or your device PIN.
+              </p>
+
+              <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Require biometric unlock when opening the app</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Best for installed phone use. Requires at least one passkey on your account.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateAppLockPreference(!appLockEnabled)}
+                  disabled={passkeys.length === 0}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50",
+                    appLockEnabled ? "bg-emerald-600" : "bg-slate-300"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-5 w-5 transform rounded-full bg-white transition-transform",
+                      appLockEnabled ? "translate-x-5" : "translate-x-1"
+                    )}
+                  />
+                </button>
+              </div>
+
+              {passkeyStatus === "error" && (
+                <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2.5 text-sm text-red-700">
+                  <AlertCircle size={14} className="flex-shrink-0" />{passkeyMessage}
+                </div>
+              )}
+              {passkeyStatus === "success" && (
+                <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2.5 text-sm text-green-700">
+                  <CheckCircle2 size={14} className="flex-shrink-0" />{passkeyMessage}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {passkeys.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-sm text-slate-500">
+                    No passkeys set up yet. Add this device to enable biometric unlock.
+                  </div>
+                ) : (
+                  passkeys.map((passkey) => (
+                    <div key={passkey.id} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">{passkey.name}</p>
+                        <p className="text-xs text-slate-500">
+                          Added {new Date(passkey.createdAt).toLocaleDateString("en-GB")}
+                          {passkey.lastUsedAt ? ` · last used ${new Date(passkey.lastUsedAt).toLocaleString("en-GB")}` : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePasskey(passkey.id)}
+                        disabled={passkeyPending}
+                        className="text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-60"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <Button onClick={handleCreatePasskey} disabled={passkeyPending} size="sm">
+                {passkeyPending ? <><Loader2 size={13} className="animate-spin" />Setting up…</> : <><ShieldCheck size={13} />Add This Device</>}
+              </Button>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle><ShieldCheck size={16} className="inline mr-2 text-blue-600" />Change Password</CardTitle>

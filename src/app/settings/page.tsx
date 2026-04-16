@@ -1,5 +1,5 @@
 import { getBusinessSettingsForClient, getTags, getCustomers } from "@/lib/actions";
-import { listTeamMembers, listPendingInvites } from "@/lib/auth-actions";
+import { listPasskeyDevices, listTeamMembers, listPendingInvites } from "@/lib/auth-actions";
 import { requirePermission } from "@/lib/tenant-context";
 import { SettingsClient } from "./settings-client";
 
@@ -14,9 +14,10 @@ export default async function SettingsPage() {
   ]);
 
   // Team data is only visible to OWNER/SUPER_ADMIN — gracefully fall back for workers
-  const [initialTeam, initialInvites] = await Promise.all([
+  const [initialTeam, initialInvites, initialPasskeys] = await Promise.all([
     listTeamMembers().catch(() => []),
     listPendingInvites().catch(() => []),
+    listPasskeyDevices().catch(() => []),
   ]);
 
   const customers = allCustomers.map((c) => ({
@@ -34,6 +35,7 @@ export default async function SettingsPage() {
       customers={customers}
       initialTeam={initialTeam}
       initialInvites={initialInvites}
+      initialPasskeys={initialPasskeys}
     />
   );
 }

@@ -1,18 +1,20 @@
-import { getAreaSchedules, getWorkDays, getHolidays } from "@/lib/actions";
+import { getAreaSchedules, getWorkDays, getHolidays, getSchedulerTodoSummary } from "@/lib/actions";
 import { listTeamMembers } from "@/lib/auth-actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { SchedulerClient } from "./scheduler-client";
+import { SchedulerTodoPanel } from "./scheduler-todo-panel";
 
 export const dynamic = "force-dynamic";
 
 export default async function SchedulerPage() {
   await requirePermission("scheduler");
   const viewer = await getActiveUserContext();
-  const [areas, workDays, holidays, team] = await Promise.all([
+  const [areas, workDays, holidays, team, todoSummary] = await Promise.all([
     getAreaSchedules(),
     getWorkDays(),
     getHolidays(),
     listTeamMembers().catch(() => []),
+    getSchedulerTodoSummary(),
   ]);
   const workers = team
     .filter((member) => member.role === "WORKER")
@@ -32,15 +34,18 @@ export default async function SchedulerPage() {
           </p>
         </div>
       </div>
-      <div className="hidden md:block h-full">
-        <SchedulerClient
-          areas={areas}
-          workDays={schedulerWorkDays}
-          holidays={holidays}
-          workers={workers}
-          viewerRole={viewer.role}
-          viewerPermissions={viewer.permissions}
-        />
+      <div className="hidden md:grid h-full md:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="min-w-0 h-full">
+          <SchedulerClient
+            areas={areas}
+            workDays={schedulerWorkDays}
+            holidays={holidays}
+            workers={workers}
+            viewerRole={viewer.role}
+            viewerPermissions={viewer.permissions}
+          />
+        </div>
+        <SchedulerTodoPanel summary={todoSummary} />
       </div>
     </>
   );

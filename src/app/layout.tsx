@@ -10,6 +10,8 @@ import prisma from "@/lib/db";
 import { ACTIVE_TENANT_COOKIE, SUPPORT_ACCESS_COOKIE } from "@/lib/auth-cookies";
 import { resolveActiveMembership, resolveActivePermissions } from "@/lib/memberships";
 import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
+import { AppLockGate } from "@/components/app-lock-gate";
+import { OfflineStatus } from "@/components/offline-status";
 
 const syne = Syne({
   subsets: ["latin"],
@@ -58,15 +60,16 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const session = await auth();
-  const db = prisma as any;
 
   let tenantName: string | null = null;
   let activeRole: "SUPER_ADMIN" | "OWNER" | "WORKER" | null = session?.user?.role ?? null;
   let activePermissions: string[] = [];
   const companyCount = session?.user?.memberships?.length ?? 0;
   let supportSession: { reason: string; startedAt: string } | null = null;
+  let hasPasskeys = false;
 
   if (session?.user) {
+    hasPasskeys = Boolean(await prisma.passkeyCredential.count({ where: { userId: session.user.id } }));
     const role = session.user.role;
 
     if (role === "SUPER_ADMIN") {
@@ -77,7 +80,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       const supportLogId = rawSupportId ? parseInt(rawSupportId, 10) : NaN;
 
       if (!Number.isNaN(tenantId)) {
-        const tenant = await db.tenant.findUnique({
+        const tenant = await prisma.tenant.findUnique({
           where: { id: tenantId },
           select: { name: true },
         });
@@ -85,7 +88,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       }
 
       if (!Number.isNaN(supportLogId)) {
-        const log = await db.supportAccessLog.findUnique({
+        const log = await prisma.supportAccessLog.findUnique({
           where: { id: supportLogId },
           select: { reason: true, createdAt: true, endedAt: true },
         });
@@ -130,6 +133,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           {children}
         </main>
         {session?.user && <PWAInstallPrompt />}
+        {session?.user && <OfflineStatus />}
+        {session?.user && <AppLockGate hasPasskeys={hasPasskeys} />}
       </body>
     </html>
   );

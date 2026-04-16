@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
 import { signIn } from "next-auth/react";
+import { startAuthentication } from "@simplewebauthn/browser";
 
 function GoogleMark() {
   return (
@@ -37,6 +38,7 @@ export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
   const [isGooglePending, setIsGooglePending] = useState(false);
+  const [isPasskeyPending, setIsPasskeyPending] = useState(false);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -64,6 +66,57 @@ export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
     setError("");
     setIsGooglePending(true);
     await signIn("google", { callbackUrl });
+  };
+
+  const handlePasskey = async () => {
+    setError("");
+
+    if (!email.trim()) {
+      setError("Enter your email address first, then use fingerprint or face unlock.");
+      return;
+    }
+
+    setIsPasskeyPending(true);
+
+    try {
+      const optionsRes = await fetch("/api/passkeys/authenticate/options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      const options = await optionsRes.json();
+      if (!optionsRes.ok) {
+        throw new Error(options.error ?? "Could not start biometric sign-in.");
+      }
+
+      const response = await startAuthentication(options);
+      const verifyRes = await fetch("/api/passkeys/authenticate/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response }),
+      });
+      const verify = await verifyRes.json();
+      if (!verifyRes.ok || !verify.grant) {
+        throw new Error(verify.error ?? "Biometric sign-in failed.");
+      }
+
+      const result = await signIn("passkey", {
+        grant: verify.grant,
+        redirect: false,
+        callbackUrl,
+      });
+
+      if (result?.error) {
+        throw new Error("Biometric sign-in failed.");
+      }
+
+      router.push(result?.url || callbackUrl);
+      router.refresh();
+    } catch (passkeyError) {
+      setError(passkeyError instanceof Error ? passkeyError.message : "Biometric sign-in failed.");
+    } finally {
+      setIsPasskeyPending(false);
+    }
   };
 
   return (
@@ -113,6 +166,15 @@ export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
         <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-slate-800" />
         <span className="relative bg-slate-900 px-3 text-xs uppercase tracking-[0.25em] text-slate-500">or</span>
       </div>
+
+      <button
+        type="button"
+        onClick={handlePasskey}
+        disabled={isPasskeyPending}
+        className="flex w-full items-center justify-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isPasskeyPending ? "Waiting for fingerprint / face unlock..." : "Use fingerprint / face unlock"}
+      </button>
 
       <button
         type="button"

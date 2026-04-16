@@ -473,6 +473,15 @@ export type PendingInvite = {
   createdAt: Date;
 };
 
+export type PasskeyDevice = {
+  id: string;
+  name: string;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  deviceType: string;
+  backedUp: boolean;
+};
+
 /** List current team members (OWNER + WORKERs) for the caller's tenant. */
 export async function listTeamMembers(): Promise<TeamMember[]> {
   const user = await requireOwnerOrAdmin();
@@ -517,6 +526,44 @@ export async function listPendingInvites(): Promise<PendingInvite[]> {
     expiresAt: i.expiresAt,
     createdAt: i.createdAt,
   }));
+}
+
+export async function listPasskeyDevices(): Promise<PasskeyDevice[]> {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+
+  const passkeys = await db.passkeyCredential.findMany({
+    where: { userId: session.user.id },
+    select: {
+      id: true,
+      name: true,
+      createdAt: true,
+      lastUsedAt: true,
+      deviceType: true,
+      backedUp: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return passkeys.map((passkey: PasskeyDevice) => passkey);
+}
+
+export async function deletePasskeyDevice(id: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+
+    await db.passkeyCredential.deleteMany({
+      where: {
+        id,
+        userId: session.user.id,
+      },
+    });
+
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err.message ?? "Failed to remove passkey." };
+  }
 }
 
 /** Revoke a pending invite by id (OWNER only). */
