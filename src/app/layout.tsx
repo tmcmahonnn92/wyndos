@@ -69,7 +69,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   let hasPasskeys = false;
 
   if (session?.user) {
-    hasPasskeys = Boolean(await prisma.passkeyCredential.count({ where: { userId: session.user.id } }));
+    try {
+      hasPasskeys = Boolean(await prisma.passkeyCredential.count({ where: { userId: session.user.id } }));
+    } catch (error) {
+      console.error("Passkey lookup failed during layout render", error);
+      hasPasskeys = false;
+    }
     const role = session.user.role;
 
     if (role === "SUPER_ADMIN") {
