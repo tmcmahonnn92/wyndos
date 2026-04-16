@@ -215,7 +215,7 @@ export function AccountingClient({
   const [viewingReceiptUrl, setViewingReceiptUrl] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState({ start: activeDateFrom, end: activeDateTo });
   const [expenseForm, setExpenseForm] = useState({
-    category: expenseCategories[0]?.value ?? "OTHER",
+    category: "",
     supplier: "",
     amount: "",
     taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
@@ -360,6 +360,7 @@ export function AccountingClient({
         supplier: extracted.supplier || prev.supplier,
         amount: extracted.amount || prev.amount,
         expenseDate: extracted.date || prev.expenseDate,
+        category: extracted.category || prev.category,
       }));
     } catch {
       // OCR failed — not critical, user fills manually
@@ -370,6 +371,10 @@ export function AccountingClient({
   };
 
   const submitExpense = () => {
+    if (!expenseForm.category) {
+      setFormError("Please select a category.");
+      return;
+    }
     const amount = Number(expenseForm.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       setFormError("Enter an expense amount above zero.");
@@ -393,7 +398,7 @@ export function AccountingClient({
           receiptFilename: expenseForm.receiptFilename || null,
         });
         setExpenseForm({
-          category: expenseCategories[0]?.value ?? "OTHER",
+          category: "",
           supplier: "",
           amount: "",
           taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
@@ -523,6 +528,10 @@ export function AccountingClient({
 
   const submitEditExpense = () => {
     if (!editingExpenseId) return;
+    if (!expenseForm.category) {
+      setFormError("Please select a category.");
+      return;
+    }
     const amount = Number(expenseForm.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       setFormError("Enter an expense amount above zero.");
@@ -547,7 +556,7 @@ export function AccountingClient({
         setQuickAddOpen(false);
         if (receiptInputRef.current) receiptInputRef.current.value = "";
         setExpenseForm({
-          category: expenseCategories[0]?.value ?? "OTHER",
+          category: "",
           supplier: "",
           amount: "",
           taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
@@ -629,8 +638,8 @@ export function AccountingClient({
           {/* ── Manual fields (also used for validation of OCR results) ── */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">Category</label>
-              <select value={expenseForm.category} onChange={(event) => setExpenseForm((prev) => ({ ...prev, category: event.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">{expenseCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select>
+              <label className="mb-1 block text-xs font-medium text-slate-700">Category {ocrResult?.category && <span className="text-green-600 text-[10px]">(auto-filled)</span>}</label>
+              <select value={expenseForm.category} onChange={(event) => setExpenseForm((prev) => ({ ...prev, category: event.target.value }))} className={cn("w-full rounded-lg border px-3 py-2 text-sm", ocrResult?.category ? "border-green-300 bg-green-50" : expenseForm.category ? "border-slate-200" : "border-slate-200 text-slate-400")}><option value="" disabled>Select a category…</option>{expenseCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-700">Date {ocrResult?.date && <span className="text-green-600 text-[10px]">(auto-filled)</span>}</label>
