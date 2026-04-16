@@ -344,9 +344,17 @@ export function SchedulePageClient({
   const [isPending, startTransition] = useTransition();
   const today = todayMidnight();
   const todayISO = isoDate(today);
+  // Only exclude areas that have a current or future non-complete day.
+  // Past non-complete days (stale PLANNED that were never done) should NOT
+  // hide the area — it's genuinely overdue in that case.
   const scheduledAreaIds = new Set(
     days
-      .filter((day) => day.areaId !== null && day.status !== "COMPLETE")
+      .filter(
+        (day) =>
+          day.areaId !== null &&
+          day.status !== "COMPLETE" &&
+          dayMidnight(day.date).getTime() >= today.getTime()
+      )
       .map((day) => day.areaId as number)
   );
 

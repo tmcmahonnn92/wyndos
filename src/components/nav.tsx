@@ -175,15 +175,15 @@ export function Nav({
       : []),
   ];
 
-  const preferredMobilePrimaryHrefs = ["/", "/days", "/scheduler", "/customers", "/payments"];
+  const preferredMobilePrimaryHrefs = ["/", "/days", "/customers", "/accounting", "/settings"];
   const mobilePrimaryItems = preferredMobilePrimaryHrefs
     .map((href) => shownNavItems.find((item) => item.href === href))
     .filter((item): item is NonNullable<typeof item> => Boolean(item))
-    .slice(0, 4);
+    .slice(0, 5);
   const mobilePrimaryHrefSet = new Set(mobilePrimaryItems.map((item) => item.href));
   const mobileMoreItems = shownNavItems.filter((item) => !mobilePrimaryHrefSet.has(item.href));
   const leftMobileItems = mobilePrimaryItems.slice(0, 2);
-  const rightMobileItems = mobilePrimaryItems.slice(2, 4);
+  const rightMobileItems = mobilePrimaryItems.slice(2);
   const mobileQuickActions = [
     { href: "/customers?action=new-customer", label: "New Customer", icon: UserPlus },
     { href: "/accounting?action=scan-receipt", label: "Scan Receipt", icon: Receipt },
@@ -293,9 +293,7 @@ export function Nav({
           <div className="absolute bottom-20 left-4 right-4 rounded-3xl border border-[#1E2840] bg-[#0F1626] p-3 shadow-2xl">
             <div className="mb-2 flex items-center justify-between px-1">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#4A5568]">Quick Access</p>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#4A5568]">Quick Add</p>
-                <p className="text-sm text-[#cbd5e1]">Start the job you actually need to add</p>
               </div>
               <button type="button" onClick={() => setMobileMenuOpen(false)} className="rounded-full border border-[#1E2840] p-2 text-[#94a3b8]">
                 <X size={14} />
@@ -306,45 +304,63 @@ export function Nav({
                 <Link
                   key={href}
                   href={href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-medium transition-colors border-[#1E2840] bg-[#131929] text-[#cbd5e1] hover:bg-[#16233D] hover:text-[#F8FAFF]"
-                  )}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-medium transition-colors border-[#1E2840] bg-[#131929] text-[#cbd5e1] hover:bg-[#16233D] hover:text-[#F8FAFF]"
                 >
                   <Icon size={16} />
                   <span className="truncate">{label}</span>
                 </Link>
               ))}
             </div>
+            {mobileMoreItems.length > 0 && (
+              <>
+                <div className="my-2 h-px bg-[#1E2840]" />
+                <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#4A5568]">More</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {mobileMoreItems.map(({ href, label, icon: Icon }) => (
+                    <Link
+                      key={href}
+                      href={href}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-medium transition-colors border-[#1E2840] bg-[#131929] text-[#cbd5e1] hover:bg-[#16233D] hover:text-[#F8FAFF]"
+                    >
+                      <Icon size={16} />
+                      <span className="truncate">{label}</span>
+                    </Link>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
-        <div className="relative flex items-center h-16 px-2">
-          <div className="flex flex-1 items-center justify-around pr-8">
+        <div className="relative flex items-center h-16 px-1">
+          <div className="flex flex-1 items-center justify-around pr-7">
             {leftMobileItems.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}
                 className={cn(
-                  "flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg transition-colors min-w-0 flex-1",
+                  "flex flex-col items-center gap-0.5 px-2 py-2 rounded-lg transition-colors min-w-0 flex-1",
                   isActive(href) ? "text-[#3D8EF5]" : "text-[#4A5568]"
                 )}
               >
-                <Icon size={20} />
-                <span className="text-[10px] font-medium truncate">{label}</span>
+                <Icon size={18} />
+                <span className="text-[9px] font-medium truncate">{label}</span>
               </Link>
             ))}
           </div>
-          <div className="flex flex-1 items-center justify-around pl-8">
+          <div className="flex flex-1 items-center justify-around pl-7">
             {rightMobileItems.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}
                 className={cn(
-                  "flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg transition-colors min-w-0 flex-1",
+                  "flex flex-col items-center gap-0.5 px-2 py-2 rounded-lg transition-colors min-w-0 flex-1",
                   isActive(href) ? "text-[#3D8EF5]" : "text-[#4A5568]"
                 )}
               >
-                <Icon size={20} />
-                <span className="text-[10px] font-medium truncate">{label}</span>
+                <Icon size={18} />
+                <span className="text-[9px] font-medium truncate">{label}</span>
               </Link>
             ))}
           </div>
@@ -355,7 +371,7 @@ export function Nav({
               "absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 inline-flex h-14 w-14 items-center justify-center rounded-full border-4 border-[#0A0E1A] shadow-lg transition-colors",
               mobileMenuOpen ? "bg-white text-[#0A0E1A]" : "bg-[#3D8EF5] text-white"
             )}
-            aria-label={mobileMenuOpen ? "Close quick access" : "Open quick access"}
+            aria-label={mobileMenuOpen ? "Close quick actions" : "Open quick actions"}
           >
             {mobileMenuOpen ? <X size={20} /> : <Plus size={22} />}
           </button>

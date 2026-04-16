@@ -3200,6 +3200,79 @@ export async function createExpense(data: {
   revalidatePath("/accounting");
 }
 
+export async function updateExpense(
+  expenseId: number,
+  data: {
+    category?: string;
+    supplier?: string;
+    amount?: number;
+    taxTreatment?: string;
+    expenseDate?: Date;
+    notes?: string;
+    receiptImage?: string | null;
+    receiptFilename?: string | null;
+  }
+) {
+  const tenantId = await getActiveTenantId();
+  const existing = await prisma.expense.findFirst({
+    where: { id: expenseId, tenantId },
+  });
+  if (!existing) throw new Error("Expense not found.");
+
+  const updates: Record<string, unknown> = {};
+
+  if (data.category !== undefined) {
+    const category = getExpenseCategory(data.category);
+    updates.category = category.value;
+    updates.hmrcCategory = category.hmrcCategory;
+  }
+  if (data.supplier !== undefined) updates.supplier = data.supplier.trim();
+  if (data.notes !== undefined) updates.notes = data.notes.trim() || null;
+
+  if (data.amount !== undefined) {
+    const amount = Number(data.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error("Expense amount must be greater than zero.");
+    }
+    const taxBreakdown = calculateTaxBreakdown(
+      amount,
+      data.taxTreatment ?? existing.taxTreatment
+    );
+    updates.amount = amount;
+    updates.netAmount = taxBreakdown.netAmount;
+    updates.vatAmount = taxBreakdown.vatAmount;
+    updates.vatRate = taxBreakdown.vatRate;
+    updates.taxTreatment = taxBreakdown.taxTreatment;
+  } else if (data.taxTreatment !== undefined) {
+    const taxBreakdown = calculateTaxBreakdown(existing.amount, data.taxTreatment);
+    updates.netAmount = taxBreakdown.netAmount;
+    updates.vatAmount = taxBreakdown.vatAmount;
+    updates.vatRate = taxBreakdown.vatRate;
+    updates.taxTreatment = taxBreakdown.taxTreatment;
+  }
+
+  if (data.expenseDate !== undefined) {
+    const d = new Date(data.expenseDate);
+    if (Number.isNaN(d.getTime())) throw new Error("Expense date is invalid.");
+    updates.expenseDate = d;
+  }
+
+  if (data.receiptImage !== undefined) {
+    const img = data.receiptImage?.trim() || null;
+    if (img && !img.startsWith("data:image/")) throw new Error("Receipt upload must be an image.");
+    if (img && img.length > MAX_RECEIPT_IMAGE_LENGTH) throw new Error("Receipt image is too large.");
+    updates.receiptImage = img;
+    updates.receiptFilename = data.receiptFilename?.trim() || null;
+  }
+
+  await prisma.expense.update({
+    where: { id: expenseId },
+    data: updates,
+  });
+
+  revalidatePath("/accounting");
+}
+
 export async function createOtherIncome(data: {
   category: string;
   source?: string;
