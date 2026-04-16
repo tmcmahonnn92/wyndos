@@ -1,6 +1,8 @@
 ﻿"use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import {
   CheckCircle2,
   Clock,
@@ -9,8 +11,8 @@ import {
   Zap,
   AlertCircle,
   CalendarOff,
-  ArrowRight,
 } from "lucide-react";
+import { scheduleAreaRun, startDay } from "@/lib/actions";
 import { fmtCurrency } from "@/lib/utils";
 import { CalendarView } from "./calendar-view";
 
@@ -220,6 +222,106 @@ function SectionLabel({ label, count }: { label: string; count: number }) {
   );
 }
 
+function areaScheduleSummary(area: Area): string {
+  return area.scheduleType === "MONTHLY"
+    ? `Monthly on day ${area.monthlyDay ?? 1}`
+    : `Every ${area.frequencyWeeks} week${area.frequencyWeeks === 1 ? "" : "s"}`;
+}
+
+function areaDueCopy(area: Area, overdue: boolean): string {
+  if (!area.nextDueDate) return "No next due date set";
+  return overdue ? `Due since ${fmtDate(area.nextDueDate)}` : `Due ${fmtDate(area.nextDueDate)}`;
+}
+
+function AreaQueueCard({
+  area,
+  overdue,
+  hidePrices,
+  isFocused,
+  isStarting,
+  error,
+  onStartToday,
+}: {
+  area: Area;
+  overdue: boolean;
+  hidePrices: boolean;
+  isFocused: boolean;
+  isStarting: boolean;
+  error: string | null;
+  onStartToday: (area: Area) => void;
+}) {
+  return (
+    <div
+      className={[
+        "rounded-2xl border px-4 py-4",
+        overdue ? "border-red-200 bg-red-50/70" : "border-slate-200 bg-white",
+        isFocused ? "ring-2 ring-blue-200" : "",
+      ].join(" ")}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span
+              className={[
+                "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide",
+                overdue ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600",
+              ].join(" ")}
+            >
+              {overdue ? <AlertCircle size={12} /> : <CalendarOff size={12} />}
+              {overdue ? "Overdue" : "Unscheduled"}
+            </span>
+            <h3 className="text-base font-bold text-slate-800">{area.name}</h3>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">{areaScheduleSummary(area)}</p>
+          <p className={[
+            "mt-1 text-sm font-medium",
+            overdue ? "text-red-700" : "text-slate-500",
+          ].join(" ")}>
+            {areaDueCopy(area, overdue)}
+          </p>
+        </div>
+
+        {!hidePrices && (
+          <div className="text-right flex-shrink-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Value</p>
+            <p className="text-base font-bold text-slate-800">{fmtCurrency(area.estimatedValue)}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+          {area._count.customers} customer{area._count.customers === 1 ? "" : "s"}
+        </span>
+        {area.nextDueDate && (
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+            {fmtDate(area.nextDueDate)}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onStartToday(area)}
+          disabled={isStarting}
+          className={[
+            "inline-flex items-center rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors",
+            overdue
+              ? "bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300"
+              : "bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300",
+          ].join(" ")}
+        >
+          {isStarting ? "Starting..." : "Start today"}
+        </button>
+        <span className="text-xs text-slate-500">Adds this route to today and opens the work day.</span>
+      </div>
+
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+    </div>
+  );
+}
+
 // ── Main client component ─────────────────────────────────────────────────────
 
 export function SchedulePageClient({
@@ -235,6 +337,11 @@ export function SchedulePageClient({
   focusAreaId?: number | null;
   hidePrices?: boolean;
 }) {
+  const router = useRouter();
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [errorAreaId, setErrorAreaId] = useState<number | null>(null);
+  const [startingAreaId, setStartingAreaId] = useState<number | null>(null);
+  const [isPending, startTransition] = useTransition();
   const today = todayMidnight();
   const todayISO = isoDate(today);
   const scheduledAreaIds = new Set(
@@ -258,96 +365,26 @@ export function SchedulePageClient({
     (d) => isoDate(dayMidnight(d.date)) === todayISO
   );
 
-  const focusedArea = focusAreaId ? areas.find((area) => area.id === focusAreaId) ?? null : null;
-  const focusedAreaDay = focusedArea
-    ? [...days]
-        .filter((day) => day.areaId === focusedArea.id)
-        .sort((left, right) => dayMidnight(left.date).getTime() - dayMidnight(right.date).getTime())[0] ?? null
-    : null;
+  const handleStartToday = (area: Area) => {
+    startTransition(async () => {
+      try {
+        setActionError(null);
+        setErrorAreaId(null);
+        setStartingAreaId(area.id);
+        const workDay = await scheduleAreaRun(area.id, todayISO);
+        await startDay(workDay.id);
+        router.push(`/days/${workDay.id}`);
+      } catch (issue) {
+        setErrorAreaId(area.id);
+        setActionError(issue instanceof Error ? issue.message : "Could not start this route today.");
+      } finally {
+        setStartingAreaId(null);
+      }
+    });
+  };
 
   return (
     <div className="space-y-4">
-      {(overdueAreas.length > 0 || unscheduledAreas.length > 0) && (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 space-y-3">
-          {overdueAreas.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <AlertCircle size={12} className="text-red-500" />
-                Overdue Areas
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {overdueAreas.slice(0, 8).map((area) => (
-                  <Link
-                    key={area.id}
-                    href={`/days?focusArea=${area.id}`}
-                    className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
-                  >
-                    {area.name} ({area.frequencyWeeks}-Weekly)
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {unscheduledAreas.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <CalendarOff size={12} className="text-slate-500" />
-                Unscheduled Areas
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {unscheduledAreas.slice(0, 8).map((area) => (
-                  <Link
-                    key={area.id}
-                    href={`/days?focusArea=${area.id}`}
-                    className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                  >
-                    {area.name} ({area.frequencyWeeks}-Weekly)
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {focusedArea && (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Area Route Snapshot</p>
-              <h2 className="mt-1 text-lg font-bold text-slate-800">{focusedArea.name}</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                {focusedArea.scheduleType === "MONTHLY"
-                  ? `Monthly on day ${focusedArea.monthlyDay ?? 1}`
-                  : `Every ${focusedArea.frequencyWeeks} week${focusedArea.frequencyWeeks === 1 ? "" : "s"}`}
-                {focusedArea.nextDueDate ? ` · next due ${fmtDate(focusedArea.nextDueDate)}` : " · no next due date set"}
-              </p>
-            </div>
-            {!hidePrices && (
-              <div className="text-right">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Value</p>
-                <p className="text-base font-bold text-slate-800">{fmtCurrency(focusedArea.estimatedValue)}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
-            <span className="rounded-full bg-white px-2.5 py-1 border border-blue-100">
-              {focusedArea._count.customers} customer{focusedArea._count.customers === 1 ? "" : "s"}
-            </span>
-            {focusedAreaDay ? (
-              <Link href={`/days/${focusedAreaDay.id}`} className="inline-flex items-center gap-1 rounded-full bg-blue-600 px-3 py-1 text-white hover:bg-blue-700">
-                Open work day
-                <ArrowRight size={12} />
-              </Link>
-            ) : (
-              <span className="rounded-full bg-white px-2.5 py-1 border border-blue-100">No current work day booked</span>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Today */}
       <div className="space-y-2">
         <SectionLabel label="Today" count={todayDays.length} />
@@ -384,6 +421,46 @@ export function SchedulePageClient({
           <div className="mt-2">
             <CalendarView days={days} holidays={holidays} hidePrices={hidePrices} />
           </div>
+        </div>
+      )}
+
+      {(overdueAreas.length > 0 || unscheduledAreas.length > 0) && (
+        <div className="space-y-4 pt-2">
+          {overdueAreas.length > 0 && (
+            <div className="space-y-2">
+              <SectionLabel label="Overdue Areas" count={overdueAreas.length} />
+              {overdueAreas.map((area) => (
+                <AreaQueueCard
+                  key={area.id}
+                  area={area}
+                  overdue
+                  hidePrices={hidePrices}
+                  isFocused={focusAreaId === area.id}
+                  isStarting={isPending && startingAreaId === area.id}
+                  error={actionError && errorAreaId === area.id ? actionError : null}
+                  onStartToday={handleStartToday}
+                />
+              ))}
+            </div>
+          )}
+
+          {unscheduledAreas.length > 0 && (
+            <div className="space-y-2">
+              <SectionLabel label="Unscheduled Areas" count={unscheduledAreas.length} />
+              {unscheduledAreas.map((area) => (
+                <AreaQueueCard
+                  key={area.id}
+                  area={area}
+                  overdue={false}
+                  hidePrices={hidePrices}
+                  isFocused={focusAreaId === area.id}
+                  isStarting={isPending && startingAreaId === area.id}
+                  error={actionError && errorAreaId === area.id ? actionError : null}
+                  onStartToday={handleStartToday}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
