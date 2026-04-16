@@ -173,9 +173,13 @@ export function Nav({
       : []),
   ];
 
-  const mobilePrimaryHrefs = ["/", "/days", "/customers", "/payments"];
-  const mobilePrimaryItems = shownNavItems.filter((item) => mobilePrimaryHrefs.includes(item.href));
-  const mobileMoreItems = shownNavItems.filter((item) => !mobilePrimaryHrefs.includes(item.href));
+  const preferredMobilePrimaryHrefs = ["/", "/days", "/scheduler", "/customers", "/payments"];
+  const mobilePrimaryItems = preferredMobilePrimaryHrefs
+    .map((href) => shownNavItems.find((item) => item.href === href))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .slice(0, 4);
+  const mobilePrimaryHrefSet = new Set(mobilePrimaryItems.map((item) => item.href));
+  const mobileMoreItems = shownNavItems.filter((item) => !mobilePrimaryHrefSet.has(item.href));
   const leftMobileItems = mobilePrimaryItems.slice(0, 2);
   const rightMobileItems = mobilePrimaryItems.slice(2, 4);
 
