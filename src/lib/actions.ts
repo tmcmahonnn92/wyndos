@@ -1115,6 +1115,10 @@ async function syncCustomerOpenJobs(
     where: {
       tenantId,
       customerId,
+      // Never overwrite one-off jobs — they have deliberately custom name/price
+      // (e.g. the original one-off booking that must stay intact when converting
+      // a one-off customer into a regular one).
+      isOneOff: false,
       workDay: {
         status: { in: ["PLANNED", "IN_PROGRESS"] },
       },
@@ -2216,15 +2220,51 @@ export async function completeDay(
 export async function reopenDay(workDayId: number) {
   const tenantId = await getActiveTenantId();
   const workDay = await requireTenantWorkDay(tenantId, workDayId);
+
   if (workDay.areaId) {
-    await assertNoConflictingOpenAreaDay(tenantId, workDay.areaId, workDay.date, workDay.id);
+    // Completing this day auto-schedules the area's next run (a future PLANNED day).
+    // Re-opening undoes that completion, so remove the auto-generated upcoming run and
+    // roll the area's schedule back to this day, otherwise re-opening would leave two
+    // open runs for the same area.
+    const upcoming = await prisma.workDay.findFirst({
+      where: {
+        tenantId,
+        areaId: workDay.areaId,
+        status: { in: ["PLANNED", "IN_PROGRESS"] },
+        id: { not: workDayId },
+        date: { gt: workDay.date },
+      },
+      orderBy: { date: "asc" },
+      select: { id: true },
+    });
+    if (upcoming) {
+      await prisma.job.deleteMany({ where: { tenantId, workDayId: upcoming.id } });
+      await prisma.workDay.delete({ where: { id: upcoming.id } });
+    }
+
+    // Point the area (and its customers) back at this run as the next due work.
+    const prevCompleted = await prisma.workDay.findFirst({
+      where: { tenantId, areaId: workDay.areaId, status: "COMPLETE", id: { not: workDayId } },
+      orderBy: { date: "desc" },
+      select: { date: true },
+    });
+    await prisma.area.update({
+      where: { id: workDay.areaId },
+      data: { lastCompletedDate: prevCompleted?.date ?? null, nextDueDate: workDay.date },
+    });
+    await prisma.customer.updateMany({
+      where: { tenantId, areaId: workDay.areaId, active: true },
+      data: { lastCompletedDate: prevCompleted?.date ?? null, nextDueDate: workDay.date },
+    });
   }
+
   await prisma.workDay.update({
     where: { id: workDayId },
     data: { status: "PLANNED" },
   });
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/days");
+  revalidatePath("/scheduler");
   revalidatePath("/");
 }
 
