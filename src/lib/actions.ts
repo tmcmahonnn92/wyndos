@@ -664,17 +664,24 @@ export async function createOneOffJob(data: {
 
   const customer = await requireTenantCustomer(tenantId, data.customerId);
 
-  // One-off: find or create a workday on this date with no area
-  let workDay = await prisma.workDay.findFirst({ where: { tenantId, date: d, areaId: null } });
-  if (!workDay) workDay = await prisma.workDay.create({ data: { tenantId, date: d } });
-
-  // Check not already on this day
-  const existing = await prisma.job.findFirst({ where: { tenantId, workDayId: workDay.id, customerId: data.customerId },
+  // Keep each one-off on its own standalone (area-less) work day so they always stay
+  // separate in the scheduler instead of being grouped under the first job's name.
+  // Guard against booking the same customer twice as a one-off on the same date.
+  const existing = await prisma.job.findFirst({
+    where: {
+      tenantId,
+      customerId: data.customerId,
+      isOneOff: true,
+      workDay: { date: d, areaId: null },
+    },
+    include: { workDay: true },
   });
-  if (existing) {
-    revalidatePath(`/days/${workDay.id}`);
-    return { workDay, job: existing, alreadyExisted: true };
+  if (existing && existing.workDay) {
+    revalidatePath(`/days/${existing.workDayId}`);
+    return { workDay: existing.workDay, job: existing, alreadyExisted: true };
   }
+
+  const workDay = await prisma.workDay.create({ data: { tenantId, date: d } });
 
   const job = await prisma.job.create({ data: { tenantId,
       workDayId: workDay.id,
@@ -1663,8 +1670,9 @@ export async function createOneOffCustomerAndBookByDate(
     },
   });
 
-  let workDay = await prisma.workDay.findFirst({ where: { tenantId, date: d, areaId: null } });
-  if (!workDay) workDay = await prisma.workDay.create({ data: { tenantId, date: d } });
+  // Each one-off books onto its own standalone (area-less) work day so they stay
+  // separate in the scheduler rather than being grouped under the first job.
+  const workDay = await prisma.workDay.create({ data: { tenantId, date: d } });
 
   await prisma.job.create({ data: { tenantId, workDayId: workDay.id, customerId: customer.id, price: customer.price, isOneOff: true },
   });
@@ -1680,6 +1688,14 @@ export async function removeJobFromDay(jobId: number) {
   const job = await requireTenantJob(tenantId, jobId);
   if (job.status === "COMPLETE") throw new Error("Cannot remove a completed job");
   await prisma.job.delete({ where: { id: job.id } });
+  // Tidy up empty standalone (area-less) one-off days so they don't linger on the calendar.
+  const remaining = await prisma.job.count({ where: { tenantId, workDayId: job.workDayId } });
+  if (remaining === 0) {
+    const wd = await prisma.workDay.findFirst({ where: { id: job.workDayId, tenantId } });
+    if (wd && wd.areaId === null && wd.status !== "COMPLETE") {
+      await prisma.workDay.delete({ where: { id: wd.id } });
+    }
+  }
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath("/scheduler");
 }
@@ -4117,6 +4133,7 @@ export async function rescheduleJobToDate(jobId: number, dateISO: string) {
   if (!job) throw new Error("Job not found");
 
   const areaId = job.workDay.areaId;
+  const sourceWorkDayId = job.workDayId;
   let targetWorkDay: { id: number };
 
   if (areaId) {
@@ -4127,16 +4144,26 @@ export async function rescheduleJobToDate(jobId: number, dateISO: string) {
       create: { tenantId, date: d, areaId },
     });
   } else {
-    // Standalone day — find any existing standalone day on that date or create
-    const existing = await prisma.workDay.findFirst({ where: { tenantId, date: d, areaId: null },
-    });
-    targetWorkDay = existing ?? (await prisma.workDay.create({ data: { tenantId, date: d } }));
+    // Standalone (one-off) day — always give the job its own fresh standalone day so
+    // one-off jobs stay separate in the scheduler instead of merging onto the same date.
+    targetWorkDay = await prisma.workDay.create({ data: { tenantId, date: d } });
   }
 
   await prisma.job.update({
     where: { id: jobId },
     data: { workDayId: targetWorkDay.id },
   });
+
+  // Remove the source standalone day if moving the job left it empty.
+  if (sourceWorkDayId !== targetWorkDay.id) {
+    const remaining = await prisma.job.count({ where: { tenantId, workDayId: sourceWorkDayId } });
+    if (remaining === 0) {
+      const wd = await prisma.workDay.findFirst({ where: { id: sourceWorkDayId, tenantId } });
+      if (wd && wd.areaId === null && wd.status !== "COMPLETE") {
+        await prisma.workDay.delete({ where: { id: wd.id } });
+      }
+    }
+  }
 
   revalidatePath("/scheduler");
   revalidatePath("/days");

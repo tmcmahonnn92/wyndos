@@ -72,6 +72,8 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
   const [convertOpen, setConvertOpen] = useState(false);
   const firstRealAreaId = areas.find((a) => !a.isSystemArea)?.id ?? areas[0]?.id;
   const [convertAreaId, setConvertAreaId] = useState(firstRealAreaId ? String(firstRealAreaId) : "");
+  const [convertJobName, setConvertJobName] = useState(customer.jobName?.trim() || "Window Cleaning");
+  const [convertPrice, setConvertPrice] = useState(String(customer.price));
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [smsOpen, setSmsOpen] = useState(false);
@@ -322,8 +324,13 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
 
   const handleConvertToRegular = () => {
     if (!convertAreaId) return;
+    const parsedPrice = parseFloat(convertPrice);
     startTransition(async () => {
-      await updateCustomer(customer.id, { areaId: Number(convertAreaId) });
+      await updateCustomer(customer.id, {
+        areaId: Number(convertAreaId),
+        jobName: convertJobName.trim() || "Window Cleaning",
+        ...(isNaN(parsedPrice) ? {} : { price: parsedPrice }),
+      });
       setConvertOpen(false);
       router.refresh();
     });
@@ -860,6 +867,31 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
             <p className="text-xs text-slate-400 mt-1">The customer will inherit this area&apos;s cleaning frequency.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Regular job</label>
+            <input
+              type="text"
+              value={convertJobName}
+              onChange={(e) => setConvertJobName(e.target.value)}
+              placeholder="Window Cleaning"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+            <p className="text-xs text-slate-400 mt-1">Used as the default job on each scheduled visit.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Regular price</label>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-500">£</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={convertPrice}
+                onChange={(e) => setConvertPrice(e.target.value)}
+                className="w-32 border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              />
+            </div>
           </div>
           <div className="flex gap-2">
             <Button onClick={handleConvertToRegular} disabled={isPending || !convertAreaId} className="flex-1">

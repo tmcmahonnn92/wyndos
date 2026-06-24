@@ -662,7 +662,7 @@ function WorkDayNotesModal({
   };
 
   if (!day) return null;
-  const areaName = day.area?.name ?? day.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off";
+  const areaName = day.area?.name ?? day.jobs[0]?.customer?.name ?? "One-off";
 
   return (
     <Modal open={!!day} onClose={onClose} title="">
@@ -824,7 +824,7 @@ function CalendarCell({
               {/* Row 1: grip + name + status icon */}
               <div className="flex items-center gap-1">
                 <GripVertical size={10} className="opacity-50 flex-shrink-0" />
-                <span className="font-bold truncate flex-1">{wd.area?.name ?? wd.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off"}</span>
+                <span className="font-bold truncate flex-1">{wd.area?.name ?? wd.jobs[0]?.customer?.name ?? "One-off"}</span>
                 {wd.status === "IN_PROGRESS" && <Clock size={10} className="flex-shrink-0 opacity-80" />}
               </div>
               {wd.assignedUser && (
