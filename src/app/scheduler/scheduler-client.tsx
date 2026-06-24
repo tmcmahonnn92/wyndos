@@ -893,6 +893,7 @@ function MonthCalendarCell({
   onDrop,
   isDragOver,
   onWorkDayDragStart,
+  onRemove,
   canManageSchedule,
 }: {
   date: Date;
@@ -907,6 +908,7 @@ function MonthCalendarCell({
   onDrop: (date: Date) => void;
   isDragOver: boolean;
   onWorkDayDragStart: (wd: WorkDay) => void;
+  onRemove: (wd: WorkDay) => void;
   canManageSchedule: boolean;
 }) {
   const isToday = isoDate(date) === todayISO();
@@ -993,13 +995,33 @@ function MonthCalendarCell({
             onDragStart={(e) => { if (!canManageSchedule || workDay.status === "COMPLETE") { e.preventDefault(); return; } e.stopPropagation(); onWorkDayDragStart(workDay); }}
             className="relative group"
           >
+            {/* Remove button — top-right, visible on hover, hidden for completed days */}
+            {canManageSchedule && workDay.status !== "COMPLETE" && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onRemove(workDay); }}
+                className="absolute -top-1 -right-1 z-20 w-4 h-4 rounded-full bg-white border border-slate-300 text-slate-400 hover:bg-red-500 hover:border-red-500 hover:text-white transition-colors hidden group-hover:flex items-center justify-center shadow-sm"
+                title="Remove from schedule"
+              >
+                <X size={9} />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onExpand(workDay)}
               draggable={false}
-              className="flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left text-[11px] text-white transition hover:opacity-90 select-none"
+              className="relative overflow-hidden flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left text-[11px] text-white transition hover:opacity-90 select-none"
               style={workDayChipStyle(workDay.status, workDay.area?.color)}
             >
+              {/* Completed overlay — semi-opaque green tick centred over the chip */}
+              {workDay.status === "COMPLETE" && (
+                <div className="absolute inset-0 rounded-lg flex items-center justify-center bg-green-500/30 pointer-events-none z-10">
+                  <CheckCircle2 size={22} className="text-white drop-shadow" />
+                </div>
+              )}
+              {/* In-progress overlay — pulsing ring so area colour stays visible */}
+              {workDay.status === "IN_PROGRESS" && (
+                <div className="absolute inset-0 rounded-lg ring-2 ring-white/70 ring-inset animate-pulse pointer-events-none z-10" />
+              )}
               <span className="truncate font-bold">{workDay.area?.name ?? workDay.jobs[0]?.customer?.name ?? "Work day"}</span>
               <span className="truncate opacity-90">{workDay.jobs.length} job{workDay.jobs.length !== 1 ? "s" : ""}</span>
               {workDay.assignedUser && (
@@ -3465,6 +3487,12 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                     onExpand={(wd) => {
                       if (wd.status === "COMPLETE") setCompletedExpandedDay(wd);
                       else setExpandedDay(wd);
+                    }}
+                    onRemove={(wd) => {
+                      startTransition(async () => {
+                        await deleteWorkDay(wd.id);
+                        router.refresh();
+                      });
                     }}
                   />
                 );
