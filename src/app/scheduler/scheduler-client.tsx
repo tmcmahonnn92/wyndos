@@ -82,6 +82,7 @@ type Area = {
   estimatedValue: number;
   outstandingDebt: number;
   _count: { customers: number };
+  customers?: { id: number; name: string; address: string; sortOrder: number | null }[];
 };
 
 type Job = {
@@ -2683,6 +2684,16 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
   const [addAreaOpen, setAddAreaOpen] = useState(false);
   const [oneOffOpen, setOneOffOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  // Feature 2: auto-schedule unscheduled areas across chosen weekdays.
+  const [autoOpen, setAutoOpen] = useState(false);
+  const [autoWeekdays, setAutoWeekdays] = useState<Set<number>>(new Set([0, 1, 3, 4])); // Mon, Tue, Thu, Fri (Monday-based)
+  const [autoStartDate, setAutoStartDate] = useState<string>(() => todayISO());
+  const [autoLimitMode, setAutoLimitMode] = useState<"customers" | "value">("customers");
+  const [autoMaxCustomers, setAutoMaxCustomers] = useState<number>(25);
+  const [autoMaxValue, setAutoMaxValue] = useState<number>(300);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [autoProgress, setAutoProgress] = useState<string>("");
+  const [autoError, setAutoError] = useState<string | null>(null);
   // Removed moveModal state and logic (obsolete)
   const [areasCollapsed, setAreasCollapsed] = useState(false);
 
@@ -2795,6 +2806,121 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
     });
   const unscheduledAreas = sortedAreas.filter((area) => !overdueAreas.some((entry) => entry.id === area.id));
 
+  // ── Feature 2: auto-schedule unscheduled areas ─────────────────────────────
+  const autoSchedulableAreas = sortedAreas.filter((a) => (a._count?.customers ?? 0) > 0);
+
+  const toggleAutoWeekday = (idx: number) => {
+    setAutoWeekdays((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const handleAutoSchedule = async () => {
+    setAutoError(null);
+    if (autoSchedulableAreas.length === 0) {
+      setAutoError("There are no unscheduled areas with customers to schedule.");
+      return;
+    }
+    if (autoWeekdays.size === 0) {
+      setAutoError("Pick at least one working weekday.");
+      return;
+    }
+    const limit = autoLimitMode === "customers" ? autoMaxCustomers : autoMaxValue;
+    if (!limit || limit <= 0) {
+      setAutoError("Enter a valid per-day limit.");
+      return;
+    }
+
+    setAutoRunning(true);
+    try {
+      // 1. Geocode the first customer address of each area (best effort).
+      setAutoProgress("Looking up area locations…");
+      const firstAddressOf = (a: Area): string | null => {
+        const list = a.customers ?? [];
+        if (list.length === 0) return null;
+        const sorted = [...list].sort(
+          (x, y) => (x.sortOrder ?? 9999) - (y.sortOrder ?? 9999) || x.name.localeCompare(y.name)
+        );
+        return sorted[0]?.address ?? null;
+      };
+      const coords: ([number, number] | null)[] = [];
+      for (const area of autoSchedulableAreas) {
+        const addr = firstAddressOf(area);
+        if (!addr) {
+          coords.push(null);
+          continue;
+        }
+        const geo = await geocodeAddress(addr);
+        coords.push(geo ? [geo.lat, geo.lon] : null);
+      }
+
+      // 2. Order areas geographically: nearest-neighbour over the geocodable ones,
+      //    appending any that could not be geocoded at the end.
+      const geocodableIdx = autoSchedulableAreas.map((_, i) => i).filter((i) => coords[i] !== null);
+      const ungeocodableIdx = autoSchedulableAreas.map((_, i) => i).filter((i) => coords[i] === null);
+      const nnOrder = nearestNeighbourOrder(geocodableIdx.map((i) => coords[i]));
+      const orderedIdx = [...nnOrder.map((pos) => geocodableIdx[pos]), ...ungeocodableIdx];
+
+      // 3. Build a forward list of valid working dates (selected weekdays, no holidays).
+      const validDates: string[] = [];
+      const start = new Date(`${autoStartDate}T00:00:00`);
+      let cursor = new Date(start);
+      const maxLookaheadDays = 366;
+      for (let i = 0; i < maxLookaheadDays && validDates.length < autoSchedulableAreas.length + 8; i++) {
+        const mondayIdx = (cursor.getDay() + 6) % 7; // 0 = Mon … 6 = Sun
+        if (autoWeekdays.has(mondayIdx) && !isDateHoliday(cursor)) {
+          validDates.push(isoDate(cursor));
+        }
+        cursor = addDays(cursor, 1);
+      }
+
+      // 4. Greedily pack areas into days respecting the chosen per-day limit.
+      const assignments: { areaId: number; dateISO: string }[] = [];
+      let dayIndex = 0;
+      let runningTotal = 0;
+      const amountOf = (a: Area) =>
+        autoLimitMode === "customers" ? a._count?.customers ?? 0 : a.estimatedValue ?? 0;
+      for (const idx of orderedIdx) {
+        const area = autoSchedulableAreas[idx];
+        const amount = amountOf(area);
+        if (runningTotal > 0 && runningTotal + amount > limit) {
+          dayIndex += 1;
+          runningTotal = 0;
+        }
+        if (dayIndex >= validDates.length) {
+          // Extend dates if we ran out (shouldn't normally happen).
+          let extra = new Date(`${validDates[validDates.length - 1] ?? autoStartDate}T00:00:00`);
+          while (assignments.length >= 0 && dayIndex >= validDates.length) {
+            extra = addDays(extra, 1);
+            const mondayIdx = (extra.getDay() + 6) % 7;
+            if (autoWeekdays.has(mondayIdx) && !isDateHoliday(extra)) validDates.push(isoDate(extra));
+          }
+        }
+        assignments.push({ areaId: area.id, dateISO: validDates[dayIndex] });
+        runningTotal += amount;
+      }
+
+      // 5. Apply the schedule one area at a time.
+      for (let i = 0; i < assignments.length; i++) {
+        const { areaId, dateISO } = assignments[i];
+        setAutoProgress(`Scheduling ${i + 1} of ${assignments.length} areas…`);
+        await scheduleAreaRun(areaId, dateISO);
+      }
+
+      setAutoProgress("");
+      setAutoRunning(false);
+      setAutoOpen(false);
+      router.refresh();
+    } catch (issue) {
+      setAutoRunning(false);
+      setAutoProgress("");
+      setAutoError(issue instanceof Error ? issue.message : "Auto-schedule failed. Please try again.");
+    }
+  };
+
   const revealAreaCard = useCallback((areaId: number) => {
     setAreasCollapsed(false);
     requestAnimationFrame(() => {
@@ -2896,6 +3022,129 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
         </div>
       </Modal>
 
+      <Modal open={autoOpen} onClose={() => { if (!autoRunning) setAutoOpen(false); }} title="Auto-schedule areas">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            Spread the{" "}
+            <span className="font-semibold text-slate-800">{autoSchedulableAreas.length}</span>{" "}
+            currently unscheduled area{autoSchedulableAreas.length === 1 ? "" : "s"} across your working days.
+            Areas are grouped geographically (closest first addresses together) and packed up to the limit you choose.
+          </p>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Working days</label>
+            <div className="flex flex-wrap gap-1.5">
+              {DAY_LABELS.map((label, idx) => {
+                const active = autoWeekdays.has(idx);
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => toggleAutoWeekday(idx)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors",
+                      active
+                        ? "border-blue-600 bg-blue-600 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-blue-300"
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Start from</label>
+            <input
+              type="date"
+              value={autoStartDate}
+              onChange={(e) => setAutoStartDate(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Limit each day by</label>
+            <div className="grid grid-cols-2 gap-1.5 mb-2">
+              <button
+                type="button"
+                onClick={() => setAutoLimitMode("customers")}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 p-2 rounded-lg border text-xs font-semibold transition-colors",
+                  autoLimitMode === "customers"
+                    ? "border-blue-600 bg-blue-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-blue-300"
+                )}
+              >
+                <Users size={14} /> Max customers
+              </button>
+              <button
+                type="button"
+                onClick={() => setAutoLimitMode("value")}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 p-2 rounded-lg border text-xs font-semibold transition-colors",
+                  autoLimitMode === "value"
+                    ? "border-blue-600 bg-blue-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-blue-300"
+                )}
+              >
+                <PoundSterling size={14} /> Max round value
+              </button>
+            </div>
+            {autoLimitMode === "customers" ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  value={autoMaxCustomers}
+                  onChange={(e) => setAutoMaxCustomers(Number(e.target.value))}
+                  className="w-28 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+                <span className="text-xs text-slate-500">customers per day</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500">£</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={autoMaxValue}
+                  onChange={(e) => setAutoMaxValue(Number(e.target.value))}
+                  className="w-28 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+                <span className="text-xs text-slate-500">round value per day</span>
+              </div>
+            )}
+          </div>
+
+          {autoError && (
+            <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {autoError}
+            </p>
+          )}
+          {autoRunning && (
+            <p className="flex items-center gap-2 text-xs font-medium text-blue-700">
+              <Loader2 size={14} className="animate-spin" /> {autoProgress || "Working…"}
+            </p>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <Button
+              onClick={handleAutoSchedule}
+              disabled={autoRunning || autoSchedulableAreas.length === 0}
+              className="flex-1"
+            >
+              {autoRunning ? "Scheduling…" : "Auto-schedule"}
+            </Button>
+            <Button variant="outline" onClick={() => setAutoOpen(false)} disabled={autoRunning}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* ── Areas strip ────────────────────────────────────────────────────── */}
       {canManageSchedule && (
       <div className="border-b border-slate-200 bg-slate-50 flex-shrink-0">
@@ -2935,6 +3184,13 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
               className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors"
             >
               <Umbrella size={12} /> Holidays
+            </button>
+            <button
+              onClick={() => { setAutoError(null); setAutoProgress(""); setAutoOpen(true); }}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg border border-blue-200 bg-white text-xs font-semibold text-blue-600 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+              title="Auto-schedule unscheduled areas across chosen days"
+            >
+              <Zap size={12} /> Auto-schedule
             </button>
             <button
               onClick={() => setClearConfirmOpen(true)}

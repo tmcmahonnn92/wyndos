@@ -53,6 +53,7 @@ import {
   updateJobNotes,
   updateJobCompletedAt,
   updateJobPrice,
+  moveOverdueJobsToDay,
 } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -103,7 +104,6 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
   const [addJobOpen, setAddJobOpen] = useState(false);
   const [nextRunInfo, setNextRunInfo] = useState<{ nextDue: Date | string; nextWorkDayId: number | null; areaName: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [resolutions, setResolutions] = useState<Record<number, PendingResolution>>({});
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [openJobInPayMode, setOpenJobInPayMode] = useState(false);
   const [notesJob, setNotesJob] = useState<Job | null>(null);
@@ -114,6 +114,12 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [completionDate, setCompletionDate] = useState(todayDateValue);
   const [dragJobId, setDragJobId] = useState<number | null>(null);
+  // Feature 1: multi-select + bulk move of unfinished jobs on day completion.
+  const [selectedPendingIds, setSelectedPendingIds] = useState<Set<number>>(new Set());
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
+  const [bulkDest, setBulkDest] = useState<"new" | "existing">("new");
+  const [bulkNewDate, setBulkNewDate] = useState(todayDateValue);
+  const [bulkExistingDayId, setBulkExistingDayId] = useState<string>("");
   const router = useRouter();
 
   // Drag-to-reorder state for pending jobs.
@@ -192,12 +198,11 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
 
   const handleCompleteDay = () => {
     if (pendingJobs.length > 0 || shouldPromptForCompletedDate) {
-      // Initialise all pending jobs with default resolution
-      const init: Record<number, PendingResolution> = {};
-      pendingJobs.forEach((j) => {
-        init[j.id] = { jobId: j.id, action: "skip" };
-      });
-      setResolutions(init);
+      setSelectedPendingIds(new Set());
+      setBulkMoveOpen(false);
+      setBulkDest("new");
+      setBulkNewDate(todayDateValue);
+      setBulkExistingDayId("");
       setCompletionDate(todayDateValue);
       setCompleteDayOpen(true);
     } else {
@@ -209,16 +214,44 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
     }
   };
 
-  const handleResolutionChange = (
-    jobId: number,
-    action: PendingResolution["action"],
-    targetDayId?: number
-  ) => {
-    setResolutions((prev) => ({ ...prev, [jobId]: { jobId, action, targetDayId } }));
+  const togglePendingSelected = (jobId: number) => {
+    setSelectedPendingIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) next.delete(jobId);
+      else next.add(jobId);
+      return next;
+    });
+  };
+
+  const handleBulkMove = () => {
+    const ids = Array.from(selectedPendingIds).filter((id) => pendingJobs.some((j) => j.id === id));
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      try {
+        setActionError(null);
+        if (bulkDest === "existing") {
+          if (!bulkExistingDayId) return;
+          await moveOverdueJobsToDay(ids, { kind: "existing", workDayId: Number(bulkExistingDayId) });
+        } else {
+          if (!bulkNewDate) return;
+          await moveOverdueJobsToDay(ids, {
+            kind: "new",
+            dateISO: bulkNewDate,
+            sourceAreaName: day.area?.name ?? "Overdue jobs",
+          });
+        }
+        setSelectedPendingIds(new Set());
+        setBulkMoveOpen(false);
+        router.refresh();
+      } catch (issue) {
+        setActionError(issue instanceof Error ? issue.message : "Could not move the selected jobs.");
+      }
+    });
   };
 
   const handleConfirmCompleteDay = () => {
-    const res = Object.values(resolutions);
+    // Any job still pending at confirm time is skipped (its schedule rolls forward as normal).
+    const res: PendingResolution[] = pendingJobs.map((j) => ({ jobId: j.id, action: "skip" }));
     startTransition(async () => {
       const result = await completeDay(day.id, res, completionDate);
       if (result) setNextRunInfo(result);
@@ -566,96 +599,168 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
           {pendingJobs.length > 0 && (
             <>
               <p className="text-sm text-slate-600">
-                {pendingJobs.length} job{pendingJobs.length !== 1 ? "s" : ""} still pending. Choose what to do with each:
+                {pendingJobs.length} job{pendingJobs.length !== 1 ? "s" : ""} still unfinished. Select any you want to move to another day — the rest will be skipped (their schedule rolls forward as normal).
               </p>
 
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    const init: Record<number, PendingResolution> = {};
-                    pendingJobs.forEach((j) => { init[j.id] = { jobId: j.id, action: "skip" }; });
-                    setResolutions(init);
-                  }}
-                  className="flex-1 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-400 hover:bg-slate-50 transition-colors"
-                >
-                  Skip all
-                </button>
-
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-slate-500">
+                  {selectedPendingIds.size} selected
+                </p>
+                <div className="flex items-center gap-3 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPendingIds(new Set(pendingJobs.map((j) => j.id)))}
+                    className="text-blue-600 hover:underline"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPendingIds(new Set())}
+                    className="text-slate-400 hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-1.5 max-h-56 overflow-y-auto">
                 {pendingJobs.map((job) => {
-                  const res = resolutions[job.id] ?? { action: "skip" };
+                  const checked = selectedPendingIds.has(job.id);
                   return (
-                    <div key={job.id} className="border border-slate-200 rounded-xl p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800">{job.customer.name}</p>
-                          <p className="text-xs font-medium text-blue-700">{getJobTitle(job)}</p>
-                          <p className="text-xs text-slate-500">{job.customer.address}{!hidePrices && ` · ${fmtCurrency(job.price)}`}</p>
-                        </div>
+                    <button
+                      key={job.id}
+                      type="button"
+                      onClick={() => togglePendingSelected(job.id)}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors",
+                        checked ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300 bg-white"
+                      )}
+                    >
+                      {checked ? (
+                        <CheckSquare size={16} className="text-blue-600 flex-shrink-0" />
+                      ) : (
+                        <Square size={16} className="text-slate-400 flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{job.customer.name}</p>
+                        <p className="text-xs font-medium text-blue-700 truncate">{getJobTitle(job)}</p>
+                        <p className="text-xs text-slate-500 truncate">
+                          {job.customer.address}{!hidePrices && ` · ${fmtCurrency(job.price)}`}
+                        </p>
                       </div>
+                    </button>
+                  );
+                })}
+              </div>
 
+              {selectedPendingIds.size > 0 && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                  {!bulkMoveOpen ? (
+                    <Button
+                      onClick={() => setBulkMoveOpen(true)}
+                      variant="outline"
+                      className="w-full"
+                    >
+                      <ArrowRight size={14} />
+                      Move {selectedPendingIds.size} selected to another day
+                    </Button>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-slate-700">
+                        Move {selectedPendingIds.size} job{selectedPendingIds.size !== 1 ? "s" : ""} to…
+                      </p>
                       <div className="grid grid-cols-2 gap-1.5">
                         <button
-                          onClick={() => handleResolutionChange(job.id, "skip")}
+                          type="button"
+                          onClick={() => setBulkDest("new")}
                           className={cn(
-                            "flex flex-col items-center gap-1 p-2 rounded-lg border text-xs font-medium transition-colors",
-                            res.action === "skip"
-                              ? "border-slate-600 bg-slate-600 text-white"
-                              : "border-slate-200 text-slate-600 hover:border-slate-400"
+                            "flex flex-col items-center gap-1 p-2 rounded-lg border text-xs font-medium transition-colors text-center",
+                            bulkDest === "new"
+                              ? "border-amber-500 bg-amber-500 text-white"
+                              : "border-slate-200 text-slate-600 hover:border-amber-300"
                           )}
                         >
-                          <SkipForward size={14} />
-                          Skip
+                          <CalendarDays size={14} />
+                          New overdue day
                         </button>
                         <button
-                          onClick={() => handleResolutionChange(job.id, "move")}
+                          type="button"
+                          onClick={() => setBulkDest("existing")}
                           className={cn(
-                            "flex flex-col items-center gap-1 p-2 rounded-lg border text-xs font-medium transition-colors",
-                            res.action === "move"
+                            "flex flex-col items-center gap-1 p-2 rounded-lg border text-xs font-medium transition-colors text-center",
+                            bulkDest === "existing"
                               ? "border-blue-600 bg-blue-600 text-white"
                               : "border-slate-200 text-slate-600 hover:border-blue-300"
                           )}
                         >
                           <ArrowRight size={14} />
-                          Move
+                          Alongside an area
                         </button>
                       </div>
 
-                      {res.action === "move" && (
-                        <select
-                          value={res.targetDayId ?? ""}
-                          onChange={(e) =>
-                            handleResolutionChange(job.id, "move", Number(e.target.value))
-                          }
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="">– Select a day –</option>
-                          {futureDays.map((d) => (
-                            <option key={d.id} value={d.id}>
-                              {fmtDate(d.date)} ({d.area?.name ?? d.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off"})
-                            </option>
-                          ))}
-                        </select>
+                      {bulkDest === "new" ? (
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-slate-600">
+                            Date for the overdue batch
+                          </label>
+                          <input
+                            type="date"
+                            value={bulkNewDate}
+                            onChange={(e) => setBulkNewDate(e.target.value)}
+                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          />
+                          <p className="text-[11px] text-slate-500">
+                            Creates a temporary “Overdue – {day.area?.name ?? "jobs"}” group on this date.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-slate-600">
+                            Add alongside an existing day
+                          </label>
+                          <select
+                            value={bulkExistingDayId}
+                            onChange={(e) => setBulkExistingDayId(e.target.value)}
+                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          >
+                            <option value="">– Select a day –</option>
+                            {futureDays.map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {fmtDate(d.date)} ({d.area?.name ?? d.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off"})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       )}
-                    </div>
-                  );
-                })}
-              </div>
+
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={handleBulkMove}
+                          disabled={
+                            isPending ||
+                            (bulkDest === "new" && !bulkNewDate) ||
+                            (bulkDest === "existing" && !bulkExistingDayId)
+                          }
+                          className="flex-1"
+                        >
+                          {isPending ? "Moving…" : "Move now"}
+                        </Button>
+                        <Button variant="outline" onClick={() => setBulkMoveOpen(false)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </>
           )}
 
           <div className="flex gap-2 pt-1">
             <Button
               onClick={handleConfirmCompleteDay}
-              disabled={
-                isPending ||
-                !completionDate ||
-                Object.values(resolutions).some(
-                  (r) => r.action === "move" && !r.targetDayId
-                )
-              }
+              disabled={isPending || !completionDate}
               className="flex-1"
             >
               {isPending ? "Completing..." : "Confirm & Complete Day"}

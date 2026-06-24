@@ -3,8 +3,8 @@
 import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, Edit2, CalendarDays, PoundSterling, CheckCircle2, SkipForward, FileText, Download, Mail, MapPin, Tag as TagIcon, MessageSquare, ArrowLeftRight, Pencil, Trash2 } from "lucide-react";
-import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, recordPayment, setCustomerTags, updateJobPrice, updatePaymentMeta, voidPayment } from "@/lib/actions";
+import { ChevronLeft, Edit2, CalendarDays, PoundSterling, CheckCircle2, SkipForward, FileText, Download, Mail, MapPin, Tag as TagIcon, MessageSquare, ArrowLeftRight, Pencil, Trash2, Zap, UserCheck } from "lucide-react";
+import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, recordPayment, setCustomerTags, updateJobPrice, updatePaymentMeta, voidPayment, createOneOffJob } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,6 +60,18 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
   const [reschedOpen, setReschedOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [logPayJobIds, setLogPayJobIds] = useState<Set<number>>(new Set());
+  // Feature 4: add a one-off job for this customer (auto-filled from the customer record).
+  const [oneOffOpen, setOneOffOpen] = useState(false);
+  const [oneOffForm, setOneOffForm] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    name: customer.jobName ?? "Window Cleaning",
+    price: String(customer.price),
+    notes: "",
+  });
+  // Feature 5: convert a one-off customer into a regular scheduled customer.
+  const [convertOpen, setConvertOpen] = useState(false);
+  const firstRealAreaId = areas.find((a) => !a.isSystemArea)?.id ?? areas[0]?.id;
+  const [convertAreaId, setConvertAreaId] = useState(firstRealAreaId ? String(firstRealAreaId) : "");
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [smsOpen, setSmsOpen] = useState(false);
@@ -286,6 +298,37 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
     });
   };
 
+  const handleAddOneOff = () => {
+    const price = Number(oneOffForm.price);
+    if (!oneOffForm.name.trim() || !oneOffForm.date || !Number.isFinite(price) || price < 0) return;
+    startTransition(async () => {
+      await createOneOffJob({
+        date: new Date(oneOffForm.date),
+        customerId: customer.id,
+        name: oneOffForm.name.trim() || "Window Cleaning",
+        price,
+        notes: oneOffForm.notes || undefined,
+      });
+      setOneOffOpen(false);
+      setOneOffForm({
+        date: new Date().toISOString().slice(0, 10),
+        name: customer.jobName ?? "Window Cleaning",
+        price: String(customer.price),
+        notes: "",
+      });
+      router.refresh();
+    });
+  };
+
+  const handleConvertToRegular = () => {
+    if (!convertAreaId) return;
+    startTransition(async () => {
+      await updateCustomer(customer.id, { areaId: Number(convertAreaId) });
+      setConvertOpen(false);
+      router.refresh();
+    });
+  };
+
   const openEditPayment = (p: Customer["payments"][number]) => {
     setEditingPayment(p);
     setEditPayForm({
@@ -471,20 +514,31 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
         </Card>
 
         {/* Action buttons */}
-        <div className="flex gap-2">
-          <Button onClick={() => { setLogPayJobIds(new Set(unpaidJobIds)); setPayOpen(true); }} variant="outline" className="flex-1">
+        <div className="grid grid-cols-2 gap-2">
+          <Button onClick={() => { setLogPayJobIds(new Set(unpaidJobIds)); setPayOpen(true); }} variant="outline">
             <PoundSterling size={15} />
             Log Payment
           </Button>
-          <Button onClick={() => setChangeAreaOpen(true)} variant="outline" className="flex-1">
-            <ArrowLeftRight size={15} />
-            Change Area
+          <Button onClick={() => setOneOffOpen(true)} variant="outline">
+            <Zap size={15} />
+            One-off Job
           </Button>
-          <Button onClick={() => { setInvoiceStatus("idle"); setInvoiceMsg(""); setInvoiceOpen(true); }} variant="outline" className="flex-1">
+          {customer.area.isSystemArea ? (
+            <Button onClick={() => setConvertOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">
+              <UserCheck size={15} />
+              Convert to Regular
+            </Button>
+          ) : (
+            <Button onClick={() => setChangeAreaOpen(true)} variant="outline">
+              <ArrowLeftRight size={15} />
+              Change Area
+            </Button>
+          )}
+          <Button onClick={() => { setInvoiceStatus("idle"); setInvoiceMsg(""); setInvoiceOpen(true); }} variant="outline">
             <FileText size={15} />
             Invoice
           </Button>
-          <Button onClick={() => { setSmsTo(customer.phone ?? ""); setSmsMsg(""); setSmsResult(null); setSmsOpen(true); }} variant="outline" className="flex-1">
+          <Button onClick={() => { setSmsTo(customer.phone ?? ""); setSmsMsg(""); setSmsResult(null); setSmsOpen(true); }} variant="outline" className="col-span-2">
             <MessageSquare size={15} />
             SMS
           </Button>
@@ -721,6 +775,98 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
           <div className="flex gap-2">
             <Button onClick={handleSaveEdit} disabled={isPending} className="flex-1">{isPending ? "Saving..." : "Move to Area"}</Button>
             <Button variant="outline" onClick={() => setChangeAreaOpen(false)} className="flex-1">Cancel</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* One-off Job Modal (auto-filled for this customer) */}
+      <Modal open={oneOffOpen} onClose={() => setOneOffOpen(false)} title="Add One-off Job">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-3 bg-blue-50 rounded-xl border border-blue-200">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-blue-900 truncate">{customer.name}</p>
+              <p className="text-xs text-blue-600 truncate">{customer.address}</p>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
+            <input
+              type="date"
+              value={oneOffForm.date}
+              onChange={(e) => setOneOffForm((f) => ({ ...f, date: e.target.value }))}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Job name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={oneOffForm.name}
+              onChange={(e) => setOneOffForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. Window Cleaning, Conservatory Clean…"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Price (£) <span className="text-slate-400 font-normal">— edit if different</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={oneOffForm.price}
+              onChange={(e) => setOneOffForm((f) => ({ ...f, price: e.target.value }))}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Notes <span className="text-slate-400 font-normal">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={oneOffForm.notes}
+              onChange={(e) => setOneOffForm((f) => ({ ...f, notes: e.target.value }))}
+              placeholder="e.g. conservatory only, gutters…"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button onClick={handleAddOneOff} disabled={isPending || !oneOffForm.name.trim()} className="flex-1">
+              <Zap size={14} />
+              {isPending ? "Adding…" : "Add One-off Job"}
+            </Button>
+            <Button variant="outline" onClick={() => setOneOffOpen(false)} className="flex-1">Cancel</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Convert One-off Customer to Regular Modal */}
+      <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Convert to Regular Customer">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            Move <strong>{customer.name}</strong> onto a regular area schedule. Their existing one-off job history is kept.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Assign to area</label>
+            <select
+              value={convertAreaId}
+              onChange={(e) => setConvertAreaId(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            <p className="text-xs text-slate-400 mt-1">The customer will inherit this area&apos;s cleaning frequency.</p>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={handleConvertToRegular} disabled={isPending || !convertAreaId} className="flex-1">
+              <UserCheck size={14} />
+              {isPending ? "Converting…" : "Convert to Regular"}
+            </Button>
+            <Button variant="outline" onClick={() => setConvertOpen(false)} className="flex-1">Cancel</Button>
           </div>
         </div>
       </Modal>

@@ -2,8 +2,8 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Banknote, CheckSquare, Plus, Square } from "lucide-react";
-import { recordPayment } from "@/lib/actions";
+import { Banknote, CheckSquare, Pencil, Plus, Square, X } from "lucide-react";
+import { recordPayment, updateJobDetails } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { cn, fmtCurrency, fmtDate } from "@/lib/utils";
@@ -54,6 +54,12 @@ export function LogPaymentForm({
   const [paidAt, setPaidAt] = useState(today);
   const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set());
 
+  // Inline job editing (descriptor + amount) from within the payment screen.
+  const [editingJobId, setEditingJobId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPrice, setEditPrice] = useState("");
+  const [isSavingJob, startSaveJob] = useTransition();
+
   const selectedCustomer = useMemo(
     () => customers.find((customer) => String(customer.id) === customerId) ?? null,
     [customerId, customers]
@@ -77,6 +83,7 @@ export function LogPaymentForm({
     setNotes("");
     setPaidAt(today);
     setSelectedJobIds(new Set(customer?.unpaidJobs.map((job) => job.id) ?? []));
+    setEditingJobId(null);
   };
 
   const handleOpen = () => {
@@ -86,6 +93,7 @@ export function LogPaymentForm({
 
   const handleCustomerChange = (nextId: string) => {
     setCustomerId(nextId);
+    setEditingJobId(null);
     const customer = customers.find((entry) => String(entry.id) === nextId) ?? null;
     setSelectedJobIds(new Set(customer?.unpaidJobs.map((job) => job.id) ?? []));
   };
@@ -96,6 +104,28 @@ export function LogPaymentForm({
       if (next.has(jobId)) next.delete(jobId);
       else next.add(jobId);
       return next;
+    });
+  };
+
+  const startEditJob = (job: PaymentJobOption) => {
+    setEditingJobId(job.id);
+    setEditName(job.name || "Window Cleaning");
+    setEditPrice(String(job.price));
+  };
+
+  const cancelEditJob = () => {
+    setEditingJobId(null);
+    setEditName("");
+    setEditPrice("");
+  };
+
+  const handleSaveJob = (jobId: number) => {
+    const price = Number(editPrice);
+    if (!Number.isFinite(price) || price < 0) return;
+    startSaveJob(async () => {
+      await updateJobDetails(jobId, { name: editName, price });
+      cancelEditJob();
+      router.refresh();
     });
   };
 
@@ -198,36 +228,99 @@ export function LogPaymentForm({
                     <div className="space-y-1 max-h-60 overflow-y-auto">
                       {selectedCustomer.unpaidJobs.map((job) => {
                         const checked = selectedJobIds.has(job.id);
+                        const isEditing = editingJobId === job.id;
+                        if (isEditing) {
+                          return (
+                            <div
+                              key={job.id}
+                              className="w-full px-3 py-2.5 rounded-lg border border-blue-300 bg-blue-50/50 space-y-2"
+                            >
+                              <div>
+                                <label className="block text-[11px] font-medium text-slate-500 mb-1">Descriptor</label>
+                                <input
+                                  type="text"
+                                  value={editName}
+                                  onChange={(e) => setEditName(e.target.value)}
+                                  placeholder="Window Cleaning"
+                                  className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-medium text-slate-500 mb-1">Amount (£)</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={editPrice}
+                                  onChange={(e) => setEditPrice(e.target.value)}
+                                  className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                                />
+                              </div>
+                              <div className="flex gap-2 pt-0.5">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleSaveJob(job.id)}
+                                  disabled={isSavingJob}
+                                  className="flex-1"
+                                >
+                                  {isSavingJob ? "Saving..." : "Save"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={cancelEditJob}
+                                  disabled={isSavingJob}
+                                  className="flex-1"
+                                >
+                                  <X size={13} />
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        }
                         return (
-                          <button
+                          <div
                             key={job.id}
-                            type="button"
-                            onClick={() => toggleJob(job.id)}
                             className={cn(
-                              "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors",
+                              "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border transition-colors",
                               checked ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300 bg-white"
                             )}
                           >
-                            {checked ? (
-                              <CheckSquare size={16} className="text-blue-600 flex-shrink-0" />
-                            ) : (
-                              <Square size={16} className="text-slate-400 flex-shrink-0" />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-slate-700 truncate">
-                                {job.name || "Window Cleaning"}
-                              </p>
-                              <p className="text-xs text-slate-400 truncate">
-                                {fmtDate(job.date ?? null)}
-                                {job.isOneOff ? " · one-off" : ""}
-                                {job.paid > 0 ? ` · paid ${fmtCurrency(job.paid)}` : ""}
-                              </p>
-                            </div>
-                            <div className="text-right flex-shrink-0">
-                              <p className="text-xs text-slate-400">{fmtCurrency(job.price)}</p>
-                              <p className="text-sm font-semibold text-red-600">{fmtCurrency(job.due)} due</p>
-                            </div>
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleJob(job.id)}
+                              className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                            >
+                              {checked ? (
+                                <CheckSquare size={16} className="text-blue-600 flex-shrink-0" />
+                              ) : (
+                                <Square size={16} className="text-slate-400 flex-shrink-0" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-slate-700 truncate">
+                                  {job.name || "Window Cleaning"}
+                                </p>
+                                <p className="text-xs text-slate-400 truncate">
+                                  {fmtDate(job.date ?? null)}
+                                  {job.isOneOff ? " · one-off" : ""}
+                                  {job.paid > 0 ? ` · paid ${fmtCurrency(job.paid)}` : ""}
+                                </p>
+                              </div>
+                              <div className="text-right flex-shrink-0">
+                                <p className="text-xs text-slate-400">{fmtCurrency(job.price)}</p>
+                                <p className="text-sm font-semibold text-red-600">{fmtCurrency(job.due)} due</p>
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => startEditJob(job)}
+                              title="Edit job amount or descriptor"
+                              className="flex-shrink-0 p-1.5 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          </div>
                         );
                       })}
                     </div>

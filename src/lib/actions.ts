@@ -419,17 +419,104 @@ export async function getAreaSchedules() {
 
 /** Find or create the hidden system area used for one-off (no-schedule) customers. */
 async function getOrCreateOneOffSystemArea(tenantId: number) {
-  const existing = await prisma.area.findFirst({ where: { tenantId, isSystemArea: true } });
+  // The one-off bucket is the system area that is NOT one of the temporary "Overdue – …" groups.
+  const existing = await prisma.area.findFirst({
+    where: { tenantId, isSystemArea: true, NOT: { name: { startsWith: "Overdue – " } } },
+    orderBy: { createdAt: "asc" },
+  });
   if (existing) return existing;
   return prisma.area.create({ data: { tenantId,
-      name: "__one-off__",
-      color: "#A855F7",
+      name: "One-Off Jobs",
+      color: "#9CA3AF",
       isSystemArea: true,
       sortOrder: 9999,
       frequencyWeeks: 9999,
     },
   });
 }
+
+/**
+ * Find or create a hidden "Overdue – [source area]" grouping area. Used when overdue/unfinished
+ * jobs are moved off a completed day onto a fresh day as a temporary one-off batch. Marked as a
+ * system area so it never appears as a schedulable round, but its work days still show in the
+ * day list and day detail view.
+ */
+async function getOrCreateOverdueArea(tenantId: number, sourceAreaName: string) {
+  const trimmed = (sourceAreaName || "Area").trim() || "Area";
+  const name = `Overdue – ${trimmed}`.slice(0, 80);
+  const existing = await prisma.area.findFirst({ where: { tenantId, name } });
+  if (existing) return existing;
+  return prisma.area.create({
+    data: {
+      tenantId,
+      name,
+      color: "#F59E0B",
+      isSystemArea: true,
+      sortOrder: 9998,
+      frequencyWeeks: 9999,
+    },
+  });
+}
+
+/**
+ * Move several overdue/unfinished jobs together onto another day.
+ * - target.kind "existing": add them to an existing future work day (alongside that day's area).
+ * - target.kind "new": create a temporary "Overdue – [source area]" grouping on the given date.
+ *
+ * Each customer's recurring area schedule is left untouched — the next cycle is still created
+ * normally when the original day is completed, so this only relocates the current cycle's leftover.
+ */
+export async function moveOverdueJobsToDay(
+  jobIds: number[],
+  target:
+    | { kind: "existing"; workDayId: number }
+    | { kind: "new"; dateISO: string; sourceAreaName: string }
+): Promise<{ targetWorkDayId: number } | null> {
+  const tenantId = await getActiveTenantId();
+  if (!Array.isArray(jobIds) || jobIds.length === 0) return null;
+
+  const jobs = await prisma.job.findMany({
+    where: { tenantId, id: { in: jobIds } },
+    select: { id: true, workDayId: true },
+  });
+  if (jobs.length === 0) return null;
+  const validIds = jobs.map((j) => j.id);
+  const sourceDayIds = Array.from(new Set(jobs.map((j) => j.workDayId)));
+
+  let targetWorkDayId: number;
+  if (target.kind === "existing") {
+    await requireTenantWorkDay(tenantId, target.workDayId);
+    targetWorkDayId = target.workDayId;
+  } else {
+    const date = isoToUTC(target.dateISO);
+    const overdueArea = await getOrCreateOverdueArea(tenantId, target.sourceAreaName);
+    const workDay = await prisma.workDay.upsert({
+      where: { tenantId_date_areaId: { tenantId, date, areaId: overdueArea.id } },
+      update: {},
+      create: { tenantId, date, areaId: overdueArea.id, status: "PLANNED" },
+    });
+    targetWorkDayId = workDay.id;
+  }
+
+  // Don't move a job onto the day it's already on.
+  const idsToMove = validIds.filter((id) => {
+    const job = jobs.find((j) => j.id === id);
+    return job && job.workDayId !== targetWorkDayId;
+  });
+  if (idsToMove.length > 0) {
+    await prisma.job.updateMany({
+      where: { tenantId, id: { in: idsToMove } },
+      data: { workDayId: targetWorkDayId, status: "PENDING" },
+    });
+  }
+
+  for (const dayId of sourceDayIds) revalidatePath(`/days/${dayId}`);
+  revalidatePath(`/days/${targetWorkDayId}`);
+  revalidatePath("/days");
+  revalidatePath("/scheduler");
+  return { targetWorkDayId };
+}
+
 
 export async function reorderAreaCustomers(areaId: number, orderedIds: number[]) {
   const tenantId = await getActiveTenantId();
@@ -3914,6 +4001,37 @@ export async function updateJobPrice(jobId: number, price: number) {
   const job = await prisma.job.update({
     where: { id: jobId },
     data: { price },
+  });
+  revalidatePath(`/days/${job.workDayId}`);
+  revalidatePath("/scheduler");
+  revalidatePath(`/customers/${job.customerId}`);
+  revalidatePath("/payments");
+}
+
+/** Update a job's descriptor (name) and/or price in one call. Used by the Log Payment screen. */
+export async function updateJobDetails(
+  jobId: number,
+  data: { name?: string; price?: number }
+) {
+  const tenantId = await getActiveTenantId();
+  await requireTenantJob(tenantId, jobId);
+
+  const updates: Record<string, unknown> = {};
+  if (data.name !== undefined) {
+    updates.name = data.name.trim() || "Window Cleaning";
+  }
+  if (data.price !== undefined) {
+    const price = Number(data.price);
+    if (!Number.isFinite(price) || price < 0) {
+      throw new Error("Job amount must be zero or greater.");
+    }
+    updates.price = price;
+  }
+  if (Object.keys(updates).length === 0) return;
+
+  const job = await prisma.job.update({
+    where: { id: jobId },
+    data: updates,
   });
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath("/scheduler");
