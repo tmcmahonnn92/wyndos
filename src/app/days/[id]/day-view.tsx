@@ -59,11 +59,27 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
+import { DayTeamBar, type TeamMember } from "./day-team-bar";
+import { getQueue, onQueueChange, runOrQueue } from "@/lib/offline-queue";
 import { fmtDate, fmtShortDate, fmtCurrency, cn } from "@/lib/utils";
 
 type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
 type FutureDay = Awaited<ReturnType<typeof getWorkDays>>[0];
 type Job = Day["jobs"][0];
+
+function tomorrowISO() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The customer's usual payment method, for one-tap "Done & Paid". */
+function preferredMethod(job: { customer: { preferredPaymentMethod?: string | null } }): "CASH" | "BACS" | "CARD" {
+  const raw = (job.customer.preferredPaymentMethod ?? "").trim().toUpperCase();
+  if (raw.startsWith("BACS") || raw.startsWith("BANK") || raw.includes("TRANSFER")) return "BACS";
+  if (raw.startsWith("CARD")) return "CARD";
+  return "CASH";
+}
 
 function getJobTitle(job: { name?: string | null }) {
   return job.name?.trim() || "Window Cleaning";
@@ -88,6 +104,7 @@ interface Props {
   day: Day;
   futureDays: FutureDay[];
   hidePrices?: boolean;
+  team?: TeamMember[] | null;
 }
 
 type PendingResolution = {
@@ -96,7 +113,7 @@ type PendingResolution = {
   targetDayId?: number;
 };
 
-export function DayView({ day, futureDays, hidePrices = false }: Props) {
+export function DayView({ day, futureDays, hidePrices = false, team = null }: Props) {
   const todayDateValue = new Date().toISOString().slice(0, 10);
   const scheduledDateValue = new Date(day.date).toISOString().slice(0, 10);
   const [isPending, startTransition] = useTransition();
@@ -127,10 +144,60 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
   const [dragOverJobId, setDragOverJobId] = useState<number | null>(null);
   // Sort by optimiser route order when available, otherwise keep DB order.
 
+  // Taps saved on the phone while offline show immediately, before they reach the server.
+  const [localStatus, setLocalStatus] = useState<Record<number, "COMPLETE" | "SKIPPED">>({});
+  useEffect(() => {
+    const load = () => {
+      const next: Record<number, "COMPLETE" | "SKIPPED"> = {};
+      for (const entry of getQueue()) {
+        if (entry.workDayId !== day.id) continue;
+        next[entry.jobId] = entry.kind === "skip" ? "SKIPPED" : "COMPLETE";
+      }
+      setLocalStatus(next);
+    };
+    load();
+    return onQueueChange(load);
+  }, [day.id]);
+  const jobsView = day.jobs.map((job) => (localStatus[job.id] ? { ...job, status: localStatus[job.id] } : job)) as typeof day.jobs;
+
+  /** Run a change without ever crashing the page; queue it if there's no signal. */
+  const safely = (fn: () => Promise<void>) => {
+    startTransition(async () => {
+      try {
+        setActionError(null);
+        await fn();
+      } catch (issue) {
+        setActionError(issue instanceof Error ? issue.message : "Could not save that change.");
+      }
+    });
+  };
+  const refreshIfOnline = () => {
+    if (typeof navigator === "undefined" || navigator.onLine) router.refresh();
+  };
+  const doComplete = async (job: Job) => {
+    const result = await runOrQueue({ kind: "complete", jobId: job.id, workDayId: day.id }, () => completeJob(job.id));
+    if (result === "queued") setLocalStatus((prev) => ({ ...prev, [job.id]: "COMPLETE" }));
+  };
+  const doSkip = async (job: Job) => {
+    const result = await runOrQueue({ kind: "skip", jobId: job.id, workDayId: day.id }, () => skipJob(job.id));
+    if (result === "queued") setLocalStatus((prev) => ({ ...prev, [job.id]: "SKIPPED" }));
+  };
+  const doPay = async (
+    job: Job,
+    allocations: Array<{ jobId: number; amount: number }>,
+    method: "CASH" | "BACS" | "CARD",
+    notes?: string,
+  ) => {
+    await runOrQueue(
+      { kind: "pay", jobId: job.id, workDayId: day.id, customerId: job.customerId, allocations, method },
+      (clientRequestId) => recordPayment({ customerId: job.customerId, allocations, method, notes, clientRequestId }),
+    );
+  };
+
   // Sort: use routeOrder (from optimiser) if set, otherwise use DB order (sorted by sortOrder, then name)
   const sortedJobs = routeOrder
-    ? (routeOrder.map((id) => day.jobs.find((j) => j.id === id)).filter(Boolean) as typeof day.jobs)
-    : day.jobs;
+    ? (routeOrder.map((id) => jobsView.find((j) => j.id === id)).filter(Boolean) as typeof day.jobs)
+    : jobsView;
 
   const pendingJobs = sortedJobs.filter((j) => j.status === "PENDING");
   const doneJobs = sortedJobs.filter((j) => j.status === "COMPLETE");
@@ -198,10 +265,12 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
 
   const handleCompleteDay = () => {
     if (pendingJobs.length > 0 || shouldPromptForCompletedDate) {
-      setSelectedPendingIds(new Set());
-      setBulkMoveOpen(false);
+      // Default: unfinished jobs carry over to tomorrow. Skipping is a deliberate choice.
+      const tomorrow = tomorrowISO();
+      setSelectedPendingIds(new Set(pendingJobs.map((job) => job.id)));
+      setBulkMoveOpen(true);
       setBulkDest("new");
-      setBulkNewDate(todayDateValue);
+      setBulkNewDate(tomorrow);
       setBulkExistingDayId("");
       setCompletionDate(todayDateValue);
       setCompleteDayOpen(true);
@@ -223,39 +292,30 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
     });
   };
 
-  const handleBulkMove = () => {
-    const ids = Array.from(selectedPendingIds).filter((id) => pendingJobs.some((j) => j.id === id));
-    if (ids.length === 0) return;
-    startTransition(async () => {
-      try {
-        setActionError(null);
+  const handleConfirmCompleteDay = () => {
+    // Ticked jobs carry over to the chosen day; unticked jobs are skipped this time.
+    const carryIds = pendingJobs.filter((j) => selectedPendingIds.has(j.id)).map((j) => j.id);
+    const res: PendingResolution[] = pendingJobs
+      .filter((j) => !selectedPendingIds.has(j.id))
+      .map((j) => ({ jobId: j.id, action: "skip" }));
+    safely(async () => {
+      if (carryIds.length > 0) {
         if (bulkDest === "existing") {
-          if (!bulkExistingDayId) return;
-          await moveOverdueJobsToDay(ids, { kind: "existing", workDayId: Number(bulkExistingDayId) });
+          if (!bulkExistingDayId) throw new Error("Choose which day to carry the jobs over to.");
+          await moveOverdueJobsToDay(carryIds, { kind: "existing", workDayId: Number(bulkExistingDayId) });
         } else {
-          if (!bulkNewDate) return;
-          await moveOverdueJobsToDay(ids, {
+          if (!bulkNewDate) throw new Error("Choose a date to carry the jobs over to.");
+          await moveOverdueJobsToDay(carryIds, {
             kind: "new",
             dateISO: bulkNewDate,
             sourceAreaName: day.area?.name ?? "Overdue jobs",
           });
         }
-        setSelectedPendingIds(new Set());
-        setBulkMoveOpen(false);
-        router.refresh();
-      } catch (issue) {
-        setActionError(issue instanceof Error ? issue.message : "Could not move the selected jobs.");
       }
-    });
-  };
-
-  const handleConfirmCompleteDay = () => {
-    // Any job still pending at confirm time is skipped (its schedule rolls forward as normal).
-    const res: PendingResolution[] = pendingJobs.map((j) => ({ jobId: j.id, action: "skip" }));
-    startTransition(async () => {
       const result = await completeDay(day.id, res, completionDate);
       if (result) setNextRunInfo(result);
       setCompleteDayOpen(false);
+      setSelectedPendingIds(new Set());
       router.refresh();
     });
   };
@@ -431,6 +491,14 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
           </div>
         )}
 
+        <DayTeamBar
+          dayId={day.id}
+          dayStatus={day.status}
+          dayAssignedUserId={day.assignedUserId ?? null}
+          jobs={day.jobs}
+          team={team}
+        />
+
         {/* Day notes add prompt (when no notes exist and not editing) */}
         {!day.notes && !dayNotesEditing && (
           <button
@@ -476,19 +544,21 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
                 >
                   <JobCard
                     job={job}
+                    showWorker={team !== null}
                     onToggle={() => handleJobTap(job)}
                     isPending={isPending}
                     onNotesClick={() => setNotesJob(job)}
                     hidePrices={hidePrices}
+                    quickPayMethod={preferredMethod(job)}
                     onQuickComplete={() =>
-                      startTransition(async () => {
-                        await completeJob(job.id);
-                        router.refresh();
+                      safely(async () => {
+                        await doComplete(job);
+                        refreshIfOnline();
                       })
                     }
                     onQuickPay={(includeDebt: boolean) =>
-                      startTransition(async () => {
-                        await completeJob(job.id);
+                      safely(async () => {
+                        await doComplete(job);
                         const allocations: Array<{jobId: number; amount: number}> = [{ jobId: job.id, amount: job.price }];
                         if (includeDebt) {
                           const prevJobs = (job.customer.jobs ?? []).filter((j) => j.id !== job.id);
@@ -498,8 +568,8 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
                             if (due > 0.005) allocations.push({ jobId: pj.id, amount: due });
                           }
                         }
-                        await recordPayment({ customerId: job.customerId, allocations, method: "CASH" });
-                        router.refresh();
+                        await doPay(job, allocations, preferredMethod(job));
+                        refreshIfOnline();
                       })
                     }
                     onOpenInPayMode={() => {
@@ -521,7 +591,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
             </h2>
             <div className="space-y-2">
               {doneJobs.map((job) => (
-                <JobCard key={job.id} job={job} onToggle={() => handleJobTap(job)} isPending={isPending}
+                <JobCard key={job.id} job={job} showWorker={team !== null} onToggle={() => handleJobTap(job)} isPending={isPending}
                   onNotesClick={() => setNotesJob(job)} hidePrices={hidePrices} />
               ))}
             </div>
@@ -536,7 +606,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
             </h2>
             <div className="space-y-2">
               {otherJobs.map((job) => (
-                <JobCard key={job.id} job={job} onToggle={() => handleJobTap(job)} isPending={isPending}
+                <JobCard key={job.id} job={job} showWorker={team !== null} onToggle={() => handleJobTap(job)} isPending={isPending}
                   onNotesClick={() => setNotesJob(job)} hidePrices={hidePrices} />
               ))}
             </div>
@@ -599,7 +669,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
           {pendingJobs.length > 0 && (
             <>
               <p className="text-sm text-slate-600">
-                {pendingJobs.length} job{pendingJobs.length !== 1 ? "s" : ""} still unfinished. Select any you want to move to another day — the rest will be skipped (their schedule rolls forward as normal).
+                {pendingJobs.length} job{pendingJobs.length !== 1 ? "s" : ""} still unfinished. Ticked jobs carry over to the day below. Untick any you want to skip this time (they wait for their next normal visit).
               </p>
 
               <div className="flex items-center justify-between gap-2">
@@ -734,22 +804,7 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
                         </div>
                       )}
 
-                      <div className="flex gap-2">
-                        <Button
-                          onClick={handleBulkMove}
-                          disabled={
-                            isPending ||
-                            (bulkDest === "new" && !bulkNewDate) ||
-                            (bulkDest === "existing" && !bulkExistingDayId)
-                          }
-                          className="flex-1"
-                        >
-                          {isPending ? "Moving…" : "Move now"}
-                        </Button>
-                        <Button variant="outline" onClick={() => setBulkMoveOpen(false)}>
-                          Cancel
-                        </Button>
-                      </div>
+                      
                     </>
                   )}
                 </div>
@@ -763,7 +818,14 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
               disabled={isPending || !completionDate}
               className="flex-1"
             >
-              {isPending ? "Completing..." : "Confirm & Complete Day"}
+              {isPending
+                ? "Completing..."
+                : (() => {
+                    const carry = pendingJobs.filter((j) => selectedPendingIds.has(j.id)).length;
+                    const skip = pendingJobs.length - carry;
+                    if (pendingJobs.length === 0) return "Complete Day";
+                    return [carry && `Carry over ${carry}`, skip && `skip ${skip}`].filter(Boolean).join(", ") + " & complete";
+                  })()}
             </Button>
             <Button variant="outline" onClick={() => setCompleteDayOpen(false)}>
               Cancel
@@ -779,69 +841,76 @@ export function DayView({ day, futureDays, hidePrices = false }: Props) {
         onClose={() => { setSelectedJob(null); setOpenJobInPayMode(false); }}
         onDone={(price, note) => {
           if (!selectedJob) return;
-          startTransition(async () => {
-            if (note.trim()) await updateJobNotes(selectedJob.id, note.trim());
-            if (price !== selectedJob.price) await updateJobPrice(selectedJob.id, price);
-            await completeJob(selectedJob.id);
+          const job = selectedJob;
+          safely(async () => {
+            if (note.trim()) await updateJobNotes(job.id, note.trim());
+            if (price !== job.price) await updateJobPrice(job.id, price);
+            await doComplete(job);
             setSelectedJob(null); setOpenJobInPayMode(false);
-            router.refresh();
+            refreshIfOnline();
           });
         }}
         onUndo={() => {
           if (!selectedJob) return;
-          startTransition(async () => {
-            await uncompleteJob(selectedJob.id);
+          const job = selectedJob;
+          safely(async () => {
+            await uncompleteJob(job.id);
             setSelectedJob(null); setOpenJobInPayMode(false);
             router.refresh();
           });
         }}
         onSkip={(price, note) => {
           if (!selectedJob) return;
-          startTransition(async () => {
-            if (note.trim()) await updateJobNotes(selectedJob.id, note.trim());
-            if (price !== selectedJob.price) await updateJobPrice(selectedJob.id, price);
-            await skipJob(selectedJob.id);
+          const job = selectedJob;
+          safely(async () => {
+            if (note.trim()) await updateJobNotes(job.id, note.trim());
+            if (price !== job.price) await updateJobPrice(job.id, price);
+            await doSkip(job);
             setSelectedJob(null); setOpenJobInPayMode(false);
-            router.refresh();
+            refreshIfOnline();
           });
         }}
 
         onDoneAndPaid={async (visitPrice, allocations, method, notes) => {
           if (!selectedJob) return;
-          startTransition(async () => {
-            if (notes?.trim()) await updateJobNotes(selectedJob.id, notes.trim());
-            if (visitPrice !== selectedJob.price) await updateJobPrice(selectedJob.id, visitPrice);
-            await completeJob(selectedJob.id);
-            await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
+          const job = selectedJob;
+          safely(async () => {
+            if (notes?.trim()) await updateJobNotes(job.id, notes.trim());
+            if (visitPrice !== job.price) await updateJobPrice(job.id, visitPrice);
+            await doComplete(job);
+            await doPay(job, allocations, method, notes);
             setSelectedJob(null); setOpenJobInPayMode(false);
-            router.refresh();
+            refreshIfOnline();
           });
         }}
         onMarkPaidJobs={(allocations, method, notes) => {
           if (!selectedJob) return;
-          startTransition(async () => {
-            await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
+          const job = selectedJob;
+          safely(async () => {
+            await doPay(job, allocations, method, notes);
             setSelectedJob(null); setOpenJobInPayMode(false);
-            router.refresh();
+            refreshIfOnline();
           });
         }}
         onDoneAndPaidJobs={(visitPrice, allocations, method, notes) => {
           if (!selectedJob) return;
-          startTransition(async () => {
-            if (notes?.trim()) await updateJobNotes(selectedJob.id, notes.trim());
-            if (visitPrice !== selectedJob.price) await updateJobPrice(selectedJob.id, visitPrice);
-            await completeJob(selectedJob.id);
-            await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
+          const job = selectedJob;
+          safely(async () => {
+            if (notes?.trim()) await updateJobNotes(job.id, notes.trim());
+            if (visitPrice !== job.price) await updateJobPrice(job.id, visitPrice);
+            await doComplete(job);
+            await doPay(job, allocations, method, notes);
             setSelectedJob(null); setOpenJobInPayMode(false);
-            router.refresh();
+            refreshIfOnline();
           });
         }}
         onMarkPaid={(allocations, method, notes) => {
           if (!selectedJob) return;
-          startTransition(async () => {
-            await recordPayment({ customerId: selectedJob.customerId, allocations, method, notes });
+          const job = selectedJob;
+          safely(async () => {
+            await doPay(job, allocations, method, notes);
             setSelectedJob(null); setOpenJobInPayMode(false);
-            router.refresh();
+            refreshIfOnline();
           });
         }}
         isPending={isPending}
@@ -1533,8 +1602,12 @@ function JobCard({
   onQuickPay,
   onOpenInPayMode,
   hidePrices = false,
+  showWorker = false,
+  quickPayMethod = "CASH",
 }: {
   job: Job;
+  showWorker?: boolean;
+  quickPayMethod?: "CASH" | "BACS" | "CARD";
   onToggle: () => void;
   isPending: boolean;
   onNotesClick?: () => void;
@@ -1615,11 +1688,28 @@ function JobCard({
           {(job.customer.notes || job.notes) && (
             <button
               onClick={(e) => { e.stopPropagation(); onNotesClick?.(); }}
-              className="flex items-center gap-1 mt-1 px-2 py-0.5 bg-amber-100 border border-amber-300 rounded-full text-[11px] font-semibold text-amber-800 hover:bg-amber-200 active:scale-95 transition-all"
+              className="mt-1 flex w-full items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-left text-[11px] leading-snug text-amber-900 hover:bg-amber-100 active:scale-[0.99] transition-all"
             >
-              <StickyNote size={10} />
-              Notes
+              <StickyNote size={11} className="mt-0.5 flex-shrink-0" />
+              <span className="line-clamp-2">{[job.notes, job.customer.notes].filter(Boolean).join(" · ")}</span>
             </button>
+          )}
+          {(job.customer.slip === false || job.assignedUser || (job.status === "COMPLETE" && job.completedBy && showWorker)) && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {job.customer.slip === false && (
+                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">No slip</span>
+              )}
+              {job.assignedUser && showWorker && (
+                <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                  {job.assignedUser.name ?? job.assignedUser.email}
+                </span>
+              )}
+              {job.status === "COMPLETE" && job.completedBy && showWorker && (
+                <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">
+                  by {job.completedBy.name ?? job.completedBy.email}
+                </span>
+              )}
+            </div>
           )}
         </div>
 
@@ -1697,7 +1787,7 @@ function JobCard({
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 transition-colors disabled:opacity-50 touch-manipulation"
               >
                   <Banknote size={15} className="text-blue-600" />
-                Done &amp; Paid
+                Done &amp; Paid{quickPayMethod !== "CASH" ? ` (${quickPayMethod})` : ""}
               </button>
             )}
           </div>
@@ -1946,7 +2036,7 @@ function AddJobModal({ open, onClose, workDayId, currentAreaId, existingCustomer
         {tab === "from-area" && (
           <div className="space-y-3">
             <p className="text-[11px] text-slate-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Adds the customer as a <strong>one-off</strong> on this day and leaves a note on their next scheduled job.
+              Moves the customer's next booked visit to this day (or adds one if none is booked). Nothing is marked done until it's done.
             </p>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Select area</label>
@@ -1986,7 +2076,7 @@ function AddJobModal({ open, onClose, workDayId, currentAreaId, existingCustomer
                           onClick={() => handleAddFromArea(c.id)}
                           className="px-2.5 py-1.5 text-[11px] font-semibold rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-50 ml-2 flex-shrink-0"
                         >
-                          Add one-off
+                          Move here
                         </button>
                       )}
                     </li>

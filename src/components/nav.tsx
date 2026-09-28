@@ -192,7 +192,7 @@ export function Nav({
   return (
     <>
       {/* ── Desktop sidebar ─────────────────────────────────── */}
-      <aside className="hidden md:flex flex-col w-56 min-h-screen bg-[#0A0E1A] fixed left-0 top-0 z-40">
+      <aside className="print:hidden hidden md:flex flex-col w-56 min-h-screen bg-[#0A0E1A] fixed left-0 top-0 z-40">
         <div className="px-4 py-6 border-b border-[#1E2840] flex justify-center">
           <WyndosLogo variant="stacked" pinHeight={56} />
         </div>
@@ -259,7 +259,7 @@ export function Nav({
       </aside>
 
       {/* ── Mobile top header ─────────────────────────────────── */}
-      <header className="md:hidden fixed top-0 left-0 right-0 z-40 bg-[#0A0E1A] border-b border-[#1E2840] flex items-center justify-between px-4 h-14">
+      <header className="print:hidden md:hidden fixed top-0 left-0 right-0 z-40 bg-[#0A0E1A] border-b border-[#1E2840] flex items-center justify-between px-4 h-14">
         <WyndosLogo variant="horizontal" pinHeight={32} />
         <div className="flex items-center gap-2">
           {isSuperAdmin && tenantName && (
@@ -287,7 +287,7 @@ export function Nav({
       {/* ── Mobile bottom tab bar ────────────────────────────── */}
       {mobileMenuOpen && <button type="button" onClick={() => setMobileMenuOpen(false)} className="md:hidden fixed inset-0 z-40 bg-slate-950/45" aria-label="Close mobile actions" />}
 
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0A0E1A] border-t border-[#1E2840]">
+      <nav className="print:hidden md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0A0E1A] border-t border-[#1E2840]">
         {mobileMenuOpen && (
           <div className="absolute bottom-20 left-4 right-4 rounded-3xl border border-[#1E2840] bg-[#0F1626] p-3 shadow-2xl">
             <div className="mb-2 flex items-center justify-between px-1">

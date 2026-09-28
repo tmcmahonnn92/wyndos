@@ -6,7 +6,7 @@ import { matchesLooseCustomerSearch } from "@/lib/customer-search";
 import { getExpenseCategory, getOtherIncomeCategory, getTaxTreatment, EXPENSE_CATEGORIES, OTHER_INCOME_CATEGORIES, TAX_TREATMENT_OPTIONS } from "@/lib/accounting";
 import { calcNextDue } from "@/lib/utils";
 import { addDays, startOfDay } from "date-fns";
-import { getActiveTenantId, getActiveUserContext, requireAuth } from "@/lib/tenant-context";
+import { requireAuth } from "@/lib/tenant-context";
 import {
   getActor,
   requireMember,
@@ -1921,7 +1921,7 @@ export async function moveCustomerToArea(
 ) {
   const actor = await requirePerm("customers");
   const tenantId = actor.tenantId;
-  const [customer, area] = await Promise.all([
+  const [customer] = await Promise.all([
     requireTenantCustomer(tenantId, customerId),
     requireTenantArea(tenantId, newAreaId),
     addToWorkDayId ? requireTenantWorkDay(tenantId, addToWorkDayId) : Promise.resolve(null),
@@ -1948,7 +1948,7 @@ export async function moveCustomerToArea(
 export async function bulkMoveCustomersToArea(customerIds: number[], newAreaId: number) {
   const actor = await requirePerm("customers");
   const tenantId = actor.tenantId;
-  const area = await requireTenantArea(tenantId, newAreaId);
+  await requireTenantArea(tenantId, newAreaId);
   const customers = await prisma.customer.findMany({ where: { tenantId, id: { in: customerIds } }, select: { id: true, areaId: true } });
   if (customers.length !== customerIds.length) throw new Error("One or more customers were not found");
   await prisma.customer.updateMany({

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getWorkDay, getWorkDays } from "@/lib/actions";
+import { getAssignableTeam, getWorkDay, getWorkDays } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { DayView } from "./day-view";
 
@@ -25,5 +25,8 @@ export default async function DayPage({ params }: Props) {
       d.status !== "COMPLETE"
   );
 
-  return <DayView day={day} futureDays={futureDays} hidePrices={hidePrices} />;
+  const isOwner = user.role === "OWNER" || user.role === "SUPER_ADMIN";
+  const team = isOwner ? await getAssignableTeam() : null;
+
+  return <DayView day={day} futureDays={futureDays} hidePrices={hidePrices} team={team} />;
 }

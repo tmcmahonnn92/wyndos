@@ -4,7 +4,6 @@ import { cookies } from "next/headers";
 import "./globals.css";
 import { auth } from "@/auth";
 import { Nav } from "@/components/nav";
-import { SplashScreen } from "@/components/splash-screen";
 import { SupportSessionBanner } from "@/components/support-session-banner";
 import prisma from "@/lib/db";
 import { ACTIVE_TENANT_COOKIE, SUPPORT_ACCESS_COOKIE } from "@/lib/auth-cookies";
@@ -113,7 +112,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('wyndos-theme');if(t==='dark'){document.documentElement.classList.add('dark')}}catch(e){}})()` }} />
       </head>
       <body className="antialiased">
-        <SplashScreen />
         {session?.user && (
           <Nav
             user={session.user}
@@ -123,14 +121,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             companyCount={companyCount}
           />
         )}
-        <main className={`${session?.user ? "md:ml-56 pt-14 md:pt-0 pb-16 md:pb-0" : ""} min-h-screen`}>
+        <main className={`${session?.user ? "md:ml-56 pt-14 md:pt-0 pb-28 md:pb-0 print:m-0 print:p-0" : ""} min-h-screen`}>
           {session?.user?.role === "SUPER_ADMIN" && tenantName && supportSession && (
             <SupportSessionBanner tenantName={tenantName} reason={supportSession.reason} startedAt={supportSession.startedAt} />
           )}
           {children}
         </main>
         {session?.user && <PWAInstallPrompt />}
-        {session?.user && <OfflineStatus />}
+        {session?.user && <div className="print:hidden"><OfflineStatus /></div>}
       </body>
     </html>
   );
