@@ -73,7 +73,7 @@ const FIELDS: FieldDef[] = [
   { key: "jobName", label: "Job Name",         required: false, type: "text", defaultValue: "Window Cleaning" },
   { key: "nextDueDate", label: "Next Due Date", required: false, type: "date" },
   { key: "preferredPaymentMethod", label: "Payment Method", required: false, type: "select",
-    options: ["", "CASH", "BACS", "CARD"] },
+    options: ["", "CASH", "BACS", "CARD", "DD", "INVOICE"] },
   { key: "advanceNotice", label: "Advance Notice", required: false, type: "boolean" },
   { key: "frequencyWeeks", label: "Frequency (Weeks)", required: false, type: "number", defaultValue: "" },
   { key: "slip", label: "Leave a slip", required: false, type: "boolean" },
