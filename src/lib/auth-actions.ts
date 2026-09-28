@@ -525,6 +525,10 @@ export async function revokeInvite(inviteId: number): Promise<void> {
   const user = await requireOwnerOrAdmin();
   const tenantId = user.tenantId;
   if (!tenantId) throw new Error("No tenant.");
+  // A pending invite shown before the page refreshed carries a temporary id
+  // (a timestamp), which is out of range for the Int column and made Prisma
+  // throw (P2020). Such an invite does not exist yet, so there is nothing to do.
+  if (!Number.isSafeInteger(inviteId) || inviteId <= 0 || inviteId > 2147483647) return;
   await db.invite.deleteMany({ where: { id: inviteId, tenantId } });
 }
 

@@ -12,7 +12,7 @@ import {
   AlertCircle,
   CalendarOff,
 } from "lucide-react";
-import { scheduleAreaRun, startDay } from "@/lib/actions";
+import { checkAreaRunConflict, scheduleAreaRun, startDay } from "@/lib/actions";
 import { fmtCurrency } from "@/lib/utils";
 import { CalendarView } from "./calendar-view";
 
@@ -379,6 +379,12 @@ export function SchedulePageClient({
         setActionError(null);
         setErrorAreaId(null);
         setStartingAreaId(area.id);
+        const conflict = await checkAreaRunConflict(area.id, todayISO);
+        if (conflict) {
+          // Its open day IS the route to work today: take her there.
+          router.push(`/days/${conflict.workDayId}`);
+          return;
+        }
         const workDay = await scheduleAreaRun(area.id, todayISO);
         await startDay(workDay.id);
         router.push(`/days/${workDay.id}`);

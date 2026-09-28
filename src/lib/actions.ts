@@ -653,17 +653,17 @@ async function getConflictingOpenAreaDay(
   });
 }
 
-async function assertNoConflictingOpenAreaDay(
+async function findOpenAreaDayConflict(
   tenantId: number,
   areaId: number,
   targetDate: Date,
   excludeWorkDayId?: number
-) {
+): Promise<{ workDayId: number; message: string } | null> {
   const conflictingDay = await getConflictingOpenAreaDay(tenantId, areaId, excludeWorkDayId);
-  if (!conflictingDay) return;
+  if (!conflictingDay) return null;
 
   if (conflictingDay.date.getTime() === targetDate.getTime()) {
-    return;
+    return null;
   }
 
   const conflictDate = conflictingDay.date.toLocaleDateString("en-GB", {
@@ -671,8 +671,39 @@ async function assertNoConflictingOpenAreaDay(
     month: "short",
     year: "numeric",
   });
-  const statusLabel = conflictingDay.status === "IN_PROGRESS" ? "in progress" : "planned";
-  throw new Error(`This area already has a ${statusLabel} day on ${conflictDate}. Open that day instead of creating another incomplete run.`);
+  const statusLabel = conflictingDay.status === "IN_PROGRESS" ? "an in-progress" : "a planned";
+  return {
+    workDayId: conflictingDay.id,
+    message: `This area already has ${statusLabel} day on ${conflictDate}. Open that day, or complete or remove it, before scheduling another run.`,
+  };
+}
+
+async function assertNoConflictingOpenAreaDay(
+  tenantId: number,
+  areaId: number,
+  targetDate: Date,
+  excludeWorkDayId?: number
+) {
+  const conflict = await findOpenAreaDayConflict(tenantId, areaId, targetDate, excludeWorkDayId);
+  if (conflict) throw new Error(conflict.message);
+}
+
+/**
+ * Check, without changing anything, whether scheduling this area on this
+ * date would clash with a day that is still planned or in progress.
+ *
+ * The create actions still refuse the clash (and throw), but a thrown error's
+ * message is hidden in production builds -- and uncaught, it replaces the
+ * whole page with "Application error". Callers check first and show this
+ * message instead.
+ */
+export async function checkAreaRunConflict(
+  areaId: number,
+  dateISO: string
+): Promise<{ workDayId: number; message: string } | null> {
+  const actor = await requirePerm("scheduler");
+  await requireTenantArea(actor.tenantId, areaId);
+  return findOpenAreaDayConflict(actor.tenantId, areaId, isoToUTC(dateISO));
 }
 
 /**

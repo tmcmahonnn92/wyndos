@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, CalendarDays } from "lucide-react";
-import { createWorkDay } from "@/lib/actions";
+import { checkAreaRunConflict, createWorkDay } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 
@@ -24,6 +24,13 @@ export function AddDayForm({ areas }: { areas: Area[] }) {
     startTransition(async () => {
       try {
         setError(null);
+        if (areaId) {
+          const conflict = await checkAreaRunConflict(Number(areaId), String(date).slice(0, 10));
+          if (conflict) {
+            setError(conflict.message);
+            return;
+          }
+        }
         await createWorkDay(new Date(date), areaId ? Number(areaId) : undefined);
         setOpen(false);
         router.refresh();

@@ -39,6 +39,7 @@ import {
   applyOptimizedRouteOrder,
   createArea,
   scheduleAreaRun,
+  checkAreaRunConflict,
   rescheduleWorkDay,
   setWorkDayRouteOrderingMode,
   updateWorkDayNotes,
@@ -2926,15 +2927,28 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
       }
 
       // 5. Apply the schedule one area at a time.
+      // Areas that still have an open day are skipped and listed, rather
+      // than stopping the whole run part-way through.
+      const skipped: string[] = [];
       for (let i = 0; i < assignments.length; i++) {
         const { areaId, dateISO } = assignments[i];
         setAutoProgress(`Scheduling ${i + 1} of ${assignments.length} areas…`);
+        const conflict = await checkAreaRunConflict(areaId, dateISO);
+        if (conflict) {
+          const name = areas.find((a) => a.id === areaId)?.name ?? "An area";
+          skipped.push(`${name}: ${conflict.message}`);
+          continue;
+        }
         await scheduleAreaRun(areaId, dateISO);
       }
 
       setAutoProgress("");
       setAutoRunning(false);
-      setAutoOpen(false);
+      if (skipped.length) {
+        setAutoError(`Scheduled the rest. Skipped ${skipped.length}:\n${skipped.join("\n")}`);
+      } else {
+        setAutoOpen(false);
+      }
       router.refresh();
     } catch (issue) {
       setAutoRunning(false);
@@ -2988,8 +3002,19 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
         return;
       }
       startTransition(async () => {
-        await scheduleAreaRun(area.id, isoDate(targetDate));
-        router.refresh();
+        try {
+          const conflict = await checkAreaRunConflict(area.id, isoDate(targetDate));
+          if (conflict) {
+            setDuplicateWarning(conflict.message);
+            setTimeout(() => setDuplicateWarning(null), 6000);
+            return;
+          }
+          await scheduleAreaRun(area.id, isoDate(targetDate));
+          router.refresh();
+        } catch {
+          setDuplicateWarning(`Could not schedule ${area.name} on that day. Please refresh and try again.`);
+          setTimeout(() => setDuplicateWarning(null), 6000);
+        }
       });
     } else if (dragState.type === "workday") {
       const { workDay } = dragState;
@@ -3142,7 +3167,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
           </div>
 
           {autoError && (
-            <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 whitespace-pre-line">
               {autoError}
             </p>
           )}

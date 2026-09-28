@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarCheck, ChevronDown, X } from "lucide-react";
-import { scheduleAreaRun } from "@/lib/actions";
+import { checkAreaRunConflict, scheduleAreaRun } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 
 interface Area {
@@ -30,6 +30,11 @@ export function ScheduleRunButton({ area }: { area: Area }) {
     startTransition(async () => {
       try {
         setError(null);
+        const conflict = await checkAreaRunConflict(area.id, date);
+        if (conflict) {
+          setError(conflict.message);
+          return;
+        }
         const workDay = await scheduleAreaRun(area.id, date);
         setExpanded(false);
         if (workDay) router.push(`/days/${workDay.id}`);
