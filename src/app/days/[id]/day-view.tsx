@@ -61,6 +61,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { DayTeamBar, type TeamMember } from "./day-team-bar";
 import { getQueue, onQueueChange, runOrQueue } from "@/lib/offline-queue";
+import { expectsPaymentAtDoor, normalisePreference, preferenceLabel } from "@/lib/payment-preference";
 import { fmtDate, fmtShortDate, fmtCurrency, cn } from "@/lib/utils";
 
 type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
@@ -73,12 +74,10 @@ function tomorrowISO() {
   return d.toISOString().slice(0, 10);
 }
 
-/** The customer's usual payment method, for one-tap "Done & Paid". */
+/** Default method in the pay form: the customer's usual one if it can be taken on the day, else cash. */
 function preferredMethod(job: { customer: { preferredPaymentMethod?: string | null } }): "CASH" | "BACS" | "CARD" {
-  const raw = (job.customer.preferredPaymentMethod ?? "").trim().toUpperCase();
-  if (raw.startsWith("BACS") || raw.startsWith("BANK") || raw.includes("TRANSFER")) return "BACS";
-  if (raw.startsWith("CARD")) return "CARD";
-  return "CASH";
+  const value = normalisePreference(job.customer.preferredPaymentMethod);
+  return value === "BACS" || value === "CARD" ? value : "CASH";
 }
 
 function getJobTitle(job: { name?: string | null }) {
@@ -593,7 +592,7 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
                         refreshIfOnline();
                       })
                     }
-                    onQuickPay={(includeDebt: boolean) =>
+                    onQuickPay={(includeDebt: boolean, method: "CASH" | "BACS" | "CARD") =>
                       safely(async () => {
                         await doComplete(job);
                         const allocations: Array<{jobId: number; amount: number}> = [{ jobId: job.id, amount: job.price }];
@@ -605,7 +604,7 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
                             if (due > 0.005) allocations.push({ jobId: pj.id, amount: due });
                           }
                         }
-                        await doPay(job, allocations, preferredMethod(job));
+                        await doPay(job, allocations, method);
                         refreshIfOnline();
                       })
                     }
@@ -1654,13 +1653,14 @@ function JobCard({
   isPending: boolean;
   onNotesClick?: () => void;
   onQuickComplete?: () => void;
-  onQuickPay?: (includeDebt: boolean) => void;
+  onQuickPay?: (includeDebt: boolean, method: "CASH" | "BACS" | "CARD") => void;
   onOpenInPayMode?: () => void;
   hidePrices?: boolean;
 }) {
   const isDone = job.status === "COMPLETE";
   const isClickable = true; // All statuses are actionable via the modal
   const [showQuickPayChoices, setShowQuickPayChoices] = useState(false);
+  const [includeDebt, setIncludeDebt] = useState(false);
   const previousDebt = job.customer.jobs.filter(j => j.id !== job.id).reduce((sum, j) => {
     const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
     return sum + Math.max(0, j.price - paid);
@@ -1736,8 +1736,18 @@ function JobCard({
               <span className="line-clamp-2">{[job.notes, job.customer.notes].filter(Boolean).join(" · ")}</span>
             </button>
           )}
-          {(job.customer.slip === false || job.assignedUser || (job.status === "COMPLETE" && job.completedBy && showWorker)) && (
+          {(job.customer.slip === false || job.customer.preferredPaymentMethod || job.assignedUser || (job.status === "COMPLETE" && job.completedBy && showWorker)) && (
             <div className="mt-1 flex flex-wrap gap-1">
+              {preferenceLabel(job.customer.preferredPaymentMethod) && (
+                <span className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                  expectsPaymentAtDoor(job.customer.preferredPaymentMethod)
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-sky-100 text-sky-800"
+                )}>
+                  Usually: {preferenceLabel(job.customer.preferredPaymentMethod)}
+                </span>
+              )}
               {job.customer.slip === false && (
                 <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">No slip</span>
               )}
@@ -1819,41 +1829,46 @@ function JobCard({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (previousDebt > 0) {
-                    onOpenInPayMode ? onOpenInPayMode() : setShowQuickPayChoices((prev) => !prev);
-                  } else {
-                    onQuickPay(false);
-                  }
+                  setIncludeDebt(previousDebt > 0.005);
+                  setShowQuickPayChoices((prev) => !prev);
                 }}
                 disabled={isPending}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 transition-colors disabled:opacity-50 touch-manipulation"
               >
-                  <Banknote size={15} className="text-blue-600" />
-                Done &amp; Paid{quickPayMethod !== "CASH" ? ` (${quickPayMethod})` : ""}
+                <Banknote size={15} className="text-blue-600" />
+                Done &amp; Paid
               </button>
             )}
           </div>
-          {onQuickPay && showQuickPayChoices && previousDebt > 0 && (
-            <div className="border-t border-blue-100 bg-blue-50/70 p-2.5 space-y-2">
-              <p className="text-[11px] font-medium text-blue-800">
-                This customer also owes {fmtCurrency(previousDebt)} from previous visits.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={(e) => { e.stopPropagation(); setShowQuickPayChoices(false); onQuickPay(false); }}
-                  disabled={isPending}
-                  className="px-3 py-2 rounded-lg border border-blue-200 bg-white text-xs font-semibold text-blue-700 hover:border-blue-400 disabled:opacity-50"
-                >
-                  This clean only
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setShowQuickPayChoices(false); onQuickPay(true); }}
-                  disabled={isPending}
-                  className="px-3 py-2 rounded-lg border border-amber-200 bg-white text-xs font-semibold text-amber-700 hover:border-amber-400 disabled:opacity-50"
-                >
-                  Include debt too
-                </button>
+          {onQuickPay && showQuickPayChoices && (
+            <div className="border-t border-blue-100 bg-blue-50/70 p-2.5 space-y-2" onClick={(e) => e.stopPropagation()}>
+              <p className="text-[11px] font-medium text-blue-800">Paid today by:</p>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  ["CASH", "Cash"],
+                  ["CARD", "Card"],
+                  ["BACS", "Bank"],
+                ] as const).map(([method, label]) => (
+                  <button
+                    key={method}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setShowQuickPayChoices(false); onQuickPay(includeDebt, method); }}
+                    disabled={isPending}
+                    className={cn(
+                      "px-3 py-2.5 rounded-lg border bg-white text-sm font-semibold disabled:opacity-50",
+                      quickPayMethod === method ? "border-blue-500 text-blue-800 ring-1 ring-blue-400" : "border-blue-200 text-blue-700"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
+              {previousDebt > 0.005 && (
+                <label className="flex items-center gap-2 text-[11px] font-medium text-amber-800">
+                  <input type="checkbox" checked={includeDebt} onChange={(e) => setIncludeDebt(e.target.checked)} />
+                  Also pay the {fmtCurrency(previousDebt)} owed from previous visits
+                </label>
+              )}
             </div>
           )}
         </>

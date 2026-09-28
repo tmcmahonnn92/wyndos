@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { PAYMENT_PREFERENCES } from "@/lib/payment-preference";
 import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -720,13 +721,13 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Preferred Payment</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Usually pays by</label>
               <select value={form.preferredPaymentMethod} onChange={(e) => setForm(f => ({ ...f, preferredPaymentMethod: e.target.value }))}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                <option value="">– No preference –</option>
-                <option value="CASH">Cash</option>
-                <option value="BACS">BACS</option>
-                <option value="CARD">Card</option>
+                <option value="">– Not set –</option>
+                {PAYMENT_PREFERENCES.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
             </div>
             <div className="flex flex-col justify-end pb-0.5">

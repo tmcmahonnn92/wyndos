@@ -130,13 +130,15 @@ export function parsePrice(value: string): string {
   return Number.isFinite(n) && n >= 0 ? String(n) : "";
 }
 
-/** Free-text payment method -> CASH / BACS / CARD, or "" (no preference, e.g. "both"). */
-export function normalisePaymentMethod(value: string): "" | "CASH" | "BACS" | "CARD" {
+/** Free-text payment method -> CASH / BACS / CARD / DD / INVOICE, or "" (not set, e.g. "both"). */
+export function normalisePaymentMethod(value: string): "" | "CASH" | "BACS" | "CARD" | "DD" | "INVOICE" {
   const v = value.trim().toLowerCase();
   if (!v) return "";
   if (/\bboth\b|\/|&|\band\b/.test(v)) return "";
+  if (/direct debit|gocardless|\bdd\b/.test(v)) return "DD";
+  if (/invoice|later|account/.test(v)) return "INVOICE";
   if (/cash/.test(v)) return "CASH";
-  if (/bacs|bank|transfer|\bbt\b|online|standing order|direct debit|gocardless|\bdd\b/.test(v)) return "BACS";
+  if (/bacs|bank|transfer|\bbt\b|online|standing order/.test(v)) return "BACS";
   if (/card/.test(v)) return "CARD";
   return "";
 }

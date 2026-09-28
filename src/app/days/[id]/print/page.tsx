@@ -3,20 +3,12 @@ import { getWorkDay } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { fmtCurrency } from "@/lib/utils";
 import { PrintButton } from "./print-button";
+import { preferenceLabel } from "@/lib/payment-preference";
 
 export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;
-}
-
-function paymentLabel(raw: string | null | undefined) {
-  const value = (raw ?? "").trim().toUpperCase();
-  if (!value) return "";
-  if (value.startsWith("BACS") || value.startsWith("BANK")) return "BACS";
-  if (value.startsWith("CARD")) return "Card";
-  if (value.startsWith("CASH")) return "Cash";
-  return raw ?? "";
 }
 
 /**
@@ -80,7 +72,7 @@ export default async function PrintDayPage({ params }: Props) {
             <th className="w-6 py-1 pr-1">#</th>
             <th className="py-1 pr-2">Customer / address</th>
             {!hidePrices && <th className="w-14 py-1 pr-2 text-right">Price</th>}
-            <th className="w-12 py-1 pr-2">Pays</th>
+            <th className="w-14 py-1 pr-2">Usually</th>
             <th className="w-10 py-1 pr-2">Slip</th>
             <th className="py-1 pr-2">Notes</th>
             <th className="w-10 py-1 pr-2 text-center">Done</th>
@@ -109,7 +101,7 @@ export default async function PrintDayPage({ params }: Props) {
                     {debt > 0.005 && <div className="text-[10px] font-semibold">owes {fmtCurrency(debt)}</div>}
                   </td>
                 )}
-                <td className="py-1.5 pr-2">{paymentLabel(job.customer.preferredPaymentMethod)}</td>
+                <td className="py-1.5 pr-2">{preferenceLabel(job.customer.preferredPaymentMethod, "short")}</td>
                 <td className="py-1.5 pr-2">{job.customer.slip === false ? "No" : "Yes"}</td>
                 <td className="py-1.5 pr-2 whitespace-pre-wrap">{notes}</td>
                 <td className="py-1.5 pr-2 text-center text-base">{job.status === "COMPLETE" ? "☑" : "☐"}</td>
