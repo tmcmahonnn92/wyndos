@@ -1865,6 +1865,198 @@ export async function createOneOffCustomerAndBookByDate(
   return customer;
 }
 
+// ─── Quotes ─────────────────────────────────────────────────────────────────
+//
+// A quote visit is a job on a day, clearly marked as a quote, for a prospect
+// customer (full customer details, but not live: never scheduled or repeated).
+// The worker marks it "quoted" with a price; the owner then marks the customer
+// live (they join their area's runs like any other customer) or lost.
+
+export type QuoteStatus = "TO_VISIT" | "QUOTED" | "WON" | "LOST";
+
+/** Book a quote visit for a new prospect on a date (optionally for a worker). */
+export async function createQuoteVisit(
+  data: {
+    name: string;
+    address: string;
+    phone?: string;
+    email?: string;
+    notes?: string;
+    areaId?: number;
+    estimate?: number;
+  },
+  dateISO: string,
+  assignedUserId?: string | null,
+) {
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
+  const date = isoToUTC(dateISO);
+  if (!data.name?.trim() || !data.address?.trim()) throw new Error("Name and address are required.");
+
+  const area = data.areaId ? await requireTenantArea(tenantId, data.areaId) : await getOrCreateOneOffSystemArea(tenantId);
+  const workerId = await resolveAssignedWorkerId(tenantId, assignedUserId);
+
+  const customer = await prisma.customer.create({ data: {
+    tenantId,
+    name: data.name.trim(),
+    address: data.address.trim(),
+    phone: data.phone?.trim() ?? "",
+    email: data.email?.trim() ?? "",
+    notes: data.notes?.trim() || null,
+    areaId: area.id,
+    price: data.estimate ?? 0,
+    frequencyWeeks: area.isSystemArea ? 4 : area.frequencyWeeks,
+    active: false,
+    isProspect: true,
+  } });
+
+  // Each quote gets its own standalone day, like other one-offs.
+  const workDay = await prisma.workDay.create({ data: { tenantId, date, assignedUserId: workerId ?? undefined } });
+  await prisma.job.create({ data: {
+    tenantId,
+    workDayId: workDay.id,
+    customerId: customer.id,
+    name: "Quote",
+    price: 0,
+    isOneOff: true,
+    isQuote: true,
+    quoteStatus: "TO_VISIT",
+    notes: data.estimate ? `Estimate £${data.estimate.toFixed(2)}` : null,
+  } });
+
+  revalidatePath("/days");
+  revalidatePath("/scheduler");
+  revalidatePath("/quotes");
+  return { customerId: customer.id, workDayId: workDay.id };
+}
+
+/** Worker or owner: the quote visit happened and a price was given. */
+export async function markQuoted(jobId: number, data: { price: number; frequencyWeeks?: number; notes?: string }) {
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
+  const job = await prisma.job.findFirst({ where: { id: jobId, tenantId, isQuote: true, ...visibleJobWhere(actor) } });
+  if (!job) throw new Error("Quote not found");
+  const price = Number(data.price);
+  if (!Number.isFinite(price) || price < 0) throw new Error("Enter the price you quoted.");
+  const frequencyWeeks = data.frequencyWeeks && data.frequencyWeeks > 0 ? Math.round(data.frequencyWeeks) : null;
+
+  const now = new Date();
+  await prisma.job.update({ where: { id: job.id }, data: {
+    status: "COMPLETE",
+    completedAt: now,
+    completedByUserId: actor.userId,
+    quoteStatus: job.quoteStatus === "WON" ? "WON" : "QUOTED",
+    quotedPrice: price,
+    quotedFrequencyWeeks: frequencyWeeks,
+    quotedAt: now,
+    notes: data.notes?.trim() ? data.notes.trim() : job.notes,
+  } });
+  // Keep the prospect's details in step with the quote.
+  await prisma.customer.update({ where: { id: job.customerId }, data: {
+    price,
+    ...(frequencyWeeks ? { frequencyWeeks } : {}),
+  } });
+  await prisma.workDay.updateMany({ where: { id: job.workDayId, tenantId, status: "PLANNED" }, data: { status: "IN_PROGRESS" } });
+
+  revalidatePath(`/days/${job.workDayId}`);
+  revalidatePath("/quotes");
+}
+
+/**
+ * Owner: the customer accepted. They become a normal live customer in an area,
+ * with their own price and frequency, and join that area's runs from now on.
+ */
+export async function markQuoteWon(
+  jobId: number,
+  data: { areaId: number; price: number; frequencyWeeks: number; firstCleanISO?: string; preferredPaymentMethod?: string },
+) {
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
+  const job = await prisma.job.findFirst({ where: { id: jobId, tenantId, isQuote: true } });
+  if (!job) throw new Error("Quote not found");
+  const area = await requireTenantArea(tenantId, data.areaId);
+  if (area.isSystemArea) throw new Error("Choose the area this customer will be cleaned in.");
+  const price = Number(data.price);
+  if (!Number.isFinite(price) || price <= 0) throw new Error("Enter the regular price.");
+  const frequencyWeeks = Math.max(1, Math.round(Number(data.frequencyWeeks) || area.frequencyWeeks || 4));
+
+  const lastInArea = await prisma.customer.findFirst({
+    where: { tenantId, areaId: area.id },
+    orderBy: { sortOrder: "desc" },
+    select: { sortOrder: true },
+  });
+
+  await prisma.customer.update({ where: { id: job.customerId }, data: {
+    active: true,
+    isProspect: false,
+    areaId: area.id,
+    price,
+    frequencyWeeks,
+    nextDueDate: data.firstCleanISO ? isoToUTC(data.firstCleanISO) : null,
+    sortOrder: (lastInArea?.sortOrder ?? -1) + 1,
+    ...(data.preferredPaymentMethod !== undefined ? { preferredPaymentMethod: data.preferredPaymentMethod } : {}),
+  } });
+
+  const now = new Date();
+  await prisma.job.update({ where: { id: job.id }, data: {
+    quoteStatus: "WON",
+    quotedPrice: job.quotedPrice ?? price,
+    quotedFrequencyWeeks: job.quotedFrequencyWeeks ?? frequencyWeeks,
+    quotedAt: job.quotedAt ?? now,
+    ...(job.status === "PENDING" ? { status: "COMPLETE", completedAt: now, completedByUserId: actor.userId } : {}),
+  } });
+
+  // Join the area's upcoming runs like any other customer.
+  await autoAddToScheduledDays(tenantId, job.customerId, area.id);
+
+  revalidatePath(`/days/${job.workDayId}`);
+  revalidatePath("/quotes");
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${job.customerId}`);
+  revalidatePath("/scheduler");
+}
+
+/** Owner: the customer said no (or never replied). */
+export async function markQuoteLost(jobId: number, reason?: string) {
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
+  const job = await prisma.job.findFirst({ where: { id: jobId, tenantId, isQuote: true } });
+  if (!job) throw new Error("Quote not found");
+  await prisma.job.update({ where: { id: job.id }, data: {
+    quoteStatus: "LOST",
+    ...(job.status === "PENDING" ? { status: "SKIPPED" } : {}),
+    ...(reason?.trim() ? { notes: [job.notes, `Lost: ${reason.trim()}`].filter(Boolean).join(" · ") } : {}),
+  } });
+  revalidatePath(`/days/${job.workDayId}`);
+  revalidatePath("/quotes");
+}
+
+/** Put a lost quote back into "quoted" (e.g. they came back). */
+export async function reopenQuote(jobId: number) {
+  const actor = await requirePerm("customers");
+  const job = await prisma.job.findFirst({ where: { id: jobId, tenantId: actor.tenantId, isQuote: true, quoteStatus: "LOST" } });
+  if (!job) throw new Error("Quote not found");
+  await prisma.job.update({ where: { id: job.id }, data: { quoteStatus: job.quotedPrice != null ? "QUOTED" : "TO_VISIT" } });
+  revalidatePath("/quotes");
+}
+
+/** All quote visits, newest first, for the Quotes screen. */
+export async function getQuotes() {
+  const actor = await requirePerm("customers");
+  const jobs = await prisma.job.findMany({
+    where: { tenantId: actor.tenantId, isQuote: true },
+    include: {
+      customer: { select: { id: true, name: true, address: true, phone: true, email: true, notes: true, areaId: true, price: true, frequencyWeeks: true, preferredPaymentMethod: true } },
+      workDay: { select: { id: true, date: true, assignedUser: { select: { name: true, email: true } } } },
+      assignedUser: { select: { name: true, email: true } },
+      completedBy: { select: { name: true, email: true } },
+    },
+    orderBy: [{ workDay: { date: "desc" } }, { id: "desc" }],
+    take: 500,
+  });
+  return jobs;
+}
+
 export async function removeJobFromDay(jobId: number) {
   const actor = await requirePerm("schedule");
   const tenantId = actor.tenantId;
@@ -2070,6 +2262,7 @@ export async function completeJob(jobId: number) {
     include: { customer: true },
   });
   if (!job) throw new Error("Job not found");
+  if (job.isQuote) throw new Error("This is a quote visit: use \"Mark quoted\" instead.");
   // Idempotent: an offline retry of the same tap does nothing the second time.
   if (job.status === "COMPLETE") return;
 

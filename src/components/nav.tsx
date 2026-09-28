@@ -15,6 +15,7 @@ import {
   CreditCard,
   Receipt,
   Settings,
+  ClipboardList,
   Sun,
   Moon,
   LogOut,
@@ -30,6 +31,7 @@ const navItems = [
   { href: "/days",      label: "Schedule",  icon: CalendarDays,   desktopOnly: false, permission: "schedule"   },
   { href: "/scheduler", label: "Scheduler", icon: CalendarClock,  desktopOnly: true,  permission: "scheduler"  },
   { href: "/customers", label: "Customers", icon: Users,          desktopOnly: false, permission: "customers"  },
+  { href: "/quotes",    label: "Quotes",    icon: ClipboardList,  desktopOnly: false, permission: "customers"  },
   { href: "/areas",     label: "Areas",     icon: Layers,         desktopOnly: false, permission: "areas"      },
   { href: "/payments",  label: "Payments",  icon: CreditCard,     desktopOnly: false, permission: "payments"   },
   { href: "/accounting",label: "Accounting",icon: Receipt,        desktopOnly: false, permission: "payments"   },
@@ -187,6 +189,7 @@ export function Nav({
   const mobileQuickActions = [
     { href: "/customers?action=new-customer", label: "New Customer", icon: UserPlus },
     { href: "/days?action=new-one-off", label: "One-off Job", icon: Zap },
+    { href: "/quotes?action=book", label: "Book Quote", icon: ClipboardList },
   ];
 
   return (

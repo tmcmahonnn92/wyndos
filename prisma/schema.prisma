@@ -300,6 +300,8 @@ model Customer {
   skipNextAreaRun        Boolean       @default(false)
   /// Leave a slip (calling card) after the clean.
   slip                   Boolean       @default(true)
+  /// A quote lead, not a live customer yet: never scheduled until marked live.
+  isProspect             Boolean       @default(false)
   /// Another customer who pays this customer's bills (e.g. a neighbour).
   paidByCustomerId       Int?
   paidBy                 Customer?     @relation("PaidBy", fields: [paidByCustomerId], references: [id], onDelete: SetNull)
@@ -354,6 +356,13 @@ model Job {
   notes       String?
   sortOrder   Int       @default(0)
   isOneOff    Boolean   @default(false)
+  /// A quote visit rather than a clean. Price stays 0; the quote is in quotedPrice.
+  isQuote              Boolean   @default(false)
+  /// TO_VISIT | QUOTED | WON | LOST
+  quoteStatus          String?
+  quotedPrice          Float?
+  quotedFrequencyWeeks Int?
+  quotedAt             DateTime?
   /// Worker for this job. Null = follow the work day's assigned worker.
   assignedUserId    String?
   assignedUser      User?     @relation("AssignedWorkerJobs", fields: [assignedUserId], references: [id], onDelete: SetNull)
@@ -368,6 +377,7 @@ model Job {
   @@index([tenantId, customerId])
   @@index([tenantId, assignedUserId])
   @@index([tenantId, completedByUserId])
+  @@index([tenantId, isQuote, quoteStatus])
   @@index([tenantId, status])
   @@index([completedAt])
 }

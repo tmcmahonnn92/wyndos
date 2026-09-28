@@ -60,6 +60,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { DayTeamBar, type TeamMember } from "./day-team-bar";
+import { QuoteActions, quoteCardClass, quoteSummary } from "./quote-actions";
 import { getQueue, onQueueChange, runOrQueue } from "@/lib/offline-queue";
 import { expectsPaymentAtDoor, normalisePreference, preferenceLabel } from "@/lib/payment-preference";
 import { fmtDate, fmtShortDate, fmtCurrency, cn } from "@/lib/utils";
@@ -1658,7 +1659,8 @@ function JobCard({
   hidePrices?: boolean;
 }) {
   const isDone = job.status === "COMPLETE";
-  const isClickable = true; // All statuses are actionable via the modal
+  const isQuote = Boolean(job.isQuote);
+  const isClickable = !isQuote; // Quote visits use their own buttons, not the job modal
   const [showQuickPayChoices, setShowQuickPayChoices] = useState(false);
   const [includeDebt, setIncludeDebt] = useState(false);
   const previousDebt = job.customer.jobs.filter(j => j.id !== job.id).reduce((sum, j) => {
@@ -1670,7 +1672,9 @@ function JobCard({
     <div
       className={cn(
         "rounded-xl border transition-all overflow-hidden",
-        isDone
+        isQuote
+          ? quoteCardClass(job.quoteStatus)
+          : isDone
           ? "bg-green-50 border-green-200"
           : job.status === "OUTSTANDING"
           ? "bg-red-50 border-red-200"
@@ -1706,9 +1710,16 @@ function JobCard({
           <p className={cn("text-sm font-semibold truncate", isDone ? "text-green-800" : "text-slate-800")}>
             {job.customer.name}
           </p>
-          <p className={cn("text-xs font-medium truncate mt-0.5", isDone ? "text-blue-700" : "text-blue-600")}>
-            {getJobTitle(job)}
-          </p>
+          {isQuote ? (
+            <p className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-purple-800">
+              <span className="rounded bg-purple-600 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Quote</span>
+              {quoteSummary(job)}
+            </p>
+          ) : (
+            <p className={cn("text-xs font-medium truncate mt-0.5", isDone ? "text-blue-700" : "text-blue-600")}>
+              {getJobTitle(job)}
+            </p>
+          )}
           <div className="flex items-center gap-1.5 mt-0.5">
             <p className={cn("text-xs truncate", isDone ? "text-green-600" : "text-slate-500")}>
               {job.customer.address}
@@ -1768,7 +1779,7 @@ function JobCard({
         {/* Price + badges */}
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
           <span className={cn("text-sm font-bold", isDone ? "text-green-700" : "text-slate-700")}>
-            {hidePrices ? null : fmtCurrency(job.price)}
+            {hidePrices || isQuote ? null : fmtCurrency(job.price)}
           </span>
           {(() => {
             const debt = (job.customer.jobs ?? []).reduce((sum, j) => {
@@ -1781,7 +1792,7 @@ function JobCard({
               </span>
             ) : null;
           })()}
-          {job.isOneOff && (
+          {job.isOneOff && !isQuote && (
             <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
               one-off
             </span>
@@ -1796,7 +1807,7 @@ function JobCard({
               {job.status.toLowerCase()}
             </span>
           )}
-          {job.status === "COMPLETE" && (() => {
+          {job.status === "COMPLETE" && !isQuote && (() => {
             const totalPaid = getPaidAfterCompletion(job);
             return totalPaid >= job.price - 0.005 ? (
               <span className="flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-300">
@@ -1808,8 +1819,10 @@ function JobCard({
         </div>
       </div>
 
+      {isQuote && <QuoteActions job={job} canMarkLive={showWorker} />}
+
       {/* ── Action buttons — only for actionable statuses ───── */}
-      {job.status === "PENDING" && (onQuickComplete || onQuickPay) && (
+      {!isQuote && job.status === "PENDING" && (onQuickComplete || onQuickPay) && (
         <>
           <div className="flex border-t border-slate-100">
             {onQuickComplete && (
@@ -1873,7 +1886,7 @@ function JobCard({
           )}
         </>
       )}
-      {job.status === "COMPLETE" && (() => {
+      {!isQuote && job.status === "COMPLETE" && (() => {
         const totalPaid = getPaidAfterCompletion(job);
         return totalPaid < job.price - 0.005 ? (
           <div className="border-t border-amber-100">

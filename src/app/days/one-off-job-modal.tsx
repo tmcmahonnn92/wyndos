@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Plus, Zap, UserPlus } from "lucide-react";
-import { createOneOffJob, createOneOffCustomerAndBookByDate } from "@/lib/actions";
+import { Search, Plus, Zap, UserPlus, ClipboardList } from "lucide-react";
+import { createOneOffJob, createOneOffCustomerAndBookByDate, createQuoteVisit } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { fmtCurrency, cn } from "@/lib/utils";
@@ -24,12 +24,13 @@ interface Area {
 interface Props {
   open: boolean;
   onClose: () => void;
+  initialMode?: Mode;
 }
 
-type Mode = "search" | "new-customer";
+type Mode = "search" | "new-customer" | "quote";
 
-export function OneOffJobModal({ open, onClose }: Props) {
-  const [mode, setMode] = useState<Mode>("search");
+export function OneOffJobModal({ open, onClose, initialMode = "search" }: Props) {
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -48,6 +49,11 @@ export function OneOffJobModal({ open, onClose }: Props) {
   const [areas, setAreas] = useState<Area[]>([]);
   const [newAreaId, setNewAreaId] = useState("");
   const [newFrequency, setNewFrequency] = useState("4");
+  // Quote visit fields
+  const [quotePhone, setQuotePhone] = useState("");
+  const [quoteEmail, setQuoteEmail] = useState("");
+  const [quoteEstimate, setQuoteEstimate] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const handleClose = () => {
     setQuery("");
@@ -56,13 +62,17 @@ export function OneOffJobModal({ open, onClose }: Props) {
     setCustomPrice("");
     setJobName("Window Cleaning");
     setNotes("");
-    setMode("search");
+    setMode(initialMode);
     setNewName("");
     setNewAddress("");
     setNewPrice("");
     setNewNotes("");
     setNewAreaId("");
     setNewFrequency("4");
+    setQuotePhone("");
+    setQuoteEmail("");
+    setQuoteEstimate("");
+    setError(null);
     onClose();
   };
 
@@ -103,6 +113,28 @@ export function OneOffJobModal({ open, onClose }: Props) {
     } catch { /* ignore */ }
   };
 
+  const handleCreateQuote = () => {
+    if (!newName.trim() || !newAddress.trim()) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        await createQuoteVisit({
+          name: newName.trim(),
+          address: newAddress.trim(),
+          phone: quotePhone || undefined,
+          email: quoteEmail || undefined,
+          notes: newNotes || undefined,
+          areaId: newAreaId ? Number(newAreaId) : undefined,
+          estimate: quoteEstimate ? parseFloat(quoteEstimate) : undefined,
+        }, date);
+        router.refresh();
+        handleClose();
+      } catch (issue) {
+        setError(issue instanceof Error ? issue.message : "Could not book the quote.");
+      }
+    });
+  };
+
   const handleCreateOneOffNewCustomer = () => {
     if (!newName.trim() || !newAddress.trim() || !newPrice) return;
     startTransition(async () => {
@@ -121,7 +153,7 @@ export function OneOffJobModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal open={open} onClose={handleClose} title="One-off Job">
+    <Modal open={open} onClose={handleClose} title="Add Job">
       <div className="space-y-4">
         {/* Date */}
         <div>
@@ -160,7 +192,76 @@ export function OneOffJobModal({ open, onClose }: Props) {
             <UserPlus size={13} />
             New Customer
           </button>
+          <button
+            onClick={() => { setMode("quote"); handleLoadAreas(); }}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors",
+              mode === "quote"
+                ? "bg-white text-purple-800 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            )}
+          >
+            <ClipboardList size={13} />
+            Quote
+          </button>
         </div>
+
+        {mode === "quote" && (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-[11px] text-purple-800">
+              Books a <strong>quote visit</strong> on this date. The customer is saved with their details but
+              isn&apos;t cleaned or repeated until you mark them as a live customer.
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">Name</label>
+                <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Mrs Smith"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">Address</label>
+                <input type="text" value={newAddress} onChange={(e) => setNewAddress(e.target.value)} placeholder="1 High Street"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Phone</label>
+                <input type="tel" value={quotePhone} onChange={(e) => setQuotePhone(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Email</label>
+                <input type="email" value={quoteEmail} onChange={(e) => setQuoteEmail(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Area <span className="text-slate-400 font-normal">(optional)</span></label>
+                <select value={newAreaId} onChange={(e) => setNewAreaId(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+                  <option value="">– Not sure yet –</option>
+                  {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Rough price (£) <span className="text-slate-400 font-normal">(optional)</span></label>
+                <input type="number" step="0.01" value={quoteEstimate} onChange={(e) => setQuoteEstimate(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">Notes <span className="text-slate-400 font-normal">(optional)</span></label>
+                <input type="text" value={newNotes} onChange={(e) => setNewNotes(e.target.value)} placeholder="Wants conservatory roof too, call before…"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+              </div>
+            </div>
+            {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
+            <div className="flex gap-2 pt-1">
+              <Button onClick={handleCreateQuote} disabled={isPending || !newName.trim() || !newAddress.trim()} className="flex-1 bg-purple-600 hover:bg-purple-700">
+                <ClipboardList size={14} />
+                {isPending ? "Booking…" : "Book quote visit"}
+              </Button>
+              <Button variant="outline" onClick={handleClose}>Cancel</Button>
+            </div>
+          </div>
+        )}
 
         {mode === "search" && (
           <>

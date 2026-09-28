@@ -79,3 +79,4 @@ key.pub
 *.db
 .tmp-*
 .~lock.*
+*.bundle

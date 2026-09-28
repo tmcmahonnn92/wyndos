@@ -92,12 +92,13 @@ export default async function PrintDayPage({ params }: Props) {
                   {job.customer.address && job.customer.address !== job.customer.name && (
                     <div className="text-slate-600">{job.customer.address}</div>
                   )}
-                  {title && <div className="text-slate-600">{title}</div>}
+                  {title && !job.isQuote && <div className="text-slate-600">{title}</div>}
+                  {job.isQuote && <div className="font-semibold">QUOTE VISIT — price: £______ every ____ weeks</div>}
                   {job.customer.phone && <div className="text-slate-600">{job.customer.phone}</div>}
                 </td>
                 {!hidePrices && (
                   <td className="py-1.5 pr-2 text-right tabular-nums">
-                    {fmtCurrency(job.price)}
+                    {job.isQuote ? <strong>QUOTE</strong> : fmtCurrency(job.price)}
                     {debt > 0.005 && <div className="text-[10px] font-semibold">owes {fmtCurrency(debt)}</div>}
                   </td>
                 )}
