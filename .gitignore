@@ -72,3 +72,10 @@ _devtools/
 dev-*.txt
 demo.db
 _devtools/
+
+wyndos-devtools/
+key
+key.pub
+*.db
+.tmp-*
+.~lock.*
