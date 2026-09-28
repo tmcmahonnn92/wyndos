@@ -21,6 +21,14 @@ import {
 import { bulkImportCustomers, deleteAllCustomers, bulkImportJobHistory } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  normalisePaymentMethod,
+  parsePrice,
+  parseSlip,
+  parseSpreadsheetFile,
+  parseUkDate,
+  parseYes,
+} from "@/lib/import-parsing";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -63,11 +71,12 @@ const FIELDS: FieldDef[] = [
   { key: "phone",   label: "Phone",            required: false, type: "text" },
   { key: "notes",   label: "Notes",            required: false, type: "text" },
   { key: "jobName", label: "Job Name",         required: false, type: "text", defaultValue: "Window Cleaning" },
-  { key: "nextDueDate", label: "Next Due Date (YYYY-MM-DD)", required: false, type: "date" },
+  { key: "nextDueDate", label: "Next Due Date", required: false, type: "date" },
   { key: "preferredPaymentMethod", label: "Payment Method", required: false, type: "select",
     options: ["", "CASH", "BACS", "CARD"] },
   { key: "advanceNotice", label: "Advance Notice", required: false, type: "boolean" },
   { key: "frequencyWeeks", label: "Frequency (Weeks)", required: false, type: "number", defaultValue: "" },
+  { key: "slip", label: "Leave a slip", required: false, type: "boolean" },
 ];
 
 const COLOUR_PALETTE = [
@@ -135,7 +144,13 @@ function buildAutoMapping(headers: string[]): Record<string, MappingConfig> {
     nextduedate: "nextDueDate", duedate: "nextDueDate", nextdue: "nextDueDate",
     paymentmethod: "preferredPaymentMethod", preferredpaymentmethod: "preferredPaymentMethod",
     advancenotice: "advanceNotice",
-    frequencyweeks: "frequencyWeeks", frequency: "frequencyWeeks", freq: "frequencyWeeks",
+    frequencyweeks: "frequencyWeeks", frequency: "frequencyWeeks", freq: "frequencyWeeks", weeks: "frequencyWeeks",
+    cashbacs: "preferredPaymentMethod", payment: "preferredPaymentMethod", pays: "preferredPaymentMethod", paidby: "preferredPaymentMethod",
+    slip: "slip", slips: "slip", leaveslip: "slip", callingcard: "slip",
+    comments: "notes", info: "notes", details: "notes",
+    postcode: "address", street: "address", property: "address",
+    village: "area", town: "area", round: "area", route: "area",
+    telephonenumber: "phone", phonenumber: "phone", contact: "phone",
   };
   const out: Record<string, MappingConfig> = {};
   FIELDS.forEach((f) => {
@@ -148,6 +163,19 @@ function buildAutoMapping(headers: string[]): Record<string, MappingConfig> {
       out[f.key] = { source: f.required ? "column" : "skip" };
     }
   });
+  // Many sheets use the address as the name ("2 lake view"): use it for both.
+  if (out.address?.source !== "column" || !out.address.column) {
+    if (out.name?.source === "column" && out.name.column) out.address = { source: "column", column: out.name.column };
+  }
+  if (out.name?.source !== "column" || !out.name.column) {
+    const first = headers[0];
+    if (first) out.name = { source: "column", column: first };
+  }
+  // A column with no heading is usually notes.
+  if (out.notes?.source === "skip") {
+    const unnamed = headers.find((h) => /^Column [A-Z]+$/.test(h));
+    if (unnamed) out.notes = { source: "column", column: unnamed };
+  }
   return out;
 }
 
@@ -212,6 +240,7 @@ type PreviewRow = {
   preferredPaymentMethod: string;
   advanceNotice: string;
   frequencyWeeks: string;
+  slip: boolean | undefined;
   newAreaKey: string | null;  // key into newAreaConfigs (set when areaIsNew=true)
   errors: string[];
 };
@@ -276,25 +305,21 @@ export function ImportClient({ areas }: { areas: Area[] }) {
 
   // ── CSV ingestion ────────────────────────────────────────────────────────────
 
+  const [ignoredRows, setIgnoredRows] = useState(0);
+
   const ingestFile = useCallback((file: File) => {
     setParseError("");
-    if (!file.name.endsWith(".csv")) { setParseError("Please upload a .csv file."); return; }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target?.result as string;
-        const { headers: h, rows: r } = parseCSV(text);
+    parseSpreadsheetFile(file)
+      .then(({ headers: h, rows: r, ignoredRows: ignored }) => {
         if (h.length === 0) throw new Error("No headers detected.");
         if (r.length === 0) throw new Error("No data rows found.");
         setHeaders(h);
         setRows(r);
+        setIgnoredRows(ignored);
         setMappings(buildAutoMapping(h));
         setStep(1);
-      } catch (err) {
-        setParseError(String(err));
-      }
-    };
-    reader.readAsText(file);
+      })
+      .catch((err) => setParseError(err instanceof Error ? err.message : String(err)));
   }, []);
 
   const handleDrop = (e: React.DragEvent) => {
@@ -358,8 +383,10 @@ export function ImportClient({ areas }: { areas: Area[] }) {
 
       const name = g("name");
       const address = g("address");
-      const priceStr = g("price");
-      const areaStr = g("area");
+      const priceStr = parsePrice(g("price"));
+      const areaStr = mappings["area"]?.source === "fixed" && !mappings["area"]?.areaId
+        ? (mappings["area"]?.value ?? "")
+        : g("area");
 
       if (!name.trim()) errors.push("Name is required");
       if (!address.trim()) errors.push("Address is required");
@@ -372,6 +399,11 @@ export function ImportClient({ areas }: { areas: Area[] }) {
       let areaIsNew = false;
       if (mappings["area"]?.source === "fixed" && mappings["area"]?.areaId) {
         areaId = mappings["area"].areaId;
+      } else if (mappings["area"]?.source === "fixed" && mappings["area"]?.value?.trim()) {
+        // A brand-new area typed in on the mapping screen: always created on import.
+        const typed = mappings["area"].value.trim();
+        const found = areaLookup.get(typed.toLowerCase());
+        if (found) areaId = found; else areaIsNew = true;
       } else {
         const found = areaLookup.get(areaStr.toLowerCase().trim());
         if (found) {
@@ -383,10 +415,11 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         }
       }
 
-      // Date validation
-      const dateStr = g("nextDueDate");
-      if (dateStr && !/^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim())) {
-        errors.push("Next due date must be YYYY-MM-DD");
+      // Dates: UK style (31/12/2026) or ISO (2026-12-31)
+      const rawDate = g("nextDueDate");
+      const dateStr = parseUkDate(rawDate);
+      if (rawDate.trim() && !dateStr) {
+        errors.push("Next due date not recognised (use 31/12/2026)");
       }
 
       return {
@@ -402,71 +435,40 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         notes: g("notes"),
         jobName: g("jobName") || "Window Cleaning",
         nextDueDate: dateStr,
-        preferredPaymentMethod: g("preferredPaymentMethod"),
-        advanceNotice: g("advanceNotice"),
-        frequencyWeeks: g("frequencyWeeks"),
+        preferredPaymentMethod: normalisePaymentMethod(g("preferredPaymentMethod")),
+        advanceNotice: parseYes(g("advanceNotice")) ? "true" : "false",
+        frequencyWeeks: g("frequencyWeeks").replace(/[^0-9]/g, ""),
+        slip: mappings["slip"]?.source === "skip" || !mappings["slip"] ? undefined : parseSlip(g("slip")),
         newAreaKey: null,
         errors,
       };
     });
 
-    // ── Compute new area configs (frequency-split) ─────────────────────────────
-    if (createMissingAreas) {
-      // Group new-area rows by (normalised area name, parsed frequencyWeeks)
-      const areaGroups = new Map<string, {
-        origName: string;
-        freqs: Map<number | null, number[]>; // parsed freq → array of row indices in resolved[]
-      }>();
-
+    // ── New areas: one per name. Customers keep their own frequency, so a village with
+    // 4- and 8-weekly customers stays one area (8-weeklies join every other run).
+    if (createMissingAreas || mappings["area"]?.source === "fixed") {
+      const groups = new Map<string, { origName: string; indices: number[]; freqs: number[] }>();
       resolved.forEach((row, idx) => {
         if (!row.areaIsNew) return;
         const lowerName = row.area.toLowerCase();
-        const rawFreq = parseInt(row.frequencyWeeks);
-        const effectiveFreq: number | null = (!isNaN(rawFreq) && rawFreq > 0) ? rawFreq : null;
-
-        if (!areaGroups.has(lowerName)) {
-          areaGroups.set(lowerName, { origName: row.area, freqs: new Map() });
-        }
-        const group = areaGroups.get(lowerName)!;
-        if (!group.freqs.has(effectiveFreq)) group.freqs.set(effectiveFreq, []);
-        group.freqs.get(effectiveFreq)!.push(idx);
+        if (!groups.has(lowerName)) groups.set(lowerName, { origName: row.area, indices: [], freqs: [] });
+        const group = groups.get(lowerName)!;
+        group.indices.push(idx);
+        const freq = parseInt(row.frequencyWeeks);
+        if (!isNaN(freq) && freq > 0) group.freqs.push(freq);
       });
 
       const newConfigs: Record<string, NewAreaConfig> = {};
-      let colourIdx = areas.length; // cycle from existing area count for distinct colours
-
-      areaGroups.forEach(({ origName, freqs }, lowerName) => {
-        const nonNullFreqs = ([...freqs.keys()].filter((k) => k !== null) as number[]).sort((a, b) => a - b);
-        const hasNullFreq = freqs.has(null);
-
-        if (nonNullFreqs.length <= 1) {
-          // Single area — all rows go here regardless of freq
-          const freq = nonNullFreqs[0] ?? 4;
-          const key = `${lowerName}|||default`;
-          const allIndices = [...freqs.values()].flat();
-          newConfigs[key] = newAreaConfigs[key]
-            ? { ...newAreaConfigs[key], rowCount: allIndices.length }
-            : { key, displayName: origName, color: COLOUR_PALETTE[colourIdx % COLOUR_PALETTE.length], frequencyWeeks: freq, rowCount: allIndices.length };
-          colourIdx++;
-          allIndices.forEach((idx) => { resolved[idx].newAreaKey = key; });
-        } else {
-          // Multiple distinct frequencies — create one area per frequency
-          // Rows with no explicit frequency go into the most-common frequency group
-          let mostCommonFreq = nonNullFreqs[0];
-          let maxCount = freqs.get(nonNullFreqs[0])?.length ?? 0;
-          nonNullFreqs.forEach((f) => { const c = freqs.get(f)?.length ?? 0; if (c > maxCount) { maxCount = c; mostCommonFreq = f; } });
-
-          nonNullFreqs.forEach((freq) => {
-            const key = `${lowerName}|||${freq}`;
-            const rowIndices = [...(freqs.get(freq) ?? [])];
-            if (freq === mostCommonFreq && hasNullFreq) rowIndices.push(...(freqs.get(null) ?? []));
-            newConfigs[key] = newAreaConfigs[key]
-              ? { ...newAreaConfigs[key], rowCount: rowIndices.length }
-              : { key, displayName: `${origName} - ${freq} Weekly`, color: COLOUR_PALETTE[colourIdx % COLOUR_PALETTE.length], frequencyWeeks: freq, rowCount: rowIndices.length };
-            colourIdx++;
-            rowIndices.forEach((idx) => { resolved[idx].newAreaKey = key; });
-          });
-        }
+      let colourIdx = areas.length;
+      groups.forEach(({ origName, indices, freqs }, lowerName) => {
+        // Visit the area as often as its most frequent customers need.
+        const freq = freqs.length > 0 ? Math.min(...freqs) : 4;
+        const key = `${lowerName}|||default`;
+        newConfigs[key] = newAreaConfigs[key]
+          ? { ...newAreaConfigs[key], rowCount: indices.length }
+          : { key, displayName: origName, color: COLOUR_PALETTE[colourIdx % COLOUR_PALETTE.length], frequencyWeeks: freq, rowCount: indices.length };
+        colourIdx++;
+        indices.forEach((idx) => { resolved[idx].newAreaKey = key; });
       });
 
       setNewAreaConfigs(newConfigs);
@@ -537,10 +539,15 @@ export function ImportClient({ areas }: { areas: Area[] }) {
           jobName: r.jobName || undefined,
           nextDueDate: r.nextDueDate || undefined,
           preferredPaymentMethod: r.preferredPaymentMethod || undefined,
-          advanceNotice: r.advanceNotice === "true" || r.advanceNotice === "1" || false,
+          advanceNotice: r.advanceNotice === "true",
           frequencyWeeks: r.frequencyWeeks ? parseInt(r.frequencyWeeks, 10) || undefined : undefined,
+          slip: r.slip,
         })),
-        { createMissingAreas: forceName ? true : createMissingAreas, updateExisting, matchField }
+        {
+          createMissingAreas: forceName || createMissingAreas || valid.some((r) => r.areaIsNew),
+          updateExisting,
+          matchField,
+        }
       );
       let historyCreated = 0;
       let historyErrors: Array<{ row: number; message: string }> = [];
@@ -644,7 +651,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         </Link>
         <div className="flex-1">
           <h1 className="text-xl font-bold text-slate-800">Import Customers</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Upload a CSV to add customers in bulk</p>
+          <p className="text-xs text-slate-500 mt-0.5">Upload your spreadsheet (.xlsx or .csv) as it is</p>
         </div>
         <button
           onClick={downloadTemplate}
@@ -690,9 +697,9 @@ export function ImportClient({ areas }: { areas: Area[] }) {
             onClick={() => fileRef.current?.click()}
           >
             <Upload size={36} className={cn("mx-auto mb-3", dragOver ? "text-blue-500" : "text-slate-300")} />
-            <p className="text-sm font-semibold text-slate-600">Drop a CSV file here, or click to browse</p>
+            <p className="text-sm font-semibold text-slate-600">Drop your spreadsheet here, or tap to choose (.xlsx, .xls or .csv)</p>
             <p className="text-xs text-slate-400 mt-1">Headers must be on the first row · UTF-8 encoding</p>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden"
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.ods,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) ingestFile(f); }} />
           </div>
 
@@ -725,7 +732,8 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-600">
-              <strong>{rows.length}</strong> rows detected · <strong>{headers.length}</strong> columns.
+              <strong>{rows.length}</strong> customers detected · <strong>{headers.length}</strong> columns.
+              {ignoredRows > 0 && <> {ignoredRows} blank or total row{ignoredRows === 1 ? "" : "s"} ignored.</>}
               Map each field below.
             </p>
             <button onClick={() => setStep(0)} className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1">
@@ -1028,14 +1036,27 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                     </div>
                   )}
                   {field.type === "area" && cfg.source === "fixed" && (
-                    <select
-                      value={cfg.areaId ?? ""}
-                      onChange={(e) => setMapping(field.key, { areaId: Number(e.target.value) || undefined })}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">— select area —</option>
-                      {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </select>
+                    <div className="space-y-2">
+                      {areas.length > 0 && (
+                        <select
+                          value={cfg.areaId ?? ""}
+                          onChange={(e) => setMapping(field.key, { areaId: Number(e.target.value) || undefined })}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">— new area (type below) —</option>
+                          {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        </select>
+                      )}
+                      {!cfg.areaId && (
+                        <input
+                          type="text"
+                          value={cfg.value ?? ""}
+                          onChange={(e) => setMapping(field.key, { value: e.target.value })}
+                          placeholder="New area name, e.g. Cuckney"
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      )}
+                    </div>
                   )}
 
                   {/* Sample value preview for column / concat */}
@@ -1403,7 +1424,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
           {validCount === 0 ? (
             <div className="flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
               <AlertCircle size={15} />
-              No valid rows to import. Fix the mapping or correct your CSV and re-upload.
+              No valid rows to import. Fix the mapping or correct your spreadsheet and re-upload.
             </div>
           ) : (
             <Button

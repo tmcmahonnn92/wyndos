@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { updateBusinessSettings, createTag, deleteTag } from "@/lib/actions";
 import { createInvite, listTeamMembers, listPendingInvites, revokeInvite, removeTeamMember, updateWorkerPermissions, changePassword } from "@/lib/auth-actions";
-import { ALL_PERMISSIONS, PERMISSION_LABELS, DEFAULT_WORKER_PERMISSIONS, type Permission } from "@/lib/permissions";
+import { ROLE_PRESETS, ALL_PERMISSIONS, PERMISSION_LABELS, DEFAULT_WORKER_PERMISSIONS, type Permission } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -1044,8 +1044,35 @@ export function SettingsClient({
                 />
               </div>
 
-              {/* Permission checkboxes */}
+              {/* Role presets */}
               <div>
+                <p className="text-xs font-semibold text-slate-700 mb-1.5">Role:</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                  {ROLE_PRESETS.map((preset) => {
+                    const active = preset.permissions.length === invitePermissions.length
+                      && preset.permissions.every((perm) => invitePermissions.includes(perm));
+                    return (
+                      <button
+                        key={preset.key}
+                        type="button"
+                        onClick={() => setInvitePermissions(preset.permissions)}
+                        className={cn(
+                          "rounded-lg border px-2.5 py-2 text-left transition-colors",
+                          active ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-slate-300"
+                        )}
+                      >
+                        <p className="text-xs font-semibold text-slate-800">{preset.label}</p>
+                        <p className="text-[10px] leading-snug text-slate-500">{preset.description}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Permission checkboxes */}
+              <details>
+                <summary className="cursor-pointer text-xs font-semibold text-slate-600">Custom permissions</summary>
+              <div className="mt-2">
                 <p className="text-xs font-semibold text-slate-700 mb-1.5">Permissions for this worker:</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                   {ALL_PERMISSIONS.map((perm) => (
@@ -1073,6 +1100,7 @@ export function SettingsClient({
                   ))}
                 </div>
               </div>
+              </details>
 
               <Button onClick={handleInvite} disabled={invitePending || !inviteEmail.trim()} className="w-full">
                 {invitePending ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}

@@ -24,6 +24,31 @@ export const ALL_PERMISSIONS: Permission[] = [
   "dashboard", "schedule", "scheduler", "routeoptimiser", "customers", "areas", "payments", "settings", "viewprices",
 ];
 
+/**
+ * Ready-made roles so an owner picks one option instead of ticking nine boxes.
+ * "Custom" (ticking boxes) is still available.
+ */
+export const ROLE_PRESETS: Array<{ key: string; label: string; description: string; permissions: Permission[] }> = [
+  {
+    key: "worker",
+    label: "Worker",
+    description: "Sees and works their own days. Takes payment at the door.",
+    permissions: ["dashboard", "schedule", "viewprices"],
+  },
+  {
+    key: "senior",
+    label: "Senior worker",
+    description: "Also sees customers and payments, and can plan days.",
+    permissions: ["dashboard", "schedule", "viewprices", "customers", "payments", "scheduler", "routeoptimiser"],
+  },
+  {
+    key: "office",
+    label: "Office / admin",
+    description: "Everything except business settings.",
+    permissions: ["dashboard", "schedule", "scheduler", "routeoptimiser", "customers", "areas", "payments", "viewprices"],
+  },
+];
+
 /** Permissions automatically granted to a new worker invite if none are specified. */
 export const DEFAULT_WORKER_PERMISSIONS: Permission[] = ["dashboard", "schedule", "viewprices"];
 
