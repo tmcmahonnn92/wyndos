@@ -25,7 +25,12 @@ const authConfig = {
   },
   session: {
     strategy: "jwt",
-    maxAge: 8 * 60 * 60, // 8 hours — sessions expire after one working day
+    // 30 days, refreshed while in use: cleaners open the app on a doorstep and must
+    // not be asked for a password every morning. Access is re-checked against the
+    // database on every server action (src/lib/guards.ts), so removing a worker
+    // takes effect immediately.
+    maxAge: 30 * 24 * 60 * 60,
+    updateAge: 24 * 60 * 60,
   },
   secret: getAuthSecret(),
   callbacks: {

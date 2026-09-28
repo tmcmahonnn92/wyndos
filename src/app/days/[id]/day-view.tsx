@@ -142,6 +142,21 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
   // Drag-to-reorder state for pending jobs.
   const dragJobIdRef = useRef<number | null>(null);
   const [dragOverJobId, setDragOverJobId] = useState<number | null>(null);
+  // Phones can't drag-and-drop reliably, so reordering also works with up/down buttons.
+  const [reorderMode, setReorderMode] = useState(false);
+  const moveJob = (jobId: number, direction: -1 | 1) => {
+    const ids = sortedJobs.map((j) => j.id);
+    const from = ids.indexOf(jobId);
+    let to = from + direction;
+    // Skip over non-pending jobs so a tap always moves past a visible neighbour.
+    while (to >= 0 && to < ids.length && sortedJobs[to].status !== "PENDING") to += direction;
+    if (from === -1 || to < 0 || to >= ids.length) return;
+    const next = [...ids];
+    next.splice(from, 1);
+    next.splice(to, 0, jobId);
+    setRouteOrder(next);
+    safely(async () => { await reorderDayJobs(day.id, next); });
+  };
   // Sort by optimiser route order when available, otherwise keep DB order.
 
   // Taps saved on the phone while offline show immediately, before they reach the server.
@@ -524,9 +539,23 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
         {/* Pending jobs */}
         {pendingJobs.length > 0 && (
           <section>
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-1">
-              Pending ({pendingJobs.length})
-            </h2>
+            <div className="mb-2 flex items-center justify-between px-1">
+              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Pending ({pendingJobs.length})
+              </h2>
+              {pendingJobs.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setReorderMode((on) => !on)}
+                  className={cn(
+                    "rounded-lg border px-2.5 py-1 text-xs font-semibold",
+                    reorderMode ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-600"
+                  )}
+                >
+                  {reorderMode ? "Done reordering" : "Reorder"}
+                </button>
+              )}
+            </div>
             <div className="space-y-2">
               {pendingJobs.map((job) => (
                 <div
@@ -542,6 +571,14 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
                     dragOverJobId === job.id && dragJobId !== job.id && "ring-2 ring-blue-400 ring-offset-1"
                   )}
                 >
+                  {reorderMode && (
+                    <div className="mb-1 flex gap-1">
+                      <button type="button" aria-label={`Move ${job.customer.name} up`} onClick={() => moveJob(job.id, -1)}
+                        className="flex-1 rounded-lg border border-slate-200 bg-white py-1.5 text-sm font-bold text-slate-600">↑</button>
+                      <button type="button" aria-label={`Move ${job.customer.name} down`} onClick={() => moveJob(job.id, 1)}
+                        className="flex-1 rounded-lg border border-slate-200 bg-white py-1.5 text-sm font-bold text-slate-600">↓</button>
+                    </div>
+                  )}
                   <JobCard
                     job={job}
                     showWorker={team !== null}
@@ -970,12 +1007,17 @@ function JobActionModal({
 
   const customerUnpaidJobs = useMemo(() => {
     if (!job) return [];
-    return [...job.customer.jobs]
+    // Include jobs of customers this customer pays for ("paid by"), labelled with their name.
+    const own = job.customer.jobs.map((j) => ({ ...j, label: j.name ?? undefined }));
+    const others = (job.customer.paysFor ?? []).flatMap((other) =>
+      other.jobs.map((j) => ({ ...j, label: `${other.name} — ${j.name ?? "Window Cleaning"}` })),
+    );
+    return [...own, ...others]
       .sort((a, b) => new Date(a.workDay.date).getTime() - new Date(b.workDay.date).getTime() || a.id - b.id)
       .map((j) => {
         const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
         const due = Number(Math.max(0, j.price - paid).toFixed(2));
-        return { id: j.id, name: j.name ?? undefined, price: j.price, paid: Number(paid.toFixed(2)), due, date: j.workDay?.date ?? null, isOneOff: j.isOneOff ?? false };
+        return { id: j.id, name: j.label, price: j.price, paid: Number(paid.toFixed(2)), due, date: j.workDay?.date ?? null, isOneOff: j.isOneOff ?? false };
       })
       .filter((j) => j.due > 0.005);
   }, [job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -989,7 +1031,7 @@ function JobActionModal({
       setPayMode("jobs");
       setPayAmount(String(job.price));
       setPayNotes("");
-      setPayMethod("CASH");
+      setPayMethod(preferredMethod(job));
       setEditingCompletedDate(false);
       setCompletedDateInput(job.completedAt ? new Date(job.completedAt).toISOString().split("T")[0] : "");
       setWorkerNote(job.notes ?? "");

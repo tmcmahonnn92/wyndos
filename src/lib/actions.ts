@@ -207,6 +207,17 @@ async function createAllocatedPayment(data: {
   });
 }
 
+/** Validate a "paid by" customer link. undefined = leave unchanged, null = clear. */
+async function resolvePaidBy(tenantId: number, paidByCustomerId: number | null | undefined, selfId: number | null) {
+  if (paidByCustomerId === undefined) return undefined;
+  if (!paidByCustomerId) return null;
+  if (selfId !== null && paidByCustomerId === selfId) throw new Error("A customer can't pay for themselves.");
+  const payer = await prisma.customer.findFirst({ where: { id: paidByCustomerId, tenantId }, select: { id: true, paidByCustomerId: true } });
+  if (!payer) throw new Error("Paying customer not found");
+  if (payer.paidByCustomerId) throw new Error("That customer is already paid for by someone else.");
+  return payer.id;
+}
+
 async function requireTenantTag(tenantId: number, tagId: number) {
   const tag = await prisma.tag.findFirst({ where: { id: tagId, tenantId } });
   if (!tag) throw new Error("Tag not found");
@@ -823,6 +834,16 @@ export async function getCustomers(areaIds?: number[], search?: string, includeI
   );
 }
 
+/** Minimal list of customers for pickers (e.g. "Paid by"). */
+export async function getCustomerPickList() {
+  const actor = await requirePerm("customers");
+  return prisma.customer.findMany({
+    where: { tenantId: actor.tenantId, active: true },
+    select: { id: true, name: true, paidByCustomerId: true },
+    orderBy: { name: "asc" },
+  });
+}
+
 export async function getCustomer(id: number) {
   const actor = await requirePerm("customers");
   const tenantId = actor.tenantId;
@@ -830,6 +851,8 @@ export async function getCustomer(id: number) {
     where: { id, tenantId },
     include: {
       area: true,
+      paidBy: { select: { id: true, name: true } },
+      paysFor: { select: { id: true, name: true } },
       tags: { include: { tag: true } },
       jobs: {
         include: {
@@ -869,6 +892,7 @@ export async function bulkImportCustomers(
     preferredPaymentMethod?: string;
     nextDueDate?: string;
     frequencyWeeks?: number;
+    slip?: boolean;
   }>,
   options: {
     createMissingAreas?: boolean;
@@ -947,6 +971,9 @@ export async function bulkImportCustomers(
         preferredPaymentMethod: r.preferredPaymentMethod?.trim() ?? "",
         frequencyWeeks: r.frequencyWeeks ?? area.frequencyWeeks,
         nextDueDate: r.nextDueDate ? new Date(r.nextDueDate + "T00:00:00.000Z") : null,
+        // The order of rows in the sheet is the walking order of the round.
+        sortOrder: i,
+        ...(r.slip !== undefined ? { slip: r.slip } : {}),
       };
 
       // ── Create or update ────────────────────────────────────────────────────
@@ -1247,11 +1274,19 @@ export async function createCustomer(data: {
   goCardlessCustomerId?: string;
   goCardlessMandateId?: string;
   nextDueDate?: Date;
+  slip?: boolean;
+  paidByCustomerId?: number | null;
 }) {
   const actor = await requirePerm("customers");
   const tenantId = actor.tenantId;
-  // Always inherit frequencyWeeks and nextDueDate from the area
+  // Frequency defaults to the area's, but each customer can have their own (e.g. 8-weekly in a 4-weekly area).
   const area = await requireTenantArea(tenantId, data.areaId);
+  const paidByCustomerId = await resolvePaidBy(tenantId, data.paidByCustomerId, null);
+  const lastInArea = await prisma.customer.findFirst({
+    where: { tenantId, areaId: data.areaId },
+    orderBy: { sortOrder: "desc" },
+    select: { sortOrder: true },
+  });
   const customer = await prisma.customer.create({ data: { tenantId,
       name: data.name,
       address: data.address,
@@ -1266,8 +1301,11 @@ export async function createCustomer(data: {
       goCardlessCustomerReference: data.goCardlessCustomerReference?.trim() ?? "",
       goCardlessCustomerId: data.goCardlessCustomerId?.trim() || null,
       goCardlessMandateId: data.goCardlessMandateId?.trim() || null,
-      frequencyWeeks: area?.frequencyWeeks ?? data.frequencyWeeks ?? 4,
+      frequencyWeeks: data.frequencyWeeks ?? area?.frequencyWeeks ?? 4,
       nextDueDate: data.nextDueDate ?? null,   // null = never cleaned; picked up on first area run
+      slip: data.slip ?? true,
+      paidByCustomerId: paidByCustomerId ?? null,
+      sortOrder: (lastInArea?.sortOrder ?? -1) + 1, // new customers go to the end of the round
     },
   });
   revalidatePath("/customers");
@@ -1295,6 +1333,8 @@ export async function updateCustomer(
     goCardlessCustomerReference?: string;
     goCardlessCustomerId?: string;
     goCardlessMandateId?: string;
+    slip?: boolean;
+    paidByCustomerId?: number | null;
   }
 ) {
   const actor = await requirePerm("customers");
@@ -1309,10 +1349,11 @@ export async function updateCustomer(
   const areaChanged = current.areaId !== resolvedAreaId;
   const area = await requireTenantArea(tenantId, resolvedAreaId);
 
-  // Customers always inherit frequency from their area.
-  const { frequencyWeeks: _ignoredFrequencyWeeks, ...rest } = data;
+  const { paidByCustomerId: rawPaidBy, ...rest } = data;
+  const paidByCustomerId = await resolvePaidBy(tenantId, rawPaidBy, id);
   const updateData = {
     ...rest,
+    ...(paidByCustomerId !== undefined && { paidByCustomerId }),
     ...(data.goCardlessCustomerReference !== undefined && {
       goCardlessCustomerReference: data.goCardlessCustomerReference.trim(),
     }),
@@ -1323,7 +1364,8 @@ export async function updateCustomer(
       goCardlessMandateId: data.goCardlessMandateId.trim() || null,
     }),
     areaId: resolvedAreaId,
-    frequencyWeeks: area?.frequencyWeeks ?? 4,
+    // Each customer keeps their own frequency; the area's is only the default.
+    frequencyWeeks: data.frequencyWeeks ?? (areaChanged ? area?.frequencyWeeks ?? 4 : undefined),
   };
 
   await prisma.customer.update({ where: { id }, data: updateData });
@@ -1498,6 +1540,27 @@ export async function getWorkDay(id: number) {
                   },
                 },
                 orderBy: [{ workDay: { date: "asc" } }, { createdAt: "asc" }],
+              },
+              // Customers this customer pays for ("paid by"), so their balance can be settled here too.
+              paysFor: {
+                select: {
+                  id: true,
+                  name: true,
+                  jobs: {
+                    where: { status: "COMPLETE" },
+                    select: {
+                      id: true,
+                      name: true,
+                      price: true,
+                      isOneOff: true,
+                      workDay: { select: { date: true } },
+                      allocations: {
+                        where: { payment: { voidedAt: null } },
+                        select: { amount: true },
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -2379,6 +2442,52 @@ export async function takeBackWork(workDayId: number, jobIds?: number[], dateISO
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/days");
   revalidatePath("/scheduler");
+}
+
+/**
+ * Worker pay report for a date range: for each team member, the days they worked,
+ * how many jobs they completed and their value, and the cash they collected.
+ * Covers both day-rate and percentage pay without recording per-job shares.
+ */
+export async function getWorkerReport(fromISO: string, toISO: string) {
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
+  const from = isoToUTC(fromISO);
+  const toExclusive = addUtcDays(isoToUTC(toISO), 1);
+
+  const [members, jobs, payments] = await Promise.all([
+    prisma.membership.findMany({
+      where: { tenantId },
+      include: { user: { select: { id: true, name: true, email: true } } },
+      orderBy: [{ role: "asc" }, { createdAt: "asc" }],
+    }),
+    prisma.job.findMany({
+      where: { tenantId, status: "COMPLETE", completedByUserId: { not: null }, completedAt: { gte: from, lt: toExclusive } },
+      select: { completedByUserId: true, completedAt: true, price: true },
+    }),
+    prisma.payment.findMany({
+      where: { tenantId, voidedAt: null, method: "CASH", collectedByUserId: { not: null }, paidAt: { gte: from, lt: toExclusive } },
+      select: { collectedByUserId: true, amount: true },
+    }),
+  ]);
+
+  return members.map((member) => {
+    const mine = jobs.filter((job) => job.completedByUserId === member.userId);
+    const days = new Set(mine.map((job) => job.completedAt!.toISOString().slice(0, 10)));
+    const cash = payments
+      .filter((payment) => payment.collectedByUserId === member.userId)
+      .reduce((sum, payment) => sum + payment.amount, 0);
+    return {
+      userId: member.userId,
+      name: member.user.name || member.user.email,
+      role: member.role,
+      daysWorked: days.size,
+      dates: [...days].sort(),
+      jobsCompleted: mine.length,
+      valueCompleted: Number(mine.reduce((sum, job) => sum + job.price, 0).toFixed(2)),
+      cashCollected: Number(cash.toFixed(2)),
+    };
+  });
 }
 
 /** Team members who can be given work (owner first). Owner only. */

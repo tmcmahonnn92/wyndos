@@ -1119,7 +1119,10 @@ export function SettingsClient({
 
           {/* Team members */}
           <Card>
-            <CardHeader><CardTitle className="text-sm">Team Members</CardTitle></CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-sm">Team Members</CardTitle>
+              <a href="/reports/workers" className="text-xs font-semibold text-blue-600 hover:underline">Worker pay report →</a>
+            </CardHeader>
             <CardContent className="space-y-2">
               {team.length === 0 && <p className="text-sm text-slate-400">No team members yet.</p>}
               {team.map((member) => (

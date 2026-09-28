@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { getCustomer, getAreas, getBusinessSettings, getCustomerBalance, getTags } from "@/lib/actions";
+import { getCustomer, getAreas, getBusinessSettings, getCustomerBalance, getCustomerPickList, getTags } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { CustomerDetail } from "./customer-detail";
 
@@ -20,12 +20,14 @@ export default async function CustomerPage({ params }: Props) {
   const customer = await getCustomer(customerId);
   if (!customer) notFound();
 
-  const [areas, balance, allTags, settings] = await Promise.all([
+  const [areas, balance, allTags, settings, pickList] = await Promise.all([
     getAreas(),
     getCustomerBalance(customerId),
     getTags(),
     getBusinessSettings(),
+    getCustomerPickList(),
   ]);
+  const payerOptions = pickList.filter((entry) => entry.id !== customerId && !entry.paidByCustomerId);
 
   return (
     <Suspense>
@@ -36,6 +38,7 @@ export default async function CustomerPage({ params }: Props) {
         allTags={allTags}
         hidePrices={hidePrices}
         goCardlessReferencePrefix={settings.goCardlessReferencePrefix || "WD"}
+        payerOptions={payerOptions.map(({ id, name }) => ({ id, name }))}
       />
     </Suspense>
   );

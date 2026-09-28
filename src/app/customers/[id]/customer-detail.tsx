@@ -26,6 +26,7 @@ interface Props {
   allTags: TagRow[];
   hidePrices?: boolean;
   goCardlessReferencePrefix?: string;
+  payerOptions?: Array<{ id: number; name: string }>;
 }
 
 type JobBalance = {
@@ -53,7 +54,7 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, allTags, hidePrices = false, goCardlessReferencePrefix = "WD" }: Props) {
+export function CustomerDetail({ customer, areas, balance, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", payerOptions = [] }: Props) {
   const JOB_HISTORY_PREVIEW_COUNT = 6;
   const [editOpen, setEditOpen] = useState(false);
   const [changeAreaOpen, setChangeAreaOpen] = useState(false);
@@ -110,6 +111,9 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
     jobName: customer.jobName ?? "Window Cleaning",
     advanceNotice: customer.advanceNotice ?? false,
     preferredPaymentMethod: customer.preferredPaymentMethod ?? "",
+    frequencyWeeks: String(customer.frequencyWeeks),
+    slip: customer.slip ?? true,
+    paidByCustomerId: customer.paidByCustomerId ? String(customer.paidByCustomerId) : "",
     goCardlessCustomerReference: customer.goCardlessCustomerReference ?? "",
     goCardlessCustomerId: customer.goCardlessCustomerId ?? "",
     goCardlessMandateId: customer.goCardlessMandateId ?? "",
@@ -251,6 +255,9 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
         jobName: form.jobName || undefined,
         advanceNotice: form.advanceNotice,
         preferredPaymentMethod: form.preferredPaymentMethod || undefined,
+        frequencyWeeks: Number(form.frequencyWeeks) || undefined,
+        slip: form.slip,
+        paidByCustomerId: form.paidByCustomerId ? Number(form.paidByCustomerId) : null,
         goCardlessCustomerReference: form.goCardlessCustomerReference || "",
         goCardlessCustomerId: form.goCardlessCustomerId || "",
         goCardlessMandateId: form.goCardlessMandateId || "",
@@ -400,7 +407,13 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               <p className="text-xs text-slate-500 mb-0.5">Price</p>
               <p className="text-lg font-bold text-slate-800">{hidePrices ? "–" : fmtCurrency(customer.price)}</p>
               {!customer.area.isSystemArea && (
-                <p className="text-xs text-slate-400">every {customer.frequencyWeeks}w (area schedule)</p>
+                <p className="text-xs text-slate-400">every {customer.frequencyWeeks}w{customer.slip === false ? " · no slip" : ""}</p>
+              )}
+              {customer.paidBy && (
+                <p className="text-xs text-slate-500">Paid by {customer.paidBy.name}</p>
+              )}
+              {customer.paysFor.length > 0 && (
+                <p className="text-xs text-slate-500">Also pays for {customer.paysFor.map((entry) => entry.name).join(", ")}</p>
               )}
             </CardContent>
           </Card>
@@ -726,6 +739,34 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                 <span className="text-sm font-medium text-slate-700 leading-tight">Advance notice<br /><span className="text-xs text-slate-400 font-normal">required</span></span>
               </label>
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Clean every</label>
+              <select value={form.frequencyWeeks} onChange={(e) => setForm(f => ({ ...f, frequencyWeeks: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                {[1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 26, 52].map((weeks) => (
+                  <option key={weeks} value={weeks}>{weeks} week{weeks === 1 ? "" : "s"}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col justify-end pb-0.5">
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" checked={form.slip} onChange={(e) => setForm(f => ({ ...f, slip: e.target.checked }))} className="h-4 w-4" />
+                <span className="text-sm font-medium text-slate-700 leading-tight">Leave a slip</span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Paid by another customer</label>
+            <select value={form.paidByCustomerId} onChange={(e) => setForm(f => ({ ...f, paidByCustomerId: e.target.value }))}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+              <option value="">– Pays for themselves –</option>
+              {payerOptions.map((payer) => (
+                <option key={payer.id} value={payer.id}>{payer.name}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">Their jobs show up when you take payment from that customer.</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 space-y-3">
             <div>
