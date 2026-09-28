@@ -7,6 +7,18 @@ import { getExpenseCategory, getOtherIncomeCategory, getTaxTreatment, EXPENSE_CA
 import { calcNextDue } from "@/lib/utils";
 import { addDays, startOfDay } from "date-fns";
 import { getActiveTenantId, getActiveUserContext, requireAuth } from "@/lib/tenant-context";
+import {
+  getActor,
+  requireMember,
+  requireOwner,
+  requirePerm,
+  hasPermission,
+  visibleJobWhere,
+  visibleWorkDayWhere,
+  AccessDeniedError,
+  type Actor,
+} from "@/lib/guards";
+import { decryptSettingsSecrets, encryptSecret } from "@/lib/secrets";
 
 type PaymentMethodValue = "CASH" | "BACS" | "CARD";
 
@@ -14,6 +26,9 @@ type PaymentMethodValue = "CASH" | "BACS" | "CARD";
 function utcDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
+
+/** Customers due within this many days after a run's date are included in that run. */
+const DUE_SLACK_DAYS = 6;
 
 function addUtcDays(d: Date, days: number): Date {
   const base = utcDay(d);
@@ -27,19 +42,16 @@ async function requireTenantArea(tenantId: number, areaId: number) {
 }
 
 async function requireTenantJob(tenantId: number, jobId: number) {
-  const job = await prisma.job.findFirst({ where: { id: jobId, tenantId } });
+  const actor = await getActor();
+  const job = await prisma.job.findFirst({ where: { id: jobId, tenantId, ...visibleJobWhere(actor) } });
   if (!job) throw new Error("Job not found");
   return job;
 }
 
 async function requireTenantWorkDay(tenantId: number, workDayId: number) {
-  const user = await requireAuth();
+  const actor = await getActor();
   const workDay = await prisma.workDay.findFirst({
-    where: {
-      id: workDayId,
-      tenantId,
-      ...(user.role === "WORKER" ? { assignedUserId: user.id } : {}),
-    },
+    where: { id: workDayId, tenantId, ...visibleWorkDayWhere(actor) },
   });
   if (!workDay) throw new Error("Work day not found");
   return workDay;
@@ -69,12 +81,16 @@ async function requireTenantCustomer(tenantId: number, customerId: number) {
   return customer;
 }
 
-async function resolveAssignedWorkerId(tenantId: number, assignedUserId?: string | null) {
+async function resolveAssignedWorkerId(
+  tenantId: number,
+  assignedUserId?: string | null,
+  options: { allowOwner?: boolean } = {}
+) {
   if (assignedUserId === undefined) return undefined;
   if (!assignedUserId) return null;
 
   const membership = await prisma.membership.findFirst({
-    where: { tenantId, userId: assignedUserId, role: "WORKER" },
+    where: { tenantId, userId: assignedUserId, ...(options.allowOwner ? {} : { role: "WORKER" }) },
     select: { userId: true },
   });
   if (!membership) {
@@ -85,8 +101,8 @@ async function resolveAssignedWorkerId(tenantId: number, assignedUserId?: string
 }
 
 async function getVisibleWorkDayWhere(tenantId: number) {
-  const user = await requireAuth();
-  return user.role === "WORKER" ? { tenantId, assignedUserId: user.id } : { tenantId };
+  const actor = await getActor();
+  return { tenantId, ...visibleWorkDayWhere(actor) };
 }
 
 function normaliseGoCardlessReference(value: string | null | undefined) {
@@ -114,8 +130,19 @@ async function createAllocatedPayment(data: {
   goCardlessPaymentId?: string;
   goCardlessStatus?: string;
   goCardlessReference?: string;
+  collectedByUserId?: string | null;
+  clientRequestId?: string | null;
 }) {
   await requireTenantCustomer(data.tenantId, data.customerId);
+
+  // Offline retries resend the same clientRequestId: return the first payment instead of paying twice.
+  if (data.clientRequestId) {
+    const existing = await prisma.payment.findUnique({ where: { clientRequestId: data.clientRequestId } });
+    if (existing) {
+      if (existing.tenantId !== data.tenantId) throw new Error("Payment not found");
+      return existing;
+    }
+  }
 
   const allocationData = data.allocations.filter((allocation) => allocation.amount > 0.005);
   if (allocationData.length === 0) {
@@ -124,12 +151,30 @@ async function createAllocatedPayment(data: {
 
   const totalAmount = Number(allocationData.reduce((sum, allocation) => sum + allocation.amount, 0).toFixed(2));
   const jobIds = allocationData.map((allocation) => allocation.jobId);
+  // A payer can settle their own jobs and the jobs of customers they pay for ("paid by").
   const jobs = await prisma.job.findMany({
-    where: { id: { in: jobIds }, tenantId: data.tenantId, customerId: data.customerId },
-    select: { id: true },
+    where: {
+      id: { in: jobIds },
+      tenantId: data.tenantId,
+      OR: [{ customerId: data.customerId }, { customer: { paidByCustomerId: data.customerId } }],
+    },
+    select: {
+      id: true,
+      price: true,
+      allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
+    },
   });
-  if (jobs.length !== jobIds.length) {
+  if (jobs.length !== new Set(jobIds).size) {
     throw new Error("One or more jobs not found or do not belong to this customer");
+  }
+  const jobById = new Map(jobs.map((job) => [job.id, job]));
+  for (const allocation of allocationData) {
+    const job = jobById.get(allocation.jobId)!;
+    const paid = job.allocations.reduce((sum, entry) => sum + entry.amount, 0);
+    const due = Number((job.price - paid).toFixed(2));
+    if (allocation.amount - due > 0.005) {
+      throw new Error("Payment is more than the amount owed on that job");
+    }
   }
 
   return prisma.$transaction(async (tx) => {
@@ -144,6 +189,8 @@ async function createAllocatedPayment(data: {
         goCardlessPaymentId: data.goCardlessPaymentId ?? null,
         goCardlessStatus: data.goCardlessStatus ?? null,
         goCardlessReference: data.goCardlessReference ?? null,
+        collectedByUserId: data.collectedByUserId ?? null,
+        clientRequestId: data.clientRequestId ?? null,
       },
     });
 
@@ -205,6 +252,11 @@ async function syncAreaScheduleAfterCompletion(
 ) {
   if (!workDay.area || !workDay.areaId) return null;
 
+  // System areas ("One-Off Jobs", "Overdue – …") have no cadence (frequencyWeeks 9999):
+  // never auto-schedule them, or the next run lands centuries away.
+  const areaRow = await prisma.area.findUnique({ where: { id: workDay.area.id }, select: { isSystemArea: true } });
+  if (areaRow?.isSystemArea) return null;
+
   const latestCompleted = await prisma.workDay.findFirst({
     where: { tenantId, areaId: workDay.area.id, status: "COMPLETE" },
     orderBy: { date: "desc" },
@@ -218,14 +270,22 @@ async function syncAreaScheduleAfterCompletion(
     data: { lastCompletedDate: lastCompleted, nextDueDate: nextDue },
   });
 
-  await prisma.customer.updateMany({
-    where: { tenantId, areaId: workDay.area.id, active: true },
-    data: {
-      frequencyWeeks: workDay.area.frequencyWeeks,
-      lastCompletedDate: lastCompleted,
-      nextDueDate: nextDue,
-    },
+  // Only customers actually cleaned on this day count as cleaned. Skipped / not-done
+  // customers keep their own due date, and each customer keeps their own frequency
+  // (an 8-weekly customer can sit in a 4-weekly area and is simply included every other run).
+  const cleanedJobs = await prisma.job.findMany({
+    where: { tenantId, workDayId: workDay.id, status: "COMPLETE" },
+    select: { customerId: true, customer: { select: { frequencyWeeks: true } } },
   });
+  for (const cleaned of cleanedJobs) {
+    await prisma.customer.update({
+      where: { id: cleaned.customerId },
+      data: {
+        lastCompletedDate: fallbackCompletedDate,
+        nextDueDate: addUtcDays(fallbackCompletedDate, (cleaned.customer.frequencyWeeks || workDay.area.frequencyWeeks) * 7),
+      },
+    });
+  }
 
   const targetNextWorkDay = await prisma.workDay.upsert({
     where: { tenantId_date_areaId: { tenantId, date: nextDue, areaId: workDay.area.id } },
@@ -269,8 +329,15 @@ async function syncAreaScheduleAfterCompletion(
     }
   }
 
+  // Customers due by this run (with a few days' slack) are included; customers on a longer
+  // frequency than the area wait for a later run.
   const eligibleCustomers = await prisma.customer.findMany({
-    where: { tenantId, areaId: workDay.area.id, active: true },
+    where: {
+      tenantId,
+      areaId: workDay.area.id,
+      active: true,
+      OR: [{ nextDueDate: null }, { nextDueDate: { lte: addUtcDays(nextDue, DUE_SLACK_DAYS) } }],
+    },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
   const newJobs = eligibleCustomers.filter((customer) => !targetCustomerIds.has(customer.id));
@@ -281,6 +348,7 @@ async function syncAreaScheduleAfterCompletion(
         workDayId: targetNextWorkDay.id,
         customerId: customer.id,
         price: customer.price,
+        sortOrder: customer.sortOrder,
         name: customer.jobName || "Window Cleaning",
         status: customer.skipNextAreaRun ? "SKIPPED" : "PENDING",
         notes: customer.skipNextAreaRun ? "Completed via another area run" : null,
@@ -305,7 +373,8 @@ export async function createArea(data: {
   monthlyDay?: number;
   nextDueDate?: Date;
 }) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("areas");
+  const tenantId = actor.tenantId;
   await prisma.area.create({ data: { tenantId,
       name: data.name,
       sortOrder: data.sortOrder ?? 0,
@@ -332,16 +401,11 @@ export async function updateArea(
     nextDueDate?: Date | null;
   }
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("areas");
+  const tenantId = actor.tenantId;
   const area = await requireTenantArea(tenantId, id);
   await prisma.area.update({ where: { id: area.id }, data });
-  // Cascade frequency change to all customers in this area (used by legacy calcNextDue paths)
-  if (data.frequencyWeeks !== undefined) {
-    await prisma.customer.updateMany({
-      where: { tenantId, areaId: area.id },
-      data: { frequencyWeeks: data.frequencyWeeks },
-    });
-  }
+  // Area frequency is how often the area is visited. Customers keep their own frequency.
   revalidatePath("/days");
   revalidatePath("/customers");
   revalidatePath("/areas");
@@ -349,7 +413,8 @@ export async function updateArea(
 }
 
 export async function deleteArea(id: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("areas");
+  const tenantId = actor.tenantId;
   const area = await requireTenantArea(tenantId, id);
   const customerCount = await prisma.customer.count({ where: { tenantId, areaId: area.id } });
   if (customerCount > 0) {
@@ -365,14 +430,15 @@ export async function deleteArea(id: number) {
 }
 
 export async function getAreas() {
-  const tenantId = await getActiveTenantId();
+  const actor = await requireMember();
+  const tenantId = actor.tenantId;
   return prisma.area.findMany({ where: { tenantId, isSystemArea: false }, orderBy: { sortOrder: "asc" } });
 }
 
 export async function getAreaSchedules() {
-  const tenantId = await getActiveTenantId();
-  const user = await requireAuth();
-  if (user.role === "WORKER") {
+  const actor = await requireMember();
+  const tenantId = actor.tenantId;
+  if (actor.isWorker && !hasPermission(actor, "scheduler") && !hasPermission(actor, "areas")) {
     return [];
   }
   const areas = await prisma.area.findMany({ where: { tenantId, isSystemArea: false },
@@ -472,12 +538,13 @@ export async function moveOverdueJobsToDay(
     | { kind: "existing"; workDayId: number }
     | { kind: "new"; dateISO: string; sourceAreaName: string }
 ): Promise<{ targetWorkDayId: number } | null> {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   if (!Array.isArray(jobIds) || jobIds.length === 0) return null;
 
   const jobs = await prisma.job.findMany({
-    where: { tenantId, id: { in: jobIds } },
-    select: { id: true, workDayId: true },
+    where: { tenantId, id: { in: jobIds }, ...visibleJobWhere(actor) },
+    select: { id: true, workDayId: true, assignedUserId: true, workDay: { select: { assignedUserId: true } } },
   });
   if (jobs.length === 0) return null;
   const validIds = jobs.map((j) => j.id);
@@ -490,10 +557,14 @@ export async function moveOverdueJobsToDay(
   } else {
     const date = isoToUTC(target.dateISO);
     const overdueArea = await getOrCreateOverdueArea(tenantId, target.sourceAreaName);
+    // A worker moving their own leftovers keeps them: the new day is theirs.
+    const dayWorkers = new Set(jobs.map((job) => job.assignedUserId ?? job.workDay.assignedUserId ?? null));
+    const sharedWorker = dayWorkers.size === 1 ? [...dayWorkers][0] : null;
+    const newDayWorker = actor.isWorker ? actor.userId : sharedWorker;
     const workDay = await prisma.workDay.upsert({
       where: { tenantId_date_areaId: { tenantId, date, areaId: overdueArea.id } },
       update: {},
-      create: { tenantId, date, areaId: overdueArea.id, status: "PLANNED" },
+      create: { tenantId, date, areaId: overdueArea.id, status: "PLANNED", assignedUserId: newDayWorker ?? undefined },
     });
     targetWorkDayId = workDay.id;
   }
@@ -503,10 +574,16 @@ export async function moveOverdueJobsToDay(
     const job = jobs.find((j) => j.id === id);
     return job && job.workDayId !== targetWorkDayId;
   });
-  if (idsToMove.length > 0) {
-    await prisma.job.updateMany({
-      where: { tenantId, id: { in: idsToMove } },
-      data: { workDayId: targetWorkDayId, status: "PENDING" },
+  // Each moved job keeps the worker it had (its own assignment, else its old day's).
+  for (const id of idsToMove) {
+    const job = jobs.find((j) => j.id === id)!;
+    await prisma.job.update({
+      where: { id },
+      data: {
+        workDayId: targetWorkDayId,
+        status: "PENDING",
+        assignedUserId: job.assignedUserId ?? job.workDay.assignedUserId ?? null,
+      },
     });
   }
 
@@ -519,7 +596,8 @@ export async function moveOverdueJobsToDay(
 
 
 export async function reorderAreaCustomers(areaId: number, orderedIds: number[]) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("areas");
+  const tenantId = actor.tenantId;
   const area = await requireTenantArea(tenantId, areaId);
   const customers = await prisma.customer.findMany({
     where: { tenantId, areaId: area.id, id: { in: orderedIds } },
@@ -592,7 +670,8 @@ async function assertNoConflictingOpenAreaDay(
  * (Completion auto-schedules the subsequent run.)
  */
 export async function scheduleAreaRun(areaId: number, dateISO: string, assignedUserId?: string | null) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
   const d = isoToUTC(dateISO);
   const area = await requireTenantArea(tenantId, areaId);
   const workerId = await resolveAssignedWorkerId(tenantId, assignedUserId);
@@ -601,8 +680,11 @@ export async function scheduleAreaRun(areaId: number, dateISO: string, assignedU
 
   const [, eligibleCustomers] = await Promise.all([
     area,
-    // All active area customers always ride the area schedule — no nextDueDate filter
-    prisma.customer.findMany({ where: { tenantId, areaId, active: true },
+    // Customers due by this date (with slack). New customers (no due date) are always included;
+    // customers on a longer frequency than the area wait for a later run.
+    prisma.customer.findMany({ where: { tenantId, areaId, active: true,
+        OR: [{ nextDueDate: null }, { nextDueDate: { lte: addUtcDays(d, DUE_SLACK_DAYS) } }],
+      },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     }),
   ]);
@@ -626,6 +708,7 @@ export async function scheduleAreaRun(areaId: number, dateISO: string, assignedU
         customerId: c.id,
         price: c.price,
         name: c.jobName || "Window Cleaning",
+        sortOrder: c.sortOrder,
         // Auto-skip customers who were already serviced via another area's one-off run
         status: c.skipNextAreaRun ? ("SKIPPED" as const) : ("PENDING" as const),
         notes: c.skipNextAreaRun ? "Completed via another area run" : null,
@@ -658,7 +741,8 @@ export async function createOneOffJob(data: {
   price?: number;
   notes?: string;
 }) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
   const d = utcDay(data.date);
   if (isNaN(d.getTime())) throw new Error("Invalid date — please select a valid date.");
 
@@ -701,7 +785,11 @@ export async function createOneOffJob(data: {
 // ─── Customers ─────────────────────────────────────────────────────────────
 
 export async function getCustomers(areaIds?: number[], search?: string, includeInactive = false, tagIds?: number[], onlyOneOff = false) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requireMember();
+  if (!(["customers", "areas", "scheduler", "settings"] as const).some((perm) => hasPermission(actor, perm))) {
+    throw new AccessDeniedError();
+  }
+  const tenantId = actor.tenantId;
   const customers = await prisma.customer.findMany({ where: { tenantId,
       ...(includeInactive ? {} : { active: true }),
       ...(onlyOneOff
@@ -736,7 +824,8 @@ export async function getCustomers(areaIds?: number[], search?: string, includeI
 }
 
 export async function getCustomer(id: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
   return prisma.customer.findFirst({
     where: { id, tenantId },
     include: {
@@ -787,7 +876,8 @@ export async function bulkImportCustomers(
     matchField?: "name" | "nameAddress";
   } = {}
 ): Promise<{ created: number; updated: number; errors: Array<{ row: number; message: string }>; areasCreated: string[] }> {
-  const tenantId = await getActiveTenantId();
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
   const errors: Array<{ row: number; message: string }> = [];
   let created = 0;
   let updated = 0;
@@ -890,7 +980,8 @@ export async function bulkImportCustomers(
 }
 
 export async function deleteAllCustomers(): Promise<{ deleted: number }> {
-  const tenantId = await getActiveTenantId();
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
   const customers = await prisma.customer.findMany({
     select: { id: true },
     where: { tenantId, area: { isSystemArea: false } },
@@ -939,7 +1030,8 @@ export async function bulkImportJobHistory(
   }>,
   options: { matchField?: "name" | "nameAddress" } = {}
 ): Promise<{ created: number; errors: Array<{ row: number; message: string }> }> {
-  const tenantId = await getActiveTenantId();
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
   const errors: Array<{ row: number; message: string }> = [];
   let created = 0;
   // Cache "areaId:dateStr" → workDayId so we don't create duplicate work days
@@ -1156,7 +1248,8 @@ export async function createCustomer(data: {
   goCardlessMandateId?: string;
   nextDueDate?: Date;
 }) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
   // Always inherit frequencyWeeks and nextDueDate from the area
   const area = await requireTenantArea(tenantId, data.areaId);
   const customer = await prisma.customer.create({ data: { tenantId,
@@ -1204,7 +1297,8 @@ export async function updateCustomer(
     goCardlessMandateId?: string;
   }
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
   const current = await prisma.customer.findFirst({
     where: { id, tenantId },
     select: { areaId: true, price: true, jobName: true },
@@ -1261,7 +1355,8 @@ export async function bulkUpdateCustomers(
     active?: boolean;
   }>
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
   const previousCustomers = await prisma.customer.findMany({
     where: { tenantId, id: { in: updates.map((update) => update.id) } },
     select: { id: true, areaId: true },
@@ -1310,7 +1405,8 @@ export async function bulkUpdateCustomers(
 }
 
 export async function rescheduleCustomer(id: number, newDate: Date) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
   await requireTenantCustomer(tenantId, id);
   await prisma.customer.update({
     where: { id },
@@ -1323,7 +1419,8 @@ export async function rescheduleCustomer(id: number, newDate: Date) {
 // ─── Work Days ──────────────────────────────────────────────────────────────
 
 export async function getWorkDays() {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const where = await getVisibleWorkDayWhere(tenantId);
   return prisma.workDay.findMany({
     where,
@@ -1331,7 +1428,10 @@ export async function getWorkDays() {
       area: true,
       assignedUser: { select: { id: true, name: true, email: true } },
       jobs: {
+        where: visibleJobWhere(actor),
         include: {
+          assignedUser: { select: { id: true, name: true, email: true } },
+          completedBy: { select: { id: true, name: true, email: true } },
           customer: {
             include: {
               area: true,
@@ -1360,7 +1460,8 @@ export async function getWorkDays() {
 }
 
 export async function getWorkDay(id: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const where = await getVisibleWorkDayWhere(tenantId);
   return prisma.workDay.findFirst({
     where: { id, ...where },
@@ -1368,7 +1469,10 @@ export async function getWorkDay(id: number) {
       area: true,
       assignedUser: { select: { id: true, name: true, email: true } },
       jobs: {
+        where: visibleJobWhere(actor),
         include: {
+          assignedUser: { select: { id: true, name: true, email: true } },
+          completedBy: { select: { id: true, name: true, email: true } },
           allocations: {
             where: { payment: { voidedAt: null } },
             select: {
@@ -1405,7 +1509,8 @@ export async function getWorkDay(id: number) {
 }
 
 export async function createWorkDay(date: Date, areaId?: number, assignedUserId?: string | null) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
   const d = utcDay(date);
   const workerId = await resolveAssignedWorkerId(tenantId, assignedUserId);
   let day;
@@ -1427,7 +1532,8 @@ export async function createWorkDay(date: Date, areaId?: number, assignedUserId?
 }
 
 export async function addJobToDay(workDayId: number, customerId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const [customer, workDay] = await Promise.all([
     requireTenantCustomer(tenantId, customerId),
     requireTenantWorkDay(tenantId, workDayId),
@@ -1443,13 +1549,14 @@ export async function addOneOffJobToDay(
   customerId: number,
   opts: { name?: string; price?: number; notes?: string }
 ) {
-  const tenantId = await getActiveTenantId();
-  const [customer, targetWorkDay] = await Promise.all([
-    prisma.customer.findFirst({ where: { id: customerId, tenantId } }),
-    prisma.workDay.findFirst({ where: { id: workDayId, tenantId }, include: { area: true } }),
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
+  // An extra one-off job (e.g. gutters) is added alongside the customer's regular cleans;
+  // it never cancels their normal visit.
+  const [customer] = await Promise.all([
+    requireTenantCustomer(tenantId, customerId),
+    requireTenantWorkDay(tenantId, workDayId),
   ]);
-  if (!customer) throw new Error("Customer not found");
-  if (!targetWorkDay) throw new Error("Work day not found");
   await prisma.job.create({ data: { tenantId,
       workDayId,
       customerId,
@@ -1457,82 +1564,56 @@ export async function addOneOffJobToDay(
       price: opts.price ?? customer.price,
       notes: opts.notes?.trim() || null,
       isOneOff: true,
+      assignedUserId: actor.isWorker ? actor.userId : null,
     },
   });
-
-  // If this is a cross-area one-off: skip or flag the customer's next home-area run
-  if (targetWorkDay && customer.areaId !== targetWorkDay.areaId) {
-    const dayName = targetWorkDay.area?.name ?? "another day";
-    const dateLabel = targetWorkDay.date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-    const homeAreaPendingJob = await prisma.job.findFirst({ where: { tenantId,
-        customerId,
-        status: "PENDING",
-        workDayId: { not: workDayId },
-        workDay: { areaId: customer.areaId },
-      },
-      orderBy: { workDay: { date: "asc" } },
-    });
-    if (homeAreaPendingJob) {
-      await prisma.job.update({
-        where: { id: homeAreaPendingJob.id },
-        data: { status: "SKIPPED", notes: `Completed via ${dayName} on ${dateLabel}` },
-      });
-      revalidatePath(`/days/${homeAreaPendingJob.workDayId}`);
-    } else {
-      // No home-area run scheduled yet — flag so it auto-skips when created
-      await prisma.customer.update({
-        where: { id: customerId },
-        data: { skipNextAreaRun: true },
-      });
-    }
-  }
 
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/scheduler");
 }
 
-// Add a customer from another area as a one-off. Also leaves a note on their
-// next pending scheduled job so the original day shows they're allocated elsewhere.
+/**
+ * Bring a customer from another area onto this day. If the customer already has a
+ * pending visit booked elsewhere, that visit is MOVED here (one job, one owner) so
+ * nothing is marked done until someone actually does it. Otherwise a new job is added.
+ */
 export async function addJobFromOtherArea(targetWorkDayId: number, customerId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const [customer, targetWorkDay] = await Promise.all([
-    prisma.customer.findFirst({ where: { id: customerId, tenantId } }),
-    prisma.workDay.findFirst({ where: { id: targetWorkDayId, tenantId }, include: { area: true } }),
+    requireTenantCustomer(tenantId, customerId),
+    requireTenantWorkDay(tenantId, targetWorkDayId),
   ]);
-  if (!customer) throw new Error("Customer not found");
-  if (!targetWorkDay) throw new Error("Work day not found");
 
-  // Add as one-off if not already present
   const existing = await prisma.job.findFirst({ where: { tenantId, workDayId: targetWorkDayId, customerId } });
   if (!existing) {
-    await prisma.job.create({ data: { tenantId, workDayId: targetWorkDayId, customerId, price: customer.price, isOneOff: true },
+    const pendingElsewhere = await prisma.job.findFirst({
+      where: {
+        tenantId,
+        customerId,
+        status: "PENDING",
+        isOneOff: false,
+        workDayId: { not: targetWorkDayId },
+        workDay: { status: { not: "COMPLETE" } },
+      },
+      orderBy: { workDay: { date: "asc" } },
     });
-  }
-
-  // Skip or flag the customer's next PENDING job in their HOME area
-  const dayName = targetWorkDay.area?.name ?? "another day";
-  const dateLabel = new Date(targetWorkDay.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const homeAreaPendingJob = await prisma.job.findFirst({ where: { tenantId,
-      customerId,
-      status: "PENDING",
-      workDayId: { not: targetWorkDayId },
-      workDay: { areaId: customer.areaId },
-    },
-    orderBy: { workDay: { date: "asc" } },
-  });
-  if (homeAreaPendingJob) {
-    // Mark the existing home-area job as SKIPPED
-    await prisma.job.update({
-      where: { id: homeAreaPendingJob.id },
-      data: { status: "SKIPPED", notes: `Completed via ${dayName} on ${dateLabel}` },
-    });
-    revalidatePath(`/days/${homeAreaPendingJob.workDayId}`);
-  } else {
-    // No home-area run scheduled yet — flag so it auto-skips when created
-    await prisma.customer.update({
-      where: { id: customer.id },
-      data: { skipNextAreaRun: true },
-    });
+    if (pendingElsewhere) {
+      await prisma.job.update({
+        where: { id: pendingElsewhere.id },
+        data: { workDayId: targetWorkDay.id, assignedUserId: null },
+      });
+      revalidatePath(`/days/${pendingElsewhere.workDayId}`);
+    } else {
+      await prisma.job.create({ data: {
+        tenantId,
+        workDayId: targetWorkDayId,
+        customerId,
+        price: customer.price,
+        name: customer.jobName || "Window Cleaning",
+        isOneOff: true,
+      } });
+    }
   }
 
   revalidatePath(`/days/${targetWorkDayId}`);
@@ -1554,7 +1635,8 @@ export async function createCustomerAndAddToDay(
   },
   workDayId: number
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   await requireTenantWorkDay(tenantId, workDayId);
   const area = await requireTenantArea(tenantId, data.areaId);
   const customer = await prisma.customer.create({ data: { tenantId,
@@ -1596,7 +1678,8 @@ export async function createOneOffCustomerAndAddToDay(
   },
   workDayId: number
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   await requireTenantWorkDay(tenantId, workDayId);
   let areaId: number;
   let freqWeeks: number;
@@ -1645,7 +1728,8 @@ export async function createOneOffCustomerAndBookByDate(
   },
   date: Date
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
   const d = utcDay(date);
   if (isNaN(d.getTime())) throw new Error("Invalid date — please select a valid date.");
 
@@ -1688,7 +1772,8 @@ export async function createOneOffCustomerAndBookByDate(
 }
 
 export async function removeJobFromDay(jobId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const job = await requireTenantJob(tenantId, jobId);
   if (job.status === "COMPLETE") throw new Error("Cannot remove a completed job");
   await prisma.job.delete({ where: { id: job.id } });
@@ -1705,7 +1790,8 @@ export async function removeJobFromDay(jobId: number) {
 }
 
 export async function startDay(workDayId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const workDay = await requireTenantWorkDay(tenantId, workDayId);
   await prisma.workDay.update({
     where: { id: workDay.id },
@@ -1720,7 +1806,8 @@ export async function startDay(workDayId: number) {
  * Does NOT touch IN_PROGRESS or COMPLETE days (preserves history).
  */
 export async function clearFutureSchedule() {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
   const today = utcDay(new Date());
 
   const futureDays = await prisma.workDay.findMany({ where: { tenantId, date: { gte: today }, status: "PLANNED" },
@@ -1741,7 +1828,8 @@ export async function clearFutureSchedule() {
 }
 
 export async function deleteWorkDay(workDayId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
   const wd = await prisma.workDay.findFirst({
     where: { id: workDayId, tenantId },
     include: { jobs: { select: { id: true, status: true } } },
@@ -1768,7 +1856,8 @@ export async function deleteWorkDay(workDayId: number) {
  * Uses existing addJobToDay logic.
  */
 export async function addCustomerToDay(workDayId: number, customerId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   return addJobToDay(workDayId, customerId);
 }
 
@@ -1779,17 +1868,19 @@ export async function addCustomerToDay(workDayId: number, customerId: number) {
  * Adds any missing customers (active, nextDueDate <= workDay.date or null).
  */
 export async function syncWorkDayCustomers(workDayId: number): Promise<{ added: number }> {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
+  await requireTenantWorkDay(tenantId, workDayId);
   const workDay = await prisma.workDay.findFirst({
     where: { id: workDayId, tenantId },
     include: { area: true },
   });
-  if (!workDay || !workDay.areaId) return { added: 0 };
+  if (!workDay || !workDay.areaId || workDay.area?.isSystemArea) return { added: 0 };
 
   const eligibleCustomers = await prisma.customer.findMany({ where: { tenantId,
       areaId: workDay.areaId,
       active: true,
-      OR: [{ nextDueDate: null }, { nextDueDate: { lte: workDay.date } }],
+      OR: [{ nextDueDate: null }, { nextDueDate: { lte: addUtcDays(workDay.date, DUE_SLACK_DAYS) } }],
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
@@ -1809,6 +1900,7 @@ export async function syncWorkDayCustomers(workDayId: number): Promise<{ added: 
         price: c.price,
         status: "PENDING" as const,
         name: c.jobName || "Window Cleaning",
+        sortOrder: c.sortOrder,
       })),
     });
   }
@@ -1827,7 +1919,8 @@ export async function moveCustomerToArea(
   newAreaId: number,
   addToWorkDayId?: number
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
   const [customer, area] = await Promise.all([
     requireTenantCustomer(tenantId, customerId),
     requireTenantArea(tenantId, newAreaId),
@@ -1837,7 +1930,7 @@ export async function moveCustomerToArea(
   // Clear skip flag — moving to a new area is a clean slate
   await prisma.customer.updateMany({
     where: { tenantId, id: customerId },
-    data: { areaId: newAreaId, frequencyWeeks: area.frequencyWeeks, skipNextAreaRun: false },
+    data: { areaId: newAreaId, skipNextAreaRun: false },
   });
   await removeCustomerFromPreviousAreaScheduledDays(tenantId, customerId, oldAreaId, newAreaId);
   revalidatePath("/customers");
@@ -1853,14 +1946,15 @@ export async function moveCustomerToArea(
  * Move multiple customers to a new area in one shot.
  */
 export async function bulkMoveCustomersToArea(customerIds: number[], newAreaId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
   const area = await requireTenantArea(tenantId, newAreaId);
   const customers = await prisma.customer.findMany({ where: { tenantId, id: { in: customerIds } }, select: { id: true, areaId: true } });
   if (customers.length !== customerIds.length) throw new Error("One or more customers were not found");
   await prisma.customer.updateMany({
     where: { tenantId, id: { in: customerIds } },
     // Clear skip flag — moving to a new area is a clean slate
-    data: { areaId: newAreaId, frequencyWeeks: area.frequencyWeeks, skipNextAreaRun: false },
+    data: { areaId: newAreaId, skipNextAreaRun: false },
   });
   for (const customer of customers) {
     await removeCustomerFromPreviousAreaScheduledDays(tenantId, customer.id, customer.areaId, newAreaId);
@@ -1875,17 +1969,20 @@ export async function bulkMoveCustomersToArea(customerIds: number[], newAreaId: 
 // ─── Jobs ───────────────────────────────────────────────────────────────────
 
 export async function completeJob(jobId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const job = await prisma.job.findFirst({
-    where: { id: jobId, tenantId },
-    include: { customer: { include: { area: true } } },
+    where: { id: jobId, tenantId, ...visibleJobWhere(actor) },
+    include: { customer: true },
   });
   if (!job) throw new Error("Job not found");
+  // Idempotent: an offline retry of the same tap does nothing the second time.
+  if (job.status === "COMPLETE") return;
 
   const now = new Date();
   await prisma.job.update({
     where: { id: jobId },
-    data: { status: "COMPLETE", completedAt: now },
+    data: { status: "COMPLETE", completedAt: now, completedByUserId: actor.userId },
   });
 
   // Auto-start the work day if still PLANNED — removes the need to tap "Start Area" separately
@@ -1894,25 +1991,28 @@ export async function completeJob(jobId: number) {
     data: { status: "IN_PROGRESS" },
   });
 
-  // Advance by this customer's own frequency (may differ from area frequency e.g. 8-weekly)
-  const nextDue = calcNextDue(now, job.customer.area?.frequencyWeeks ?? job.customer.frequencyWeeks);
-  await prisma.customer.update({
-    where: { id: job.customerId },
-    data: {
-      frequencyWeeks: job.customer.area?.frequencyWeeks ?? job.customer.frequencyWeeks,
-      nextDueDate: nextDue,
-      lastCompletedDate: now,
-    },
-  });
+  // Only the customer's regular service moves their due date; an extra one-off
+  // (e.g. gutters) does not. Each customer keeps their own frequency.
+  const isRegularService = !job.isOneOff || job.name === (job.customer.jobName || "Window Cleaning");
+  if (isRegularService) {
+    await prisma.customer.update({
+      where: { id: job.customerId },
+      data: {
+        nextDueDate: calcNextDue(now, job.customer.frequencyWeeks),
+        lastCompletedDate: now,
+      },
+    });
+  }
 
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath(`/customers/${job.customerId}`);
 }
 
 export async function uncompleteJob(jobId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const job = await prisma.job.findFirst({
-    where: { id: jobId, tenantId },
+    where: { id: jobId, tenantId, ...visibleJobWhere(actor) },
     include: {
       allocations: {
         where: { payment: { voidedAt: null } },
@@ -1957,7 +2057,7 @@ export async function uncompleteJob(jobId: number) {
 
     await tx.job.update({
       where: { id: jobId },
-      data: { status: "PENDING", completedAt: null },
+      data: { status: "PENDING", completedAt: null, completedByUserId: null },
     });
   });
 
@@ -1967,10 +2067,11 @@ export async function uncompleteJob(jobId: number) {
 }
 
 export async function skipJob(jobId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const job = await prisma.job.findFirst({
-    where: { id: jobId, tenantId },
-    include: { customer: { include: { area: true } }, workDay: true },
+    where: { id: jobId, tenantId, ...visibleJobWhere(actor) },
+    include: { customer: true, workDay: true },
   });
   if (!job) throw new Error("Job not found");
 
@@ -1980,11 +2081,10 @@ export async function skipJob(jobId: number) {
   });
 
   // Advance by this customer's own frequency (may differ from area frequency)
-  const nextDue = calcNextDue(job.workDay.date, job.customer.area?.frequencyWeeks ?? job.customer.frequencyWeeks);
+  const nextDue = calcNextDue(job.workDay.date, job.customer.frequencyWeeks);
   await prisma.customer.update({
     where: { id: job.customerId },
     data: {
-      frequencyWeeks: job.customer.area?.frequencyWeeks ?? job.customer.frequencyWeeks,
       nextDueDate: nextDue,
     },
   });
@@ -1994,10 +2094,11 @@ export async function skipJob(jobId: number) {
 }
 
 export async function markJobOutstanding(jobId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const job = await prisma.job.findFirst({
-    where: { id: jobId, tenantId },
-    include: { customer: { include: { area: true } }, workDay: true },
+    where: { id: jobId, tenantId, ...visibleJobWhere(actor) },
+    include: { customer: true, workDay: true },
   });
   if (!job) throw new Error("Job not found");
 
@@ -2007,11 +2108,10 @@ export async function markJobOutstanding(jobId: number) {
   });
 
   // Advance by this customer's own frequency (may differ from area frequency)
-  const nextDue = calcNextDue(job.workDay.date, job.customer.area?.frequencyWeeks ?? job.customer.frequencyWeeks);
+  const nextDue = calcNextDue(job.workDay.date, job.customer.frequencyWeeks);
   await prisma.customer.update({
     where: { id: job.customerId },
     data: {
-      frequencyWeeks: job.customer.area?.frequencyWeeks ?? job.customer.frequencyWeeks,
       nextDueDate: nextDue,
     },
   });
@@ -2021,17 +2121,25 @@ export async function markJobOutstanding(jobId: number) {
 }
 
 export async function moveJobToDay(jobId: number, newWorkDayId: number) {
-  const tenantId = await getActiveTenantId();
-  const [job] = await Promise.all([
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
+  const [job, targetDay] = await Promise.all([
     requireTenantJob(tenantId, jobId),
     requireTenantWorkDay(tenantId, newWorkDayId),
   ]);
 
   const oldDayId = job.workDayId;
+  const oldDay = await prisma.workDay.findUnique({ where: { id: oldDayId }, select: { assignedUserId: true } });
+  // The job keeps whoever was doing it, unless the target day already belongs to them.
+  const worker = job.assignedUserId ?? oldDay?.assignedUserId ?? null;
 
   await prisma.job.update({
     where: { id: jobId },
-    data: { workDayId: newWorkDayId, status: "PENDING" },
+    data: {
+      workDayId: newWorkDayId,
+      status: "PENDING",
+      assignedUserId: worker && worker !== targetDay.assignedUserId ? worker : null,
+    },
   });
 
   revalidatePath(`/days/${oldDayId}`);
@@ -2051,7 +2159,8 @@ export async function rescheduleWorkDay(
   newDateISO: string,
   mode: "one-off" | "recurring"
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
   const d = isoToUTC(newDateISO);
 
   const workDay = await prisma.workDay.findFirst({
@@ -2068,6 +2177,18 @@ export async function rescheduleWorkDay(
       if (collision) throw new Error("There is already a work day for that area on that date.");
     }
     await prisma.workDay.update({ where: { id: workDay.id }, data: { date: d } });
+    // If this is the area's next open run, the area is now due on the new date
+    // (otherwise it shows as "overdue" against the old date).
+    if (workDay.area && !workDay.area.isSystemArea && workDay.status !== "COMPLETE") {
+      const nextOpen = await prisma.workDay.findFirst({
+        where: { tenantId, areaId: workDay.area.id, status: { not: "COMPLETE" } },
+        orderBy: { date: "asc" },
+        select: { date: true },
+      });
+      if (nextOpen) {
+        await prisma.area.update({ where: { id: workDay.area.id }, data: { nextDueDate: nextOpen.date } });
+      }
+    }
   } else {
     // "recurring" mode: shift this work day AND all future PLANNED work days by the same delta
     const oldDate = utcDay(new Date(workDay.date));
@@ -2124,7 +2245,8 @@ export async function rescheduleWorkDay(
 
 /** Fetch work days within a date range (inclusive). */
 export async function getWorkDaysInRange(from: Date, to: Date) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const where = await getVisibleWorkDayWhere(tenantId);
   return prisma.workDay.findMany({ where: { ...where, date: { gte: utcDay(from), lte: utcDay(to) } },
     include: {
@@ -2137,20 +2259,142 @@ export async function getWorkDaysInRange(from: Date, to: Date) {
 }
 
 export async function assignWorkDayWorker(workDayId: number, assignedUserId?: string | null) {
-  const tenantId = await getActiveTenantId();
-  const user = await requireAuth();
-  if (user.role === "WORKER") {
-    throw new Error("Only owners can assign work days.");
-  }
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
+  const workDay = await prisma.workDay.findFirst({ where: { id: workDayId, tenantId } });
+  if (!workDay) throw new Error("Work day not found");
 
   const workerId = await resolveAssignedWorkerId(tenantId, assignedUserId);
   await prisma.workDay.update({
     where: { id: workDayId },
     data: { assignedUserId: workerId ?? null },
   });
+  // Jobs explicitly set to the new day worker now simply follow the day.
+  if (workerId) {
+    await prisma.job.updateMany({
+      where: { tenantId, workDayId, assignedUserId: workerId },
+      data: { assignedUserId: null },
+    });
+  }
   revalidatePath("/scheduler");
   revalidatePath("/days");
   revalidatePath(`/days/${workDayId}`);
+}
+
+/**
+ * Assign individual jobs to a worker (or to the owner), optionally moving them to
+ * another date. userId null = follow the day's worker.
+ *
+ * Moving to a date puts the jobs on that person's day for that date if one exists,
+ * otherwise on a new standalone day assigned to them.
+ */
+export async function assignJobs(jobIds: number[], userId: string | null, dateISO?: string) {
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
+  if (!Array.isArray(jobIds) || jobIds.length === 0) return;
+
+  const assignee = userId ? await resolveAssignedWorkerId(tenantId, userId, { allowOwner: true }) : null;
+  const jobs = await prisma.job.findMany({
+    where: { tenantId, id: { in: jobIds }, status: { not: "COMPLETE" } },
+    include: { workDay: { select: { id: true, date: true, assignedUserId: true } } },
+  });
+  if (jobs.length === 0) return;
+
+  let targetDay: { id: number; assignedUserId: string | null } | null = null;
+  if (dateISO) {
+    const date = isoToUTC(dateISO);
+    const dayOwner = assignee && assignee !== actor.userId ? assignee : null;
+    targetDay = await prisma.workDay.findFirst({
+      where: { tenantId, date, assignedUserId: dayOwner, status: { not: "COMPLETE" } },
+      orderBy: { id: "asc" },
+      select: { id: true, assignedUserId: true },
+    });
+    if (!targetDay) {
+      targetDay = await prisma.workDay.create({
+        data: { tenantId, date, assignedUserId: dayOwner ?? undefined },
+        select: { id: true, assignedUserId: true },
+      });
+    }
+  }
+
+  const touchedDays = new Set<number>();
+  for (const job of jobs) {
+    const dayWorker = targetDay ? targetDay.assignedUserId : job.workDay.assignedUserId;
+    // Owner on an unassigned day, or the day's own worker, = just follow the day.
+    const followsDay = assignee === null
+      || assignee === dayWorker
+      || (assignee === actor.userId && dayWorker === null);
+    await prisma.job.update({
+      where: { id: job.id },
+      data: {
+        assignedUserId: followsDay ? null : assignee,
+        status: "PENDING",
+        ...(targetDay ? { workDayId: targetDay.id } : {}),
+      },
+    });
+    touchedDays.add(job.workDayId);
+  }
+  if (targetDay) touchedDays.add(targetDay.id);
+
+  for (const dayId of touchedDays) revalidatePath(`/days/${dayId}`);
+  revalidatePath("/days");
+  revalidatePath("/scheduler");
+}
+
+/**
+ * Take work back from a worker.
+ * - No jobIds: the whole day comes back to the owner. Unfinished jobs return;
+ *   jobs the worker already completed stay completed and credited to them.
+ * - jobIds: only those unfinished jobs come back (optionally to another date).
+ */
+export async function takeBackWork(workDayId: number, jobIds?: number[], dateISO?: string) {
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
+  const workDay = await prisma.workDay.findFirst({ where: { id: workDayId, tenantId } });
+  if (!workDay) throw new Error("Work day not found");
+
+  if (jobIds && jobIds.length > 0) {
+    const ids = (await prisma.job.findMany({
+      where: { tenantId, workDayId, id: { in: jobIds }, status: { not: "COMPLETE" } },
+      select: { id: true },
+    })).map((job) => job.id);
+    await assignJobs(ids, actor.userId, dateISO);
+    return;
+  }
+
+  const previousWorker = workDay.assignedUserId;
+  await prisma.workDay.update({ where: { id: workDayId }, data: { assignedUserId: null } });
+  // Unfinished jobs individually given to workers on this day also come back.
+  await prisma.job.updateMany({
+    where: { tenantId, workDayId, status: { not: "COMPLETE" }, assignedUserId: { not: null } },
+    data: { assignedUserId: null },
+  });
+  if (previousWorker && workDay.areaId) {
+    // Future runs of this area no longer go to that worker automatically.
+    await prisma.workDay.updateMany({
+      where: { tenantId, areaId: workDay.areaId, status: "PLANNED", assignedUserId: previousWorker, date: { gt: workDay.date } },
+      data: { assignedUserId: null },
+    });
+  }
+  revalidatePath(`/days/${workDayId}`);
+  revalidatePath("/days");
+  revalidatePath("/scheduler");
+}
+
+/** Team members who can be given work (owner first). Owner only. */
+export async function getAssignableTeam() {
+  const actor = await requireOwner();
+  const members = await prisma.membership.findMany({
+    where: { tenantId: actor.tenantId },
+    include: { user: { select: { id: true, name: true, email: true } } },
+    orderBy: [{ role: "asc" }, { createdAt: "asc" }],
+  });
+  return members.map((member) => ({
+    id: member.user.id,
+    name: member.user.name || member.user.email,
+    role: member.role,
+    isMe: member.user.id === actor.userId,
+  }));
 }
 
 // ─── Complete Day ───────────────────────────────────────────────────────────
@@ -2168,7 +2412,9 @@ export async function completeDay(
   }>,
   completedDateISO?: string
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
+  await requireTenantWorkDay(tenantId, workDayId);
   const workDayBefore = await prisma.workDay.findFirst({
     where: { id: workDayId, tenantId },
     include: { area: true },
@@ -2185,6 +2431,16 @@ export async function completeDay(
     } else if (r.action === "move" && r.targetDayId) {
       await moveJobToDay(r.jobId, r.targetDayId);
     }
+  }
+
+  // A shared day (e.g. Jake's day with one job kept by the owner) only completes once
+  // everyone's jobs are resolved. Until then it stays in progress.
+  const stillPending = await prisma.job.count({ where: { tenantId, workDayId, status: "PENDING" } });
+  if (stillPending > 0) {
+    await prisma.workDay.update({ where: { id: workDayId }, data: { status: "IN_PROGRESS" } });
+    revalidatePath(`/days/${workDayId}`);
+    revalidatePath("/days");
+    return null;
   }
 
   // Move this work day's date to today if there is no collision, so history
@@ -2218,7 +2474,8 @@ export async function completeDay(
 }
 
 export async function reopenDay(workDayId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const workDay = await requireTenantWorkDay(tenantId, workDayId);
 
   if (workDay.areaId) {
@@ -2252,8 +2509,13 @@ export async function reopenDay(workDayId: number) {
       where: { id: workDay.areaId },
       data: { lastCompletedDate: prevCompleted?.date ?? null, nextDueDate: workDay.date },
     });
+    // Only customers who were on this day are rolled back; others keep their own dates.
+    const dayCustomerIds = (await prisma.job.findMany({
+      where: { tenantId, workDayId, status: "COMPLETE" },
+      select: { customerId: true },
+    })).map((job) => job.customerId);
     await prisma.customer.updateMany({
-      where: { tenantId, areaId: workDay.areaId, active: true },
+      where: { tenantId, id: { in: dayCustomerIds } },
       data: { lastCompletedDate: prevCompleted?.date ?? null, nextDueDate: workDay.date },
     });
   }
@@ -2269,7 +2531,8 @@ export async function reopenDay(workDayId: number) {
 }
 
 export async function updateWorkDayNotes(workDayId: number, notes: string) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   await requireTenantWorkDay(tenantId, workDayId);
   await prisma.workDay.update({
     where: { id: workDayId },
@@ -2283,7 +2546,8 @@ export async function updateWorkDayNotes(workDayId: number, notes: string) {
 // ─── Split / copy area (creates "Name - Day 2" clone without customers) ──────
 
 export async function splitArea(areaId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("areas");
+  const tenantId = actor.tenantId;
   const area = await requireTenantArea(tenantId, areaId);
   // Strip any existing " - Day N" suffix and append the next number
   const base = area.name.replace(/ - Day \d+$/, "");
@@ -2319,7 +2583,8 @@ export async function splitArea(areaId: number) {
 // ─── Update completed work day date ─────────────────────────────────────────
 
 export async function updateCompletedWorkDayDate(workDayId: number, isoDate: string) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const newDate = isoToUTC(isoDate);
   const workDay = await prisma.workDay.findFirst({
     where: { id: workDayId, tenantId },
@@ -2357,9 +2622,17 @@ export async function recordPayment(data: {
   method: PaymentMethodValue;
   notes?: string;
   paidAt?: Date;
+  clientRequestId?: string;
 }) {
-  const tenantId = await getActiveTenantId();
-  await createAllocatedPayment({ tenantId, ...data });
+  const actor = await requirePerm("schedule").catch(() => requirePerm("payments"));
+  const tenantId = actor.tenantId;
+  // Workers without the Payments permission can still take payment for jobs on their own round.
+  if (!hasPermission(actor, "payments")) {
+    const jobIds = data.allocations.map((allocation) => allocation.jobId);
+    const visible = await prisma.job.count({ where: { tenantId, id: { in: jobIds }, ...visibleJobWhere(actor) } });
+    if (visible !== new Set(jobIds).size) throw new AccessDeniedError();
+  }
+  await createAllocatedPayment({ tenantId, ...data, collectedByUserId: actor.userId });
 
   revalidatePath("/payments");
   revalidatePath(`/customers/${data.customerId}`);
@@ -2464,13 +2737,10 @@ function extractGoCardlessReference(
 }
 
 export async function syncGoCardlessPayments() {
-  const tenantId = await getActiveTenantId();
-  const user = await requireAuth();
-  if (user.role === "WORKER") {
-    throw new Error("Only owners and admins can sync GoCardless payments.");
-  }
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
 
-  const settings = await getBusinessSettings();
+  const settings = await loadBusinessSettings(tenantId);
   const accessToken = settings.goCardlessAccessToken.trim();
   if (!accessToken) {
     throw new Error("Add your GoCardless access token in Settings before syncing payments.");
@@ -2716,7 +2986,8 @@ export async function syncGoCardlessPayments() {
 }
 
 export async function voidPayment(paymentId: number, reason?: string) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   const payment = await requireTenantPayment(tenantId, paymentId);
   await prisma.payment.update({
     where: { id: payment.id },
@@ -2727,7 +2998,8 @@ export async function voidPayment(paymentId: number, reason?: string) {
 }
 
 export async function restorePayment(paymentId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   const payment = await requireTenantPayment(tenantId, paymentId);
   await prisma.payment.update({
     where: { id: payment.id },
@@ -2745,7 +3017,8 @@ export async function updatePaymentMeta(
     notes?: string;
   }
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   const payment = await requireTenantPayment(tenantId, paymentId);
   await prisma.payment.update({
     where: { id: payment.id },
@@ -2761,8 +3034,51 @@ export async function updatePaymentMeta(
 
 // ─── Dashboard data ─────────────────────────────────────────────────────────
 
+/** Worker home: only their own days and jobs, plus what they did and collected this week. */
+async function getWorkerDashboardData(actor: Actor) {
+  const tenantId = actor.tenantId;
+  const today = utcDay(new Date());
+  const weekStart = addUtcDays(today, -((today.getUTCDay() + 6) % 7)); // Monday
+  const [upcomingDays, doneThisWeek, cashThisWeek] = await Promise.all([
+    prisma.workDay.findMany({
+      where: { tenantId, date: { gte: today }, ...visibleWorkDayWhere(actor) },
+      include: {
+        area: true,
+        jobs: { where: visibleJobWhere(actor), include: { customer: true } },
+      },
+      orderBy: { date: "asc" },
+      take: 7,
+    }),
+    prisma.job.aggregate({
+      where: { tenantId, completedByUserId: actor.userId, completedAt: { gte: weekStart } },
+      _count: { _all: true },
+      _sum: { price: true },
+    }),
+    prisma.payment.aggregate({
+      where: { tenantId, collectedByUserId: actor.userId, method: "CASH", voidedAt: null, paidAt: { gte: weekStart } },
+      _sum: { amount: true },
+    }),
+  ]);
+  return {
+    isWorker: true as const,
+    upcomingDays,
+    jobsDoneThisWeek: doneThisWeek._count._all,
+    valueDoneThisWeek: Number(doneThisWeek._sum.price ?? 0),
+    cashCollectedThisWeek: Number(cashThisWeek._sum.amount ?? 0),
+    totalRoundValue: 0,
+    totalEarnings: 0,
+    customerCount: 0,
+    overdueCount: 0,
+    totalOwing: 0,
+    recentPayments: [],
+    customersWithDebt: [],
+  };
+}
+
 export async function getDashboardData() {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("dashboard");
+  if (actor.isWorker) return getWorkerDashboardData(actor);
+  const tenantId = actor.tenantId;
   const today = startOfDay(new Date());
 
   const [
@@ -2786,7 +3102,7 @@ export async function getDashboardData() {
     prisma.customer.aggregate({ where: { tenantId, active: true }, _sum: { price: true } }),
     prisma.payment.aggregate({ where: { tenantId, voidedAt: null }, _sum: { amount: true } }),
     prisma.customer.count({ where: { tenantId, active: true } }),
-    prisma.area.count({ where: { tenantId, nextDueDate: { lt: today } } }),
+    prisma.area.count({ where: { tenantId, isSystemArea: false, nextDueDate: { lt: today } } }),
     prisma.job.aggregate({ where: { tenantId, status: "COMPLETE" }, _sum: { price: true } }),
     prisma.payment.findMany({
       where: { tenantId, voidedAt: null },
@@ -2831,6 +3147,10 @@ export async function getDashboardData() {
     .slice(0, 10);
 
   return {
+    isWorker: false as const,
+    jobsDoneThisWeek: 0,
+    valueDoneThisWeek: 0,
+    cashCollectedThisWeek: 0,
     upcomingDays,
     totalRoundValue: Number(totalRoundValue._sum.price ?? 0),
     totalEarnings: Number(totalEarnings._sum.amount ?? 0),
@@ -2843,7 +3163,8 @@ export async function getDashboardData() {
 }
 
 export async function getSchedulerTodoSummary() {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
   const today = startOfDay(new Date());
   const reminderCutoff = addDays(today, 1);
 
@@ -2941,7 +3262,8 @@ export async function getSchedulerTodoSummary() {
 }
 
 export async function getPaymentsPage() {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   const [payments, customers] = await Promise.all([
     prisma.payment.findMany({
       where: { tenantId, voidedAt: null },
@@ -3280,7 +3602,8 @@ export async function createExpense(data: {
   repeatAnchorDate?: Date | null;
   repeatEndsAt?: Date | null;
 }) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   const category = getExpenseCategory(data.category);
   const amount = Number(data.amount);
 
@@ -3339,7 +3662,8 @@ export async function updateExpense(
     notes?: string;
   }
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   const existing = await prisma.expense.findFirst({
     where: { id: expenseId, tenantId },
   });
@@ -3404,7 +3728,8 @@ export async function createOtherIncome(data: {
   repeatAnchorDate?: Date | null;
   repeatEndsAt?: Date | null;
 }) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   const category = getOtherIncomeCategory(data.category);
   const amount = Number(data.amount);
 
@@ -3452,14 +3777,16 @@ export async function createOtherIncome(data: {
 }
 
 export async function deleteExpense(expenseId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   const expense = await requireTenantExpense(tenantId, expenseId);
   await prisma.expense.delete({ where: { id: expense.id } });
   revalidatePath("/accounting");
 }
 
 export async function deleteOtherIncome(otherIncomeId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   const income = await requireTenantOtherIncome(tenantId, otherIncomeId);
   await prisma.otherIncome.delete({ where: { id: income.id } });
   revalidatePath("/accounting");
@@ -3470,7 +3797,8 @@ export async function getAccountingPage(options?: {
   dateFrom?: Date | null;
   dateTo?: Date | null;
 }) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   await Promise.all([
     materialiseRecurringExpenseTemplates(tenantId),
     materialiseRecurringOtherIncomeTemplates(tenantId),
@@ -3604,7 +3932,8 @@ export async function getAccountingPage(options?: {
 }
 
 export async function getOutstandingJobs() {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   return prisma.job.findMany({ where: { tenantId, status: "OUTSTANDING" },
     include: {
       customer: { include: { area: true } },
@@ -3615,7 +3944,9 @@ export async function getOutstandingJobs() {
 }
 
 export async function getCustomerBalance(customerId: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requireMember();
+  if (!hasPermission(actor, "customers") && !hasPermission(actor, "payments")) throw new AccessDeniedError();
+  const tenantId = actor.tenantId;
   const jobs = await prisma.job.findMany({
     where: { customerId, tenantId, status: "COMPLETE" },
     select: {
@@ -3636,8 +3967,34 @@ export async function getCustomerBalance(customerId: number) {
 
 // ── Business Settings ────────────────────────────────────────────────────────
 
+/**
+ * Business settings for display (invoices, customer page, payments). Provider
+ * credentials are never returned: only whether they are configured.
+ */
 export async function getBusinessSettings() {
-  const tenantId = await getActiveTenantId();
+  const actor = await requireMember();
+  if (!(["customers", "payments", "settings"] as const).some((perm) => hasPermission(actor, perm))) {
+    throw new AccessDeniedError();
+  }
+  const settings = await loadBusinessSettings(actor.tenantId);
+  return {
+    ...settings,
+    smtpPass: "",
+    voodooApiKey: "",
+    twilioAuthToken: "",
+    metaAccessToken: "",
+    goCardlessAccessToken: "",
+    goCardlessConfigured: Boolean(settings.goCardlessAccessToken),
+  };
+}
+
+/** Internal: full settings row with decrypted credentials. Never return this to a client. */
+async function loadBusinessSettings(tenantId: number) {
+  const settings = await loadBusinessSettingsRaw(tenantId);
+  return decryptSettingsSecrets(settings);
+}
+
+async function loadBusinessSettingsRaw(tenantId: number) {
   let settings = await prisma.tenantSettings.findFirst({ where: { tenantId } });
 
   const [tenant, owner] = await Promise.all([
@@ -3715,9 +4072,9 @@ const OWNER_PROVIDER_FIELDS = [
 ] as const;
 
 export async function getBusinessSettingsForClient() {
-  const user = await requireAuth();
-  const settings = await getBusinessSettings();
-  const canManageProviderSettings = user.role === "OWNER" || user.role === "SUPER_ADMIN";
+  const actor = await requirePerm("settings");
+  const settings = await loadBusinessSettings(actor.tenantId);
+  const canManageProviderSettings = !actor.isWorker;
 
   return {
     businessName: settings.businessName,
@@ -3801,9 +4158,10 @@ export async function updateBusinessSettings(data: {
   tmplJobAndPayment?: string;
   tmplInvoiceNote?: string;
 }) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
   const user = await requireAuth();
-  const canManageProviderSettings = user.role === "OWNER" || user.role === "SUPER_ADMIN";
+  const canManageProviderSettings = !actor.isWorker;
   const updateData: Record<string, unknown> = { ...data };
   const businessName = typeof updateData.businessName === "string" ? updateData.businessName.trim() : undefined;
   const ownerName = typeof updateData.ownerName === "string" ? updateData.ownerName.trim() : undefined;
@@ -3839,6 +4197,8 @@ export async function updateBusinessSettings(data: {
     const value = updateData[field];
     if (typeof value === "string" && value.trim() === "") {
       delete updateData[field];
+    } else if (typeof value === "string") {
+      updateData[field] = encryptSecret(value.trim());
     }
   }
 
@@ -3878,7 +4238,8 @@ export async function updateBusinessSettings(data: {
 }
 
 export async function claimNextInvoiceNumber(): Promise<string> {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
   const settings = await getBusinessSettings();
   const num = settings.nextInvoiceNum;
   await prisma.tenantSettings.update({ where: { tenantId },
@@ -3890,18 +4251,21 @@ export async function claimNextInvoiceNumber(): Promise<string> {
 // ── Tags ─────────────────────────────────────────────────────────────────────
 
 export async function getTags() {
-  const tenantId = await getActiveTenantId();
+  const actor = await requireMember();
+  const tenantId = actor.tenantId;
   return prisma.tag.findMany({ where: { tenantId }, orderBy: { name: "asc" } });
 }
 
 export async function createTag(data: { name: string; color: string }) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
   await prisma.tag.create({ data: { ...data, tenantId } });
   revalidatePath("/settings");
 }
 
 export async function deleteTag(id: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
   const tag = await requireTenantTag(tenantId, id);
   await prisma.tag.delete({ where: { id: tag.id } });
   revalidatePath("/settings");
@@ -3965,11 +4329,7 @@ async function persistRouteOrder(
 }
 
 async function requireRouteOptimiserPermission() {
-  const user = await getActiveUserContext();
-  if (user.role === "SUPER_ADMIN" || user.role === "OWNER") return;
-  if (!(user.permissions ?? []).includes("routeoptimiser")) {
-    throw new Error("You do not have permission to optimise routes.");
-  }
+  await requirePerm("routeoptimiser");
 }
 
 export async function reorderDayJobs(
@@ -3977,7 +4337,8 @@ export async function reorderDayJobs(
   orderedJobIds: number[],
   mode: RouteOrderingMode = "MANUAL",
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   await requireTenantWorkDay(tenantId, workDayId);
   const jobs = await prisma.job.findMany({ where: { tenantId, workDayId, id: { in: orderedJobIds } }, select: { id: true } });
   if (jobs.length !== orderedJobIds.length) throw new Error("One or more jobs were not found for this day");
@@ -3998,7 +4359,9 @@ export async function setWorkDayRouteOrderingMode(workDayId: number, mode: Route
     await requireRouteOptimiserPermission();
   }
 
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
+  await requireTenantWorkDay(tenantId, workDayId);
   const workDay = await prisma.workDay.findFirst({
     where: { id: workDayId, tenantId },
     select: {
@@ -4041,7 +4404,8 @@ export async function setWorkDayRouteOrderingMode(workDayId: number, mode: Route
 
 /** Update the notes field on a specific job (day-specific note, separate from customer notes). */
 export async function updateJobNotes(jobId: number, notes: string) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   await requireTenantJob(tenantId, jobId);
   const job = await prisma.job.update({
     where: { id: jobId },
@@ -4052,7 +4416,10 @@ export async function updateJobNotes(jobId: number, notes: string) {
 }
 
 export async function updateJobPrice(jobId: number, price: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  if (!hasPermission(actor, "viewprices")) throw new AccessDeniedError();
+  const tenantId = actor.tenantId;
+  if (!Number.isFinite(price) || price < 0) throw new Error("Price must be zero or greater.");
   await requireTenantJob(tenantId, jobId);
   const job = await prisma.job.update({
     where: { id: jobId },
@@ -4069,7 +4436,9 @@ export async function updateJobDetails(
   jobId: number,
   data: { name?: string; price?: number }
 ) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  if (data.price !== undefined && !hasPermission(actor, "viewprices")) throw new AccessDeniedError();
+  const tenantId = actor.tenantId;
   await requireTenantJob(tenantId, jobId);
 
   const updates: Record<string, unknown> = {};
@@ -4096,7 +4465,8 @@ export async function updateJobDetails(
 }
 
 export async function addJobToWorkDay(workDayId: number, customerId: number, price?: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const [customer] = await Promise.all([
     requireTenantCustomer(tenantId, customerId),
     requireTenantWorkDay(tenantId, workDayId),
@@ -4117,7 +4487,8 @@ export async function addJobToWorkDay(workDayId: number, customerId: number, pri
 }
 
 export async function setCustomerTags(customerId: number, tagIds: number[]) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
   await requireTenantCustomer(tenantId, customerId);
   if (tagIds.length > 0) {
     const tags = await prisma.tag.findMany({ where: { tenantId, id: { in: tagIds } }, select: { id: true } });
@@ -4143,11 +4514,13 @@ export async function setCustomerTags(customerId: number, tagIds: number[]) {
  * skipped — they can be dragged onto a new day in the scheduler.
  */
 export async function getPendingUnfinishedJobs() {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const today = utcDay(new Date());
   return prisma.job.findMany({ where: { tenantId,
       status: "PENDING",
       workDay: { date: { lt: today } },  // strictly before today — today's jobs are still in-progress
+      ...visibleJobWhere(actor),
     },
     include: {
       customer: { include: { area: true } },
@@ -4163,11 +4536,12 @@ export async function getPendingUnfinishedJobs() {
  * using the same area as the job's current work day.
  */
 export async function rescheduleJobToDate(jobId: number, dateISO: string) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const d = isoToUTC(dateISO);
 
   const job = await prisma.job.findFirst({
-    where: { id: jobId, tenantId },
+    where: { id: jobId, tenantId, ...visibleJobWhere(actor) },
     include: { workDay: true },
   });
   if (!job) throw new Error("Job not found");
@@ -4189,9 +4563,14 @@ export async function rescheduleJobToDate(jobId: number, dateISO: string) {
     targetWorkDay = await prisma.workDay.create({ data: { tenantId, date: d } });
   }
 
+  const keepWorker = job.assignedUserId ?? job.workDay.assignedUserId ?? null;
+  const target = await prisma.workDay.findUnique({ where: { id: targetWorkDay.id }, select: { assignedUserId: true } });
   await prisma.job.update({
     where: { id: jobId },
-    data: { workDayId: targetWorkDay.id },
+    data: {
+      workDayId: targetWorkDay.id,
+      assignedUserId: keepWorker && keepWorker !== target?.assignedUserId ? keepWorker : null,
+    },
   });
 
   // Remove the source standalone day if moving the job left it empty.
@@ -4213,11 +4592,12 @@ export async function rescheduleJobToDate(jobId: number, dateISO: string) {
 // ─── Update job completedAt date ─────────────────────────────────────────────
 
 export async function updateJobCompletedAt(jobId: number, isoDate: string) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
   const d = isoToUTC(isoDate);
 
   const job = await prisma.job.findFirst({
-    where: { id: jobId, tenantId },
+    where: { id: jobId, tenantId, ...visibleJobWhere(actor) },
     include: { customer: true, workDay: { select: { areaId: true } } },
   });
   if (!job) throw new Error("Job not found");
@@ -4272,7 +4652,8 @@ export async function updateJobCompletedAt(jobId: number, isoDate: string) {
 // ─── Holidays ───────────────────────────────────────────────────────────────
 
 export async function getHolidays() {
-  const tenantId = await getActiveTenantId();
+  const actor = await requireMember();
+  const tenantId = actor.tenantId;
   return prisma.holiday.findMany({
     where: { tenantId },
     orderBy: [{ startDate: "asc" }, { endDate: "asc" }],
@@ -4280,7 +4661,8 @@ export async function getHolidays() {
 }
 
 export async function createHoliday(data: { startDate: string; endDate: string; label: string }) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
   const startDate = isoToUTC(data.startDate);
   const endDate = isoToUTC(data.endDate);
 
@@ -4297,7 +4679,8 @@ export async function createHoliday(data: { startDate: string; endDate: string; 
 }
 
 export async function updateHoliday(id: number, data: { startDate: string; endDate: string; label: string }) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
   const startDate = isoToUTC(data.startDate);
   const endDate = isoToUTC(data.endDate);
 
@@ -4317,7 +4700,8 @@ export async function updateHoliday(id: number, data: { startDate: string; endDa
 }
 
 export async function deleteHoliday(id: number) {
-  const tenantId = await getActiveTenantId();
+  const actor = await requirePerm("scheduler");
+  const tenantId = actor.tenantId;
   const holiday = await requireTenantHoliday(tenantId, id);
   await prisma.holiday.delete({ where: { id: holiday.id } });
   revalidatePath("/scheduler");

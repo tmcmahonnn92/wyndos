@@ -131,6 +131,10 @@ model User {
   sessions           Session[]
   memberships        Membership[]
   assignedWorkDays   WorkDay[] @relation("AssignedWorkerWorkDays")
+  /// Jobs assigned to this user individually (overrides the work day's worker).
+  assignedJobs       Job[]     @relation("AssignedWorkerJobs")
+  /// Jobs this user marked complete.
+  completedJobs      Job[]     @relation("CompletedByJobs")
   supportAccessLogs  SupportAccessLog[] @relation("SupportAdminLogs")
   endedSupportAccessLogs SupportAccessLog[] @relation("EndedSupportAccessLogs")
 
@@ -294,6 +298,12 @@ model Customer {
   nextDueDate            DateTime?
   lastCompletedDate      DateTime?
   skipNextAreaRun        Boolean       @default(false)
+  /// Leave a slip (calling card) after the clean.
+  slip                   Boolean       @default(true)
+  /// Another customer who pays this customer's bills (e.g. a neighbour).
+  paidByCustomerId       Int?
+  paidBy                 Customer?     @relation("PaidBy", fields: [paidByCustomerId], references: [id], onDelete: SetNull)
+  paysFor                Customer[]    @relation("PaidBy")
   createdAt              DateTime      @default(now())
   jobs                   Job[]
   payments               Payment[]
@@ -344,12 +354,20 @@ model Job {
   notes       String?
   sortOrder   Int       @default(0)
   isOneOff    Boolean   @default(false)
+  /// Worker for this job. Null = follow the work day's assigned worker.
+  assignedUserId    String?
+  assignedUser      User?     @relation("AssignedWorkerJobs", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  /// Who marked the job complete (used for worker pay reports).
+  completedByUserId String?
+  completedBy       User?     @relation("CompletedByJobs", fields: [completedByUserId], references: [id], onDelete: SetNull)
   createdAt   DateTime  @default(now())
   allocations PaymentAllocation[]
 
   @@index([tenantId])
   @@index([tenantId, workDayId])
   @@index([tenantId, customerId])
+  @@index([tenantId, assignedUserId])
+  @@index([tenantId, completedByUserId])
   @@index([tenantId, status])
   @@index([completedAt])
 }
@@ -370,6 +388,10 @@ model Payment {
   goCardlessPaymentId String?     @unique
   goCardlessStatus    String?
   goCardlessReference String?
+  /// User who recorded / collected the payment.
+  collectedByUserId   String?
+  /// Client-generated id so an offline retry can't record the same payment twice.
+  clientRequestId     String?             @unique
   allocations PaymentAllocation[]
 
   @@index([tenantId])

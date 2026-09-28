@@ -1,6 +1,7 @@
 "use server";
 
 import { createHash, randomBytes } from "node:crypto";
+import { decryptSecret } from "@/lib/secrets";
 import { cookies } from "next/headers";
 import { hash, compare } from "bcryptjs";
 import { addDays } from "date-fns";
@@ -609,7 +610,7 @@ function getTenantSmtpDeliveryConfig(smtpSettings: any): SmtpDeliveryConfig | nu
   const host = String(smtpSettings.smtpHost || preset?.host || "").trim();
   const port = normalizeSmtpPort(smtpSettings.smtpPort, preset?.port ?? 587);
   const user = String(smtpSettings.smtpUser || "").trim();
-  const pass = String(smtpSettings.smtpPass || "");
+  const pass = decryptSecret(String(smtpSettings.smtpPass || ""));
 
   if (!host || !user || !pass) return null;
 

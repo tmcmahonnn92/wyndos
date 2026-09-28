@@ -39,6 +39,10 @@ export default async function DashboardPage() {
   const hidePrices = !showPrices;
 
   const {
+    isWorker,
+    jobsDoneThisWeek,
+    valueDoneThisWeek,
+    cashCollectedThisWeek,
     upcomingDays,
     totalRoundValue,
     totalEarnings,
@@ -93,16 +97,43 @@ export default async function DashboardPage() {
             <Clock size={20} />
             <div>
               <p className="font-medium text-slate-600">No work day today</p>
-              <Link href="/days" className="text-sm text-blue-600 hover:underline">
-                Plan a new day →
-              </Link>
+              {!isWorker && (
+                <Link href="/days" className="text-sm text-blue-600 hover:underline">
+                  Plan a new day →
+                </Link>
+              )}
             </div>
           </CardContent>
         </Card>
       )}
 
+      {isWorker && (
+        <div className="grid grid-cols-2 gap-3">
+          <Card>
+            <CardContent className="py-4">
+              <div className="flex items-center gap-2 mb-1">
+                <CheckCircle2 size={15} className="text-green-500" />
+                <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Done this week</span>
+              </div>
+              <p className="text-2xl font-bold text-slate-800">{jobsDoneThisWeek}</p>
+              {!hidePrices && <p className="text-xs text-slate-400 mt-0.5">{fmtCurrency(valueDoneThisWeek)} of work</p>}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="py-4">
+              <div className="flex items-center gap-2 mb-1">
+                <PoundSterling size={15} className="text-amber-500" />
+                <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Cash collected</span>
+              </div>
+              <p className="text-2xl font-bold text-slate-800">{fmtCurrency(cashCollectedThisWeek)}</p>
+              <p className="text-xs text-slate-400 mt-0.5">this week, to hand over</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Stats grid – 5 tiles */}
-      <div className="grid grid-cols-2 gap-3">
+      {!isWorker && <div className="grid grid-cols-2 gap-3">
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-2 mb-1">
@@ -177,7 +208,7 @@ export default async function DashboardPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
       {/* Upcoming days */}
       <Card>
@@ -189,7 +220,7 @@ export default async function DashboardPage() {
           {nextDays.length === 0 ? (
             <p className="px-4 py-4 text-sm text-slate-500">
               No upcoming days planned.{" "}
-              <Link href="/days" className="text-blue-600 hover:underline">Add one →</Link>
+              {!isWorker && <Link href="/days" className="text-blue-600 hover:underline">Add one →</Link>}
             </p>
           ) : (
             <ul className="divide-y divide-slate-100">

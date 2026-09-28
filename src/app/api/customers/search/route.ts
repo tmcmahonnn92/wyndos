@@ -1,11 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import { getActiveTenantId } from "@/lib/tenant-context";
+import { requirePerm, hasPermission, visibleWorkDayWhere, type Actor } from "@/lib/guards";
 import { matchesLooseCustomerSearch } from "@/lib/customer-search";
+
+/** Workers without the Customers permission get only what they need on the round. */
+function shapeCustomer<T extends Record<string, unknown>>(actor: Actor, customer: T) {
+  if (hasPermission(actor, "customers")) {
+    return hasPermission(actor, "viewprices") ? customer : { ...customer, price: null };
+  }
+  const { id, name, address, areaId, area, notes, jobName, slip } = customer as Record<string, unknown>;
+  return {
+    id, name, address, areaId, area, notes, jobName, slip,
+    price: hasPermission(actor, "viewprices") ? customer.price : null,
+  };
+}
 
 export async function GET(req: NextRequest) {
   try {
-    const tenantId = await getActiveTenantId();
+    const actor = await requirePerm("schedule");
+    const tenantId = actor.tenantId;
     const q = req.nextUrl.searchParams.get("q") ?? "";
     const areaIdParam = req.nextUrl.searchParams.get("areaId");
     const workDayIdParam = req.nextUrl.searchParams.get("workDayId");
@@ -15,7 +28,7 @@ export async function GET(req: NextRequest) {
       const workDayId = parseInt(workDayIdParam, 10);
       if (!isNaN(workDayId)) {
         const workDay = await prisma.workDay.findFirst({
-          where: { id: workDayId, tenantId },
+          where: { id: workDayId, tenantId, ...visibleWorkDayWhere(actor) },
           select: { id: true },
         });
         if (!workDay) {
@@ -27,7 +40,7 @@ export async function GET(req: NextRequest) {
           include: { customer: true },
           orderBy: { customer: { name: "asc" } },
         });
-        return NextResponse.json(jobs.map((j) => ({ ...j.customer, price: j.price })));
+        return NextResponse.json(jobs.map((j) => shapeCustomer(actor, { ...j.customer, price: j.price })));
       }
     }
 
@@ -48,7 +61,7 @@ export async function GET(req: NextRequest) {
           orderBy: { name: "asc" },
           take: 100,
         });
-        return NextResponse.json(customers);
+        return NextResponse.json(customers.map((customer) => shapeCustomer(actor, customer)));
       }
     }
 
@@ -62,14 +75,19 @@ export async function GET(req: NextRequest) {
     });
 
     const matchedCustomers = customers
-      .filter((customer) => matchesLooseCustomerSearch(q, [customer.name, customer.address, customer.email, customer.phone]))
+      .filter((customer) => matchesLooseCustomerSearch(
+        q,
+        hasPermission(actor, "customers")
+          ? [customer.name, customer.address, customer.email, customer.phone]
+          : [customer.name, customer.address],
+      ))
       .slice(0, 20);
 
-    return NextResponse.json(matchedCustomers);
+    return NextResponse.json(matchedCustomers.map((customer) => shapeCustomer(actor, customer)));
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unauthorized" },
-      { status: 401 }
+      { status: 403 }
     );
   }
 }

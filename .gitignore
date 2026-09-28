@@ -63,3 +63,12 @@ test-results/
 
 # Local-only dev tooling — never publish
 _devtools/
+# Real customer data and build bundles must never be committed
+*.xlsx
+*.xls
+*-import.csv
+!*-template.csv
+*.tgz
+dev-*.txt
+demo.db
+_devtools/

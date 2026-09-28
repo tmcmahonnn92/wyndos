@@ -5,7 +5,7 @@ import React from "react";
 import prisma from "@/lib/db";
 import { getBusinessSettings, claimNextInvoiceNumber } from "@/lib/actions";
 import { InvoicePDF, InvoiceData } from "@/lib/invoice-pdf";
-import { getActiveTenantId } from "@/lib/tenant-context";
+import { requireMember, hasPermission, AccessDeniedError } from "@/lib/guards";
 
 export const runtime = "nodejs";
 
@@ -18,7 +18,9 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as { customerId: number; jobIds: number[]; claimNumber?: boolean };
     const { customerId, jobIds, claimNumber = true } = body;
-    const tenantId = await getActiveTenantId();
+    const actor = await requireMember();
+    if (!hasPermission(actor, "payments") && !hasPermission(actor, "customers")) throw new AccessDeniedError();
+    const tenantId = actor.tenantId;
     const requestedJobIds = [...new Set(jobIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
 
     if (!Number.isInteger(customerId) || customerId <= 0 || requestedJobIds.length === 0) {

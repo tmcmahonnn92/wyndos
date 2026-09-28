@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import { getActiveTenantId } from "@/lib/tenant-context";
+import { requirePerm, visibleWorkDayWhere } from "@/lib/guards";
 
 export async function GET() {
   try {
-    const tenantId = await getActiveTenantId();
+    const actor = await requirePerm("schedule");
     const days = await prisma.workDay.findMany({
-      where: { tenantId },
+      where: { tenantId: actor.tenantId, ...visibleWorkDayWhere(actor) },
       select: {
         id: true,
         date: true,
