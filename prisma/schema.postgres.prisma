@@ -279,7 +279,12 @@ model Customer {
   tenantId               Int
   tenant                 Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name                   String
+  /// Display line, always composed from the parts below (when they are set).
   address                String
+  houseNameNumber        String        @default("")
+  street                 String        @default("")
+  town                   String        @default("")
+  postcode               String        @default("")
   email                  String        @default("")
   phone                  String        @default("")
   areaId                 Int

@@ -403,7 +403,18 @@ export function SchedulePageClient({
       <div className="space-y-2">
         <SectionLabel label="Today" count={todayDays.length} />
         {todayDays.length > 0 ? (
-          todayDays.map((d) => <DayCard key={d.id} day={d} isToday hidePrices={hidePrices} />)
+          <>
+            {todayDays.length > 1 && (
+              <Link
+                href={`/days/date/${todayISO}`}
+                className="flex items-center justify-between rounded-2xl border border-blue-200 bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700"
+              >
+                <span>Work today as one list ({todayDays.length} areas)</span>
+                <span>→</span>
+              </Link>
+            )}
+            {todayDays.map((d) => <DayCard key={d.id} day={d} isToday hidePrices={hidePrices} />)}
+          </>
         ) : (
           <div className="flex items-center gap-3 px-4 py-3.5 rounded-2xl border border-dashed border-slate-200 bg-slate-50">
             <CalendarDays size={18} className="text-slate-300 flex-shrink-0" />

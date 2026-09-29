@@ -1,15 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
 import { ChevronLeft, Printer } from "lucide-react";
 
-export function PrintButton() {
-  const params = useParams<{ id: string }>();
+export function PrintButton({ backHref }: { backHref: string }) {
   return (
     <div className="flex flex-shrink-0 gap-2 print:hidden">
       <Link
-        href={`/days/${params.id}`}
+        href={backHref}
         className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700"
       >
         <ChevronLeft size={15} /> Back

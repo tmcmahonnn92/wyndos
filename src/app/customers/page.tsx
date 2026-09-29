@@ -1,5 +1,5 @@
 ﻿import Link from "next/link";
-import { ChevronRight, Plus, Search, TableProperties, Upload } from "lucide-react";
+import { ChevronRight, Plus, Search, TableProperties, Upload, MapPin } from "lucide-react";
 import { getCustomers, getAreas, getTags } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,6 +74,13 @@ export default async function CustomersPage({ searchParams }: Props) {
           >
             <TableProperties size={14} />
             Bulk Edit
+          </Link>
+          <Link
+            href="/customers/addresses"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors"
+          >
+            <MapPin size={14} />
+            Tidy addresses
           </Link>
           <AddCustomerModal areas={areas} initialOpen={action === "new-customer"} />
         </div>

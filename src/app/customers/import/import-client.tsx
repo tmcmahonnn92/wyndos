@@ -21,6 +21,7 @@ import {
 import { bulkImportCustomers, deleteAllCustomers, bulkImportJobHistory } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { composeAddress, type AddressParts } from "@/lib/address";
 import {
   normalisePaymentMethod,
   parsePrice,
@@ -64,7 +65,11 @@ interface FieldDef {
 
 const FIELDS: FieldDef[] = [
   { key: "name",    label: "Customer Name",    required: true,  type: "text", defaultValue: "" },
-  { key: "address", label: "Address",          required: true,  type: "text", defaultValue: "" },
+  { key: "address", label: "Address (full line)", required: true,  type: "text", defaultValue: "" },
+  { key: "houseNameNumber", label: "House name / number", required: false, type: "text" },
+  { key: "street",  label: "Street",           required: false, type: "text" },
+  { key: "town",    label: "Town / village",   required: false, type: "text" },
+  { key: "postcode", label: "Postcode",        required: false, type: "text" },
   { key: "price",   label: "Price (£)",        required: true,  type: "number", defaultValue: "" },
   { key: "area",    label: "Area",             required: true,  type: "area" },
   { key: "email",   label: "Email",            required: false, type: "text" },
@@ -148,7 +153,10 @@ function buildAutoMapping(headers: string[]): Record<string, MappingConfig> {
     cashbacs: "preferredPaymentMethod", payment: "preferredPaymentMethod", pays: "preferredPaymentMethod", paidby: "preferredPaymentMethod",
     slip: "slip", slips: "slip", leaveslip: "slip", callingcard: "slip",
     comments: "notes", info: "notes", details: "notes",
-    postcode: "address", street: "address", property: "address",
+    postcode: "postcode", postalcode: "postcode", street: "street", streetname: "street", road: "street",
+    property: "address", address1: "address", addressline1: "address",
+    housenumber: "houseNameNumber", houseno: "houseNameNumber", number: "houseNameNumber", no: "houseNameNumber",
+    housename: "houseNameNumber", housenamenumber: "houseNameNumber",
     village: "area", town: "area", round: "area", route: "area",
     telephonenumber: "phone", phonenumber: "phone", contact: "phone",
   };
@@ -164,7 +172,10 @@ function buildAutoMapping(headers: string[]): Record<string, MappingConfig> {
     }
   });
   // Many sheets use the address as the name ("2 lake view"): use it for both.
-  if (out.address?.source !== "column" || !out.address.column) {
+  // Not when the sheet has separate street/house columns: the line is built from those.
+  const hasPartColumns = ["houseNameNumber", "street"].some((k) => out[k]?.source === "column" && out[k]?.column);
+  if (hasPartColumns && out.address?.source === "column" && !out.address.column) out.address = { source: "skip" };
+  if (!hasPartColumns && (out.address?.source !== "column" || !out.address.column)) {
     if (out.name?.source === "column" && out.name.column) out.address = { source: "column", column: out.name.column };
   }
   if (out.name?.source !== "column" || !out.name.column) {
@@ -228,6 +239,7 @@ type PreviewRow = {
   raw: string[];
   name: string;
   address: string;
+  addressParts: AddressParts | null; // set when the sheet has separate address columns
   price: string;
   area: string;
   areaId: number | null;
@@ -382,7 +394,14 @@ export function ImportClient({ areas }: { areas: Area[] }) {
       const errors: string[] = [];
 
       const name = g("name");
-      const address = g("address");
+      const partValues: AddressParts = {
+        houseNameNumber: g("houseNameNumber").trim(),
+        street: g("street").trim(),
+        town: g("town").trim(),
+        postcode: g("postcode").trim(),
+      };
+      const addressParts = Object.values(partValues).some(Boolean) ? partValues : null;
+      const address = g("address").trim() || (addressParts ? composeAddress(addressParts) : "");
       const priceStr = parsePrice(g("price"));
       const areaStr = mappings["area"]?.source === "fixed" && !mappings["area"]?.areaId
         ? (mappings["area"]?.value ?? "")
@@ -425,7 +444,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
       return {
         index: i + 1,
         raw: row,
-        name, address,
+        name, address, addressParts,
         price: priceStr,
         area: areaId ? (areas.find((a) => a.id === areaId)?.name ?? areaStr) : areaStr.trim(),
         areaId,
@@ -526,6 +545,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         valid.map((r) => ({
           name: r.name,
           address: r.address,
+          ...(r.addressParts ?? {}),
           price: parseFloat(r.price),
           areaId: (!forceName && !r.areaIsNew) ? (r.areaId ?? undefined) : undefined,
           areaName: (forceName || r.areaIsNew)
@@ -620,7 +640,8 @@ export function ImportClient({ areas }: { areas: Area[] }) {
       const price = parseFloat(priceStr);
       if (!priceStr.trim() || isNaN(price) || price < 0) errors.push("Invalid price");
       if (!areaId && !row.areaIsNew) errors.push(`Area "${area}" not found`);
-      return { ...row, name, address, price: priceStr, areaId, area, errors };
+      const addressParts = address === row.address ? row.addressParts : null;
+      return { ...row, name, address, addressParts, price: priceStr, areaId, area, errors };
     }));
     setEditingRowIndex(null);
     setEditingRowData({});

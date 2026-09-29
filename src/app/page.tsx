@@ -54,12 +54,26 @@ export default async function DashboardPage() {
   } = await getDashboardData();
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const todayDay = upcomingDays.find(
-    (d) => new Date(d.date).toISOString().slice(0, 10) === todayIso
-  );
-  const nextDays = upcomingDays.filter(
-    (d) => new Date(d.date).toISOString().slice(0, 10) !== todayIso
-  ).slice(0, 4);
+  const isoOf = (d: { date: Date | string }) => new Date(d.date).toISOString().slice(0, 10);
+  const areaNameOf = (d: (typeof upcomingDays)[number]) =>
+    d.area?.name ?? d.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off";
+  // A date can hold several areas; the cleaner works them as one day.
+  const byDate = new Map<string, typeof upcomingDays>();
+  for (const day of upcomingDays) byDate.set(isoOf(day), [...(byDate.get(isoOf(day)) ?? []), day]);
+  const dateGroups = [...byDate.entries()].map(([iso, days]) => {
+    const jobs = days.flatMap((d) => d.jobs);
+    return {
+      iso,
+      days,
+      areas: days.map(areaNameOf).join(", "),
+      jobCount: jobs.length,
+      pending: jobs.filter((j) => j.status === "PENDING").length,
+      value: jobs.reduce((s, j) => s + j.price, 0),
+      status: days.every((d) => d.status === "COMPLETE") ? "COMPLETE" : days.some((d) => d.status === "IN_PROGRESS") ? "IN_PROGRESS" : "PLANNED",
+    };
+  });
+  const today = dateGroups.find((g) => g.iso === todayIso);
+  const nextDates = dateGroups.filter((g) => g.iso !== todayIso).slice(0, 4);
 
   return (
     <div className="px-4 py-5 max-w-2xl mx-auto space-y-5">
@@ -70,8 +84,8 @@ export default async function DashboardPage() {
       </div>
 
       {/* Today's work */}
-      {todayDay ? (
-        <Link href={`/days/${todayDay.id}`}>
+      {today ? (
+        <Link href={`/days/date/${today.iso}`}>
           <Card className="border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer">
             <CardContent className="flex items-center justify-between py-4">
               <div className="flex items-center gap-3">
@@ -81,9 +95,9 @@ export default async function DashboardPage() {
                 <div>
                   <p className="font-semibold text-blue-900">{"Today\u2019s Round"}</p>
                   <p className="text-sm text-blue-700">
-                    {todayDay.area?.name ?? todayDay.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off"} ·{" "}
-                    {todayDay.jobs.length} job{todayDay.jobs.length !== 1 ? "s" : ""}
-                    {!hidePrices && ` · ${fmtCurrency(todayDay.jobs.reduce((s, j) => s + j.price, 0))}`}
+                    {today.areas} ·{" "}
+                    {today.jobCount} job{today.jobCount !== 1 ? "s" : ""}
+                    {!hidePrices && ` · ${fmtCurrency(today.value)}`}
                   </p>
                 </div>
               </div>
@@ -217,35 +231,31 @@ export default async function DashboardPage() {
           <Link href="/days" className="text-xs text-blue-600 hover:underline">See all</Link>
         </CardHeader>
         <CardContent className="p-0">
-          {nextDays.length === 0 ? (
+          {nextDates.length === 0 ? (
             <p className="px-4 py-4 text-sm text-slate-500">
               No upcoming days planned.{" "}
               {!isWorker && <Link href="/days" className="text-blue-600 hover:underline">Add one →</Link>}
             </p>
           ) : (
             <ul className="divide-y divide-slate-100">
-              {nextDays.map((day) => {
-                const pending = day.jobs.filter((j) => j.status === "PENDING").length;
-                const total = day.jobs.length;
-                return (
-                  <li key={day.id}>
-                    <Link href={`/days/${day.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors">
-                      <div>
-                        <p className="text-sm font-medium text-slate-700">{fmtDate(day.date)}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          {day.area?.name ?? day.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off"} · {total} job{total !== 1 ? "s" : ""}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={day.status === "COMPLETE" ? "success" : day.status === "IN_PROGRESS" ? "info" : "muted"}>
-                          {day.status === "COMPLETE" ? "Done" : day.status === "IN_PROGRESS" ? "Active" : `${pending} pending`}
-                        </Badge>
-                        <ChevronRight size={15} className="text-slate-300" />
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
+              {nextDates.map((group) => (
+                <li key={group.iso}>
+                  <Link href={`/days/date/${group.iso}`} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-700">{fmtDate(group.iso)}</p>
+                      <p className="text-xs text-slate-500 mt-0.5 truncate">
+                        {group.areas} · {group.jobCount} job{group.jobCount !== 1 ? "s" : ""}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={group.status === "COMPLETE" ? "success" : group.status === "IN_PROGRESS" ? "info" : "muted"}>
+                        {group.status === "COMPLETE" ? "Done" : group.status === "IN_PROGRESS" ? "Active" : `${group.pending} pending`}
+                      </Badge>
+                      <ChevronRight size={15} className="text-slate-300" />
+                    </div>
+                  </Link>
+                </li>
+              ))}
             </ul>
           )}
         </CardContent>

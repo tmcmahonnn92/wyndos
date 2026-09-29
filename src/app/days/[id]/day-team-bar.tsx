@@ -21,6 +21,8 @@ interface Props {
   dayAssignedUserId: string | null;
   jobs: BarJob[];
   team: TeamMember[] | null; // null = viewer is a worker (no assigning)
+  /** Where Print goes; null hides it (the whole-day view has its own Print). */
+  printHref?: string | null;
 }
 
 function tomorrowISO() {
@@ -34,7 +36,7 @@ function tomorrowISO() {
  * assignment ("keep this one" / "send this one to Jake"), take back, rained off,
  * and print. Workers only see the Print button.
  */
-export function DayTeamBar({ dayId, dayStatus, dayAssignedUserId, jobs, team }: Props) {
+export function DayTeamBar({ dayId, dayStatus, dayAssignedUserId, jobs, team, printHref = `/days/${dayId}/print` }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -100,12 +102,12 @@ export function DayTeamBar({ dayId, dayStatus, dayAssignedUserId, jobs, team }: 
             </select>
           </label>
         )}
-        <Link
-          href={`/days/${dayId}/print`}
+        {printHref && <Link
+          href={printHref}
           className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
           <Printer size={15} /> Print
-        </Link>
+        </Link>}
       </div>
 
       {isOwner && split.length > 1 && (

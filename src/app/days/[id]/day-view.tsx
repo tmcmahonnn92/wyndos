@@ -22,6 +22,9 @@ import {
   Search,
   CalendarDays,
   RotateCcw,
+  CloudRain,
+  ChevronDown,
+  Printer,
   StickyNote,
   Navigation2,
   Loader2,
@@ -54,6 +57,7 @@ import {
   updateJobCompletedAt,
   updateJobPrice,
   moveOverdueJobsToDay,
+  rescheduleWorkDay,
 } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,6 +68,7 @@ import { QuoteActions, quoteCardClass, quoteSummary } from "./quote-actions";
 import { getQueue, onQueueChange, runOrQueue } from "@/lib/offline-queue";
 import { expectsPaymentAtDoor, normalisePreference, preferenceLabel } from "@/lib/payment-preference";
 import { fmtDate, fmtShortDate, fmtCurrency, cn } from "@/lib/utils";
+import { addressPartsOf, collectKnownTowns, compareByStreet, withTownFallback } from "@/lib/address";
 
 type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
 type FutureDay = Awaited<ReturnType<typeof getWorkDays>>[0];
@@ -101,10 +106,16 @@ function getPaidAfterCompletion(job: Job) {
 }
 
 interface Props {
-  day: Day;
+  /** One area day (/days/[id]) or every area day on a date (/days/date/[date]). */
+  days: Day[];
+  dateISO: string;
   futureDays: FutureDay[];
   hidePrices?: boolean;
   team?: TeamMember[] | null;
+  /** Owner / scheduler permission: may move a whole area day (rained off). */
+  canReschedule?: boolean;
+  /** On a single area day: how many other areas share the date (links to the whole day). */
+  otherAreasOnDate?: number;
 }
 
 type PendingResolution = {
@@ -113,67 +124,166 @@ type PendingResolution = {
   targetDayId?: number;
 };
 
-export function DayView({ day, futureDays, hidePrices = false, team = null }: Props) {
+type ViewMode = "area" | "street";
+const VIEW_MODE_KEY = "wyndos.dayViewMode";
+
+function areaLabel(day: Day) {
+  return day.area?.name ?? day.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off";
+}
+
+export function DayView({
+  days,
+  dateISO,
+  futureDays,
+  hidePrices = false,
+  team = null,
+  canReschedule = false,
+  otherAreasOnDate = 0,
+}: Props) {
   const todayDateValue = new Date().toISOString().slice(0, 10);
-  const scheduledDateValue = new Date(day.date).toISOString().slice(0, 10);
+  const scheduledDateValue = dateISO;
+  const multi = days.length > 1;
+  const single = days.length === 1 ? days[0] : null;
+  const dayIds = days.map((d) => d.id);
+  const dayById = useMemo(() => new Map(days.map((d) => [d.id, d])), [days]);
+
   const [isPending, startTransition] = useTransition();
-  const [completeDayOpen, setCompleteDayOpen] = useState(false);
-  const [addJobOpen, setAddJobOpen] = useState(false);
-  const [nextRunInfo, setNextRunInfo] = useState<{ nextDue: Date | string; nextWorkDayId: number | null; areaName: string } | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [completeScope, setCompleteScope] = useState<number[] | null>(null);
+  const [addJobDayId, setAddJobDayId] = useState<number | null>(null);
+  const [addJobPickerOpen, setAddJobPickerOpen] = useState(false);
+  const [nextRuns, setNextRuns] = useState<Array<{ nextDue: Date | string; nextWorkDayId: number | null; areaName: string }>>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [openJobInPayMode, setOpenJobInPayMode] = useState(false);
   const [notesJob, setNotesJob] = useState<Job | null>(null);
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [routeOrder, setRouteOrder] = useState<number[] | null>(null);
-  const [dayNotesEditing, setDayNotesEditing] = useState(false);
-  const [dayNotesText, setDayNotesText] = useState(day.notes ?? "");
+  const [notesEditingDayId, setNotesEditingDayId] = useState<number | null>(null);
+  const [dayNotesText, setDayNotesText] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [completionDate, setCompletionDate] = useState(todayDateValue);
   const [dragJobId, setDragJobId] = useState<number | null>(null);
-  // Feature 1: multi-select + bulk move of unfinished jobs on day completion.
   const [selectedPendingIds, setSelectedPendingIds] = useState<Set<number>>(new Set());
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [bulkDest, setBulkDest] = useState<"new" | "existing">("new");
   const [bulkNewDate, setBulkNewDate] = useState(todayDateValue);
   const [bulkExistingDayId, setBulkExistingDayId] = useState<string>("");
+  const [rainOff, setRainOff] = useState<{ dayIds: number[]; date: string } | null>(null);
+  const [workerFilter, setWorkerFilter] = useState<string>("all");
+  const [openAreaId, setOpenAreaId] = useState<number | null>(null);
+  const [viewMode, setViewModeState] = useState<ViewMode>("area");
   const router = useRouter();
 
-  // Drag-to-reorder state for pending jobs.
+  // Each device remembers the last view mode.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(VIEW_MODE_KEY);
+      if (saved === "area" || saved === "street") setViewModeState(saved);
+    } catch {}
+  }, []);
+  const setViewMode = (mode: ViewMode) => {
+    setViewModeState(mode);
+    setRouteOrder(null);
+    try { window.localStorage.setItem(VIEW_MODE_KEY, mode); } catch {}
+  };
+
+  // Drag-to-reorder state for pending jobs (only within one area, only in area view).
   const dragJobIdRef = useRef<number | null>(null);
   const [dragOverJobId, setDragOverJobId] = useState<number | null>(null);
-  // Phones can't drag-and-drop reliably, so reordering also works with up/down buttons.
   const [reorderMode, setReorderMode] = useState(false);
-  const moveJob = (jobId: number, direction: -1 | 1) => {
-    const ids = sortedJobs.map((j) => j.id);
-    const from = ids.indexOf(jobId);
-    let to = from + direction;
-    // Skip over non-pending jobs so a tap always moves past a visible neighbour.
-    while (to >= 0 && to < ids.length && sortedJobs[to].status !== "PENDING") to += direction;
-    if (from === -1 || to < 0 || to >= ids.length) return;
-    const next = [...ids];
-    next.splice(from, 1);
-    next.splice(to, 0, jobId);
-    setRouteOrder(next);
-    safely(async () => { await reorderDayJobs(day.id, next); });
-  };
-  // Sort by optimiser route order when available, otherwise keep DB order.
+  const [manualOrder, setManualOrder] = useState<Record<number, number[]>>({});
 
   // Taps saved on the phone while offline show immediately, before they reach the server.
   const [localStatus, setLocalStatus] = useState<Record<number, "COMPLETE" | "SKIPPED">>({});
+  const dayIdKey = dayIds.join(",");
   useEffect(() => {
+    const ids = new Set(dayIdKey.split(",").map(Number));
     const load = () => {
       const next: Record<number, "COMPLETE" | "SKIPPED"> = {};
       for (const entry of getQueue()) {
-        if (entry.workDayId !== day.id) continue;
+        if (!ids.has(entry.workDayId)) continue;
         next[entry.jobId] = entry.kind === "skip" ? "SKIPPED" : "COMPLETE";
       }
       setLocalStatus(next);
     };
     load();
     return onQueueChange(load);
-  }, [day.id]);
-  const jobsView = day.jobs.map((job) => (localStatus[job.id] ? { ...job, status: localStatus[job.id] } : job)) as typeof day.jobs;
+  }, [dayIdKey]);
+
+  const withLocal = (job: Job) => (localStatus[job.id] ? { ...job, status: localStatus[job.id] } : job) as Job;
+  const allJobs = useMemo(() => days.flatMap((d) => d.jobs), [days]);
+  const allJobsView = allJobs.map(withLocal);
+
+  // Who does each job: its own worker, else the area day's worker, else the owner (me).
+  const meId = team?.find((m) => m.isMe)?.id ?? null;
+  const workerOf = (job: Job) => job.assignedUserId ?? dayById.get(job.workDayId)?.assignedUserId ?? meId;
+  const workerOptions = useMemo(() => {
+    const ids = new Set(allJobs.map((job) => job.assignedUserId ?? dayById.get(job.workDayId)?.assignedUserId ?? meId));
+    return [...ids];
+  }, [allJobs, dayById, meId]);
+  const memberName = (userId: string) => {
+    const member = team?.find((m) => m.id === userId);
+    if (member) return member.isMe ? `${member.name} (you)` : member.name;
+    const fromJob = allJobs.find((j) => j.assignedUser?.id === userId)?.assignedUser
+      ?? days.find((d) => d.assignedUser?.id === userId)?.assignedUser;
+    return fromJob?.name ?? fromJob?.email ?? "Worker";
+  };
+  const passesFilter = (job: Job) => {
+    if (workerFilter === "all") return true;
+    const worker = workerOf(job);
+    return worker === workerFilter;
+  };
+  const filtering = workerFilter !== "all";
+
+  const knownTowns = useMemo(() => collectKnownTowns(allJobs.map((j) => j.customer.address)), [allJobs]);
+  const streetKey = useMemo(() => {
+    const map = new Map<number, ReturnType<typeof addressPartsOf>>();
+    for (const job of allJobs) {
+      const area = dayById.get(job.workDayId)?.area;
+      const fallback = area && !area.isSystemArea ? area.name : job.customer.area?.name;
+      map.set(job.id, withTownFallback(addressPartsOf(job.customer, knownTowns), fallback));
+    }
+    return map;
+  }, [allJobs, knownTowns, dayById]);
+
+  /** Jobs of one area day in its saved route order (or the order just dragged). */
+  const orderedJobsOf = (day: Day) => {
+    const jobs = day.jobs.map(withLocal);
+    const order = manualOrder[day.id];
+    if (!order) return jobs;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return [...jobs].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+  };
+
+  // Visible list: optimiser order, else by area (route order), else all by street.
+  const sortedJobs: Job[] = (() => {
+    const visible = allJobsView.filter(passesFilter);
+    if (routeOrder) {
+      const byId = new Map(visible.map((j) => [j.id, j]));
+      return routeOrder.map((id) => byId.get(id)).filter(Boolean) as Job[];
+    }
+    if (viewMode === "street") {
+      return [...visible].sort((a, b) => compareByStreet(streetKey.get(a.id)!, streetKey.get(b.id)!));
+    }
+    return days.flatMap((d) => orderedJobsOf(d).filter(passesFilter));
+  })();
+
+  const pendingJobs = sortedJobs.filter((j) => j.status === "PENDING");
+  const doneJobs = sortedJobs.filter((j) => j.status === "COMPLETE");
+  const otherJobs = sortedJobs.filter((j) => j.status !== "PENDING" && j.status !== "COMPLETE");
+
+  const totalValue = sortedJobs.reduce((s, j) => s + j.price, 0);
+  const doneValue = doneJobs.reduce((s, j) => s + j.price, 0);
+  const allComplete = days.length > 0 && days.every((d) => d.status === "COMPLETE");
+  const openDays = days.filter((d) => d.status !== "COMPLETE");
+  const plannedDays = days.filter((d) => d.status === "PLANNED");
+  const shouldPromptForCompletedDate = scheduledDateValue !== todayDateValue;
+  const canReorder = viewMode === "area" && !routeOrder && !filtering;
+  const areaOf = (job: Job) => {
+    const area = dayById.get(job.workDayId)?.area;
+    return area ? { name: area.name, color: area.color } : null;
+  };
+  // Pending cards are already under an area heading in area view; tag them only when mixed.
+  const tagFor = (job: Job) => (!multi || (viewMode === "area" && !routeOrder) ? null : areaOf(job));
 
   /** Run a change without ever crashing the page; queue it if there's no signal. */
   const safely = (fn: () => Promise<void>) => {
@@ -190,11 +300,11 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
     if (typeof navigator === "undefined" || navigator.onLine) router.refresh();
   };
   const doComplete = async (job: Job) => {
-    const result = await runOrQueue({ kind: "complete", jobId: job.id, workDayId: day.id }, () => completeJob(job.id));
+    const result = await runOrQueue({ kind: "complete", jobId: job.id, workDayId: job.workDayId }, () => completeJob(job.id));
     if (result === "queued") setLocalStatus((prev) => ({ ...prev, [job.id]: "COMPLETE" }));
   };
   const doSkip = async (job: Job) => {
-    const result = await runOrQueue({ kind: "skip", jobId: job.id, workDayId: day.id }, () => skipJob(job.id));
+    const result = await runOrQueue({ kind: "skip", jobId: job.id, workDayId: job.workDayId }, () => skipJob(job.id));
     if (result === "queued") setLocalStatus((prev) => ({ ...prev, [job.id]: "SKIPPED" }));
   };
   const doPay = async (
@@ -204,95 +314,103 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
     notes?: string,
   ) => {
     await runOrQueue(
-      { kind: "pay", jobId: job.id, workDayId: day.id, customerId: job.customerId, allocations, method },
+      { kind: "pay", jobId: job.id, workDayId: job.workDayId, customerId: job.customerId, allocations, method },
       (clientRequestId) => recordPayment({ customerId: job.customerId, allocations, method, notes, clientRequestId }),
     );
   };
 
-  // Sort: use routeOrder (from optimiser) if set, otherwise use DB order (sorted by sortOrder, then name)
-  const sortedJobs = routeOrder
-    ? (routeOrder.map((id) => jobsView.find((j) => j.id === id)).filter(Boolean) as typeof day.jobs)
-    : jobsView;
-
-  const pendingJobs = sortedJobs.filter((j) => j.status === "PENDING");
-  const doneJobs = sortedJobs.filter((j) => j.status === "COMPLETE");
-  const otherJobs = sortedJobs.filter(
-    (j) => j.status !== "PENDING" && j.status !== "COMPLETE"
-  );
-
-  const totalValue = day.jobs.reduce((s, j) => s + j.price, 0);
-  const doneValue = doneJobs.reduce((s, j) => s + j.price, 0);
-  const shouldPromptForCompletedDate = day.status !== "COMPLETE" && scheduledDateValue !== todayDateValue;
-
+  /** Save a new order for one area day (reordering never crosses areas). */
+  const saveDayOrder = (dayId: number, ids: number[]) => {
+    setManualOrder((prev) => ({ ...prev, [dayId]: ids }));
+    safely(async () => { await reorderDayJobs(dayId, ids); });
+  };
+  const moveJob = (jobId: number, direction: -1 | 1) => {
+    const job = allJobs.find((j) => j.id === jobId);
+    const day = job ? dayById.get(job.workDayId) : undefined;
+    if (!day) return;
+    const list = orderedJobsOf(day);
+    const ids = list.map((j) => j.id);
+    const from = ids.indexOf(jobId);
+    let to = from + direction;
+    while (to >= 0 && to < ids.length && list[to].status !== "PENDING") to += direction;
+    if (from === -1 || to < 0 || to >= ids.length) return;
+    const next = [...ids];
+    next.splice(from, 1);
+    next.splice(to, 0, jobId);
+    saveDayOrder(day.id, next);
+  };
   const handleJobDrop = (targetJobId: number) => {
     const dragId = dragJobIdRef.current;
-    if (!dragId || dragId === targetJobId) {
-      dragJobIdRef.current = null;
-      setDragOverJobId(null);
-      return;
-    }
-    const allIds = sortedJobs.map((j) => j.id);
-    const from = allIds.indexOf(dragId);
-    const to = allIds.indexOf(targetJobId);
-    if (from === -1 || to === -1) return;
-    const newOrder = [...allIds];
-    newOrder.splice(from, 1);
-    newOrder.splice(to, 0, dragId);
-    setRouteOrder(newOrder);
     dragJobIdRef.current = null;
     setDragJobId(null);
     setDragOverJobId(null);
-    startTransition(async () => {
-      await reorderDayJobs(day.id, newOrder);
-    });
+    if (!dragId || dragId === targetJobId) return;
+    const dragged = allJobs.find((j) => j.id === dragId);
+    const target = allJobs.find((j) => j.id === targetJobId);
+    if (!dragged || !target || dragged.workDayId !== target.workDayId) return; // only within one area
+    const day = dayById.get(dragged.workDayId)!;
+    const ids = orderedJobsOf(day).map((j) => j.id);
+    const from = ids.indexOf(dragId);
+    const to = ids.indexOf(targetJobId);
+    if (from === -1 || to === -1) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, dragId);
+    saveDayOrder(day.id, ids);
   };
 
-  const handleJobTap = (job: Job) => {
-    setSelectedJob(job);
+  const startNotes = (day: Day) => {
+    setNotesEditingDayId(day.id);
+    setDayNotesText(day.notes ?? "");
   };
-
   const handleSaveDayNotes = () => {
-    startTransition(async () => {
-      await updateWorkDayNotes(day.id, dayNotesText);
-      setDayNotesEditing(false);
+    if (notesEditingDayId === null) return;
+    const id = notesEditingDayId;
+    safely(async () => {
+      await updateWorkDayNotes(id, dayNotesText);
+      setNotesEditingDayId(null);
       router.refresh();
     });
   };
 
-  const handleStartDay = () => {
-    startTransition(async () => {
-      await startDay(day.id);
+  const handleStart = (targets: Day[]) => {
+    safely(async () => {
+      for (const day of targets) await startDay(day.id);
       router.refresh();
     });
   };
 
-  const handleReopenDay = () => {
-    startTransition(async () => {
-      try {
-        setActionError(null);
-        await reopenDay(day.id);
-        router.refresh();
-      } catch (issue) {
-        setActionError(issue instanceof Error ? issue.message : "Could not reopen this day.");
-      }
+  const handleReopen = (day: Day) => {
+    safely(async () => {
+      await reopenDay(day.id);
+      setNextRuns([]);
+      router.refresh();
     });
   };
 
-  const handleCompleteDay = () => {
-    if (pendingJobs.length > 0 || shouldPromptForCompletedDate) {
+  /** Pending jobs of the areas being completed (all workers, not just the filtered view). */
+  const scopePending = (scope: number[]) =>
+    allJobsView.filter((j) => j.status === "PENDING" && scope.includes(j.workDayId));
+
+  const handleComplete = (targets: Day[]) => {
+    const scope = targets.map((d) => d.id);
+    const pending = scopePending(scope);
+    if (pending.length > 0 || shouldPromptForCompletedDate) {
       // Default: unfinished jobs carry over to tomorrow. Skipping is a deliberate choice.
-      const tomorrow = tomorrowISO();
-      setSelectedPendingIds(new Set(pendingJobs.map((job) => job.id)));
+      setSelectedPendingIds(new Set(pending.map((job) => job.id)));
       setBulkMoveOpen(true);
       setBulkDest("new");
-      setBulkNewDate(tomorrow);
+      setBulkNewDate(tomorrowISO());
       setBulkExistingDayId("");
       setCompletionDate(todayDateValue);
-      setCompleteDayOpen(true);
+      setCompleteScope(scope);
     } else {
-      startTransition(async () => {
-        const result = await completeDay(day.id, [], todayDateValue);
-        if (result) setNextRunInfo(result);
+      safely(async () => {
+        const results = [];
+        for (const day of targets) {
+          const result = await completeDay(day.id, [], todayDateValue);
+          if (result) results.push(result);
+        }
+        setNextRuns(results);
         router.refresh();
       });
     }
@@ -307,33 +425,129 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
     });
   };
 
+  const completePending = completeScope ? scopePending(completeScope) : [];
+
   const handleConfirmCompleteDay = () => {
-    // Ticked jobs carry over to the chosen day; unticked jobs are skipped this time.
-    const carryIds = pendingJobs.filter((j) => selectedPendingIds.has(j.id)).map((j) => j.id);
-    const res: PendingResolution[] = pendingJobs
-      .filter((j) => !selectedPendingIds.has(j.id))
-      .map((j) => ({ jobId: j.id, action: "skip" }));
+    if (!completeScope) return;
+    const scope = completeScope;
+    const pending = scopePending(scope);
     safely(async () => {
-      if (carryIds.length > 0) {
+      // Ticked jobs carry over (grouped per area, so each gets its own "Overdue – area" day);
+      // unticked jobs are skipped this time.
+      for (const dayId of scope) {
+        const day = dayById.get(dayId)!;
+        const carryIds = pending.filter((j) => j.workDayId === dayId && selectedPendingIds.has(j.id)).map((j) => j.id);
+        if (carryIds.length === 0) continue;
         if (bulkDest === "existing") {
           if (!bulkExistingDayId) throw new Error("Choose which day to carry the jobs over to.");
           await moveOverdueJobsToDay(carryIds, { kind: "existing", workDayId: Number(bulkExistingDayId) });
         } else {
           if (!bulkNewDate) throw new Error("Choose a date to carry the jobs over to.");
-          await moveOverdueJobsToDay(carryIds, {
-            kind: "new",
-            dateISO: bulkNewDate,
-            sourceAreaName: day.area?.name ?? "Overdue jobs",
-          });
+          await moveOverdueJobsToDay(carryIds, { kind: "new", dateISO: bulkNewDate, sourceAreaName: day.area?.name ?? "Overdue jobs" });
         }
       }
-      const result = await completeDay(day.id, res, completionDate);
-      if (result) setNextRunInfo(result);
-      setCompleteDayOpen(false);
+      const results = [];
+      for (const dayId of scope) {
+        const skips: PendingResolution[] = pending
+          .filter((j) => j.workDayId === dayId && !selectedPendingIds.has(j.id))
+          .map((j) => ({ jobId: j.id, action: "skip" }));
+        const result = await completeDay(dayId, skips, completionDate);
+        if (result) results.push(result);
+      }
+      setNextRuns(results);
+      setCompleteScope(null);
       setSelectedPendingIds(new Set());
       router.refresh();
     });
   };
+
+  const handleConfirmRainOff = () => {
+    if (!rainOff) return;
+    const { dayIds: ids, date } = rainOff;
+    safely(async () => {
+      if (!date) throw new Error("Choose the new date.");
+      for (const id of ids) await rescheduleWorkDay(id, date, "one-off");
+      setRainOff(null);
+      // The areas have left this date: go to where they went.
+      if (ids.length === days.length) router.push(`/days/date/${date}`);
+      else router.refresh();
+    });
+  };
+
+  const openAddJob = () => {
+    if (openDays.length === 1 || days.length === 1) setAddJobDayId((openDays[0] ?? days[0]).id);
+    else setAddJobPickerOpen(true);
+  };
+
+  const renderPendingCard = (job: Job) => (
+    <div
+      key={job.id}
+      draggable={canReorder}
+      onDragStart={() => { if (!canReorder) return; dragJobIdRef.current = job.id; setDragJobId(job.id); }}
+      onDragEnd={() => { dragJobIdRef.current = null; setDragJobId(null); setDragOverJobId(null); }}
+      onDragOver={(e) => { if (!canReorder) return; e.preventDefault(); setDragOverJobId(job.id); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverJobId(null); }}
+      onDrop={(e) => { e.preventDefault(); handleJobDrop(job.id); }}
+      className={cn(
+        "rounded-xl transition-all",
+        dragOverJobId === job.id && dragJobId !== job.id && "ring-2 ring-blue-400 ring-offset-1"
+      )}
+    >
+      {reorderMode && canReorder && (
+        <div className="mb-1 flex gap-1">
+          <button type="button" aria-label={`Move ${job.customer.name} up`} onClick={() => moveJob(job.id, -1)}
+            className="flex-1 rounded-lg border border-slate-200 bg-white py-1.5 text-sm font-bold text-slate-600">↑</button>
+          <button type="button" aria-label={`Move ${job.customer.name} down`} onClick={() => moveJob(job.id, 1)}
+            className="flex-1 rounded-lg border border-slate-200 bg-white py-1.5 text-sm font-bold text-slate-600">↓</button>
+        </div>
+      )}
+      <JobCard
+        job={job}
+        areaTag={tagFor(job)}
+        showWorker={team !== null}
+        onToggle={() => setSelectedJob(job)}
+        isPending={isPending}
+        onNotesClick={() => setNotesJob(job)}
+        hidePrices={hidePrices}
+        quickPayMethod={preferredMethod(job)}
+        onQuickComplete={() =>
+          safely(async () => {
+            await doComplete(job);
+            refreshIfOnline();
+          })
+        }
+        onQuickPay={(includeDebt: boolean, method: "CASH" | "BACS" | "CARD") =>
+          safely(async () => {
+            await doComplete(job);
+            const allocations: Array<{ jobId: number; amount: number }> = [{ jobId: job.id, amount: job.price }];
+            if (includeDebt) {
+              const prevJobs = (job.customer.jobs ?? []).filter((j) => j.id !== job.id);
+              for (const pj of prevJobs) {
+                const paid = (pj.allocations ?? []).reduce((s: number, a: { amount: number }) => s + a.amount, 0);
+                const due = Number(Math.max(0, pj.price - paid).toFixed(2));
+                if (due > 0.005) allocations.push({ jobId: pj.id, amount: due });
+              }
+            }
+            await doPay(job, allocations, method);
+            refreshIfOnline();
+          })
+        }
+        onOpenInPayMode={() => {
+          setOpenJobInPayMode(true);
+          setSelectedJob(job);
+        }}
+      />
+    </div>
+  );
+
+  const headerTitle = multi
+    ? `${days.length} areas`
+    : single ? areaLabel(single) : "Nothing booked";
+  const statusBadge = allComplete
+    ? { variant: "success" as const, label: "Done" }
+    : days.some((d) => d.status === "IN_PROGRESS")
+    ? { variant: "info" as const, label: "Active" }
+    : { variant: "muted" as const, label: days.length ? "Planned" : "Free" };
 
   return (
     <div className="max-w-lg mx-auto">
@@ -344,30 +558,22 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
             <ChevronLeft size={20} />
           </Link>
           <div className="flex-1 min-w-0">
-            <h1 className="text-base font-bold text-slate-800 truncate">{fmtDate(day.date)}</h1>
-            <p className="text-xs text-slate-500">
-              {day.area?.name ?? day.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off"}{!hidePrices && ` - ${fmtCurrency(totalValue)}`}
+            <h1 className="text-base font-bold text-slate-800 truncate">{fmtDate(`${dateISO}T12:00:00Z`)}</h1>
+            <p className="text-xs text-slate-500 truncate">
+              {headerTitle}{!hidePrices && ` - ${fmtCurrency(totalValue)}`}
             </p>
           </div>
-          <Badge
-            variant={
-              day.status === "COMPLETE" ? "success" :
-              day.status === "IN_PROGRESS" ? "info" : "muted"
-            }
-          >
-            {day.status === "COMPLETE" ? "Done" : day.status === "IN_PROGRESS" ? "Active" : "Planned"}
-          </Badge>
+          <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
         </div>
 
         {/* Progress bar */}
         <div className="h-1.5 bg-slate-100">
           <div
             className="h-full bg-green-500 transition-all duration-500"
-            style={{ width: `${day.jobs.length > 0 ? (doneJobs.length / day.jobs.length) * 100 : 0}%` }}
+            style={{ width: `${sortedJobs.length > 0 ? (doneJobs.length / sortedJobs.length) * 100 : 0}%` }}
           />
         </div>
 
-        {/* Day progress summary — clear stat blocks */}
         <div className="grid grid-cols-4 divide-x divide-slate-200 bg-slate-50 border-b border-slate-100">
           <div className="flex flex-col items-center py-2 px-1">
             <span className="text-base font-bold text-green-700 leading-tight">{doneJobs.length}</span>
@@ -378,7 +584,7 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
             <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide mt-0.5">Pending</span>
           </div>
           <div className="flex flex-col items-center py-2 px-1">
-            <span className="text-base font-bold text-slate-700 leading-tight">{day.jobs.length}</span>
+            <span className="text-base font-bold text-slate-700 leading-tight">{sortedJobs.length}</span>
             <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide mt-0.5">Total</span>
           </div>
           <div className="flex flex-col items-center py-2 px-1">
@@ -387,33 +593,37 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
           </div>
         </div>
 
-        {/* Day Notes Banner */}
-        {(day.notes || dayNotesEditing) && (
-          <div className="flex items-start gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-200">
-            <StickyNote size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
-            {dayNotesEditing ? (
-              <div className="flex-1 flex items-end gap-2">
-                <textarea
-                  value={dayNotesText}
-                  onChange={(e) => setDayNotesText(e.target.value)}
-                  autoFocus
-                  rows={2}
-                  className="flex-1 text-xs border border-amber-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none bg-white"
-                />
-                <div className="flex flex-col gap-1 flex-shrink-0">
-                  <button onClick={handleSaveDayNotes} disabled={isPending}
-                    className="px-2 py-1 text-[11px] font-bold bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50">Save</button>
-                  <button onClick={() => { setDayNotesEditing(false); setDayNotesText(day.notes ?? ""); }}
-                    className="px-2 py-1 text-[11px] text-slate-500 hover:text-slate-700">Cancel</button>
-                </div>
-              </div>
-            ) : (
-              <p className="flex-1 text-xs text-amber-800 whitespace-pre-wrap">{day.notes}</p>
-            )}
-            {!dayNotesEditing && (
-              <button onClick={() => setDayNotesEditing(true)} className="flex-shrink-0 p-1 hover:bg-amber-100 rounded">
-                <Pencil size={12} className="text-amber-600" />
+        {/* View switch: by area (route order) or everything in one list by street */}
+        {days.length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-100">
+            <div className="flex flex-1 rounded-lg border border-slate-200 p-0.5 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setViewMode("area")}
+                className={cn("flex-1 rounded-md px-2 py-1.5", viewMode === "area" && !routeOrder ? "bg-slate-800 text-white" : "text-slate-600")}
+              >
+                {multi ? "By area" : "Route order"}
               </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("street")}
+                className={cn("flex-1 rounded-md px-2 py-1.5", viewMode === "street" && !routeOrder ? "bg-slate-800 text-white" : "text-slate-600")}
+              >
+                {multi ? "All jobs by street" : "By street"}
+              </button>
+            </div>
+            {team && workerOptions.length > 1 && (
+              <select
+                value={workerFilter}
+                onChange={(e) => setWorkerFilter(e.target.value)}
+                aria-label="Show jobs for"
+                className="max-w-[40%] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700"
+              >
+                <option value="all">Everyone</option>
+                {workerOptions.filter((id): id is string => id !== null).map((id) => (
+                  <option key={id} value={id}>{memberName(id)}</option>
+                ))}
+              </select>
             )}
           </div>
         )}
@@ -421,111 +631,188 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
 
       <div className="px-4 py-4 space-y-4">
         {actionError && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</div>}
-        {/* Action buttons */}
-        {day.status === "COMPLETE" ? (
-          <div className="space-y-2">
-            {nextRunInfo && (
-              <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-green-50 border border-green-200">
+
+        {single && otherAreasOnDate > 0 && (
+          <Link
+            href={`/days/date/${dateISO}`}
+            className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-semibold text-blue-800"
+          >
+            <span>{otherAreasOnDate} other area{otherAreasOnDate === 1 ? "" : "s"} on this date</span>
+            <span>See the whole day →</span>
+          </Link>
+        )}
+
+        {nextRuns.length > 0 && (
+          <div className="space-y-1.5">
+            {nextRuns.map((run) => (
+              <div key={run.areaName} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-green-50 border border-green-200">
                 <CheckCircle2 size={16} className="text-green-600 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-green-800">Day complete!</p>
+                  <p className="text-xs font-bold text-green-800">{run.areaName} complete</p>
                   <p className="text-xs text-green-700">
-                    Next {nextRunInfo.areaName} run:{" "}
-                    <strong>{new Date(nextRunInfo.nextDue).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</strong>
+                    Next run:{" "}
+                    <strong>{new Date(run.nextDue).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</strong>
                   </p>
                 </div>
-                {nextRunInfo.nextWorkDayId && (
-                  <Link
-                    href={`/days/${nextRunInfo.nextWorkDayId}`}
-                    className="flex-shrink-0 text-xs font-semibold text-green-700 hover:text-green-900 hover:underline"
-                  >
+                {run.nextWorkDayId && (
+                  <Link href={`/days/${run.nextWorkDayId}`} className="flex-shrink-0 text-xs font-semibold text-green-700 hover:underline">
                     View →
                   </Link>
                 )}
               </div>
-            )}
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={handleReopenDay}
-              disabled={isPending}
-              className="flex-1"
-              size="lg"
-            >
-              <RotateCcw size={16} />
-              Reopen Day
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setRouteModalOpen(true)}
-              size="lg"
-              className="flex-shrink-0"
-            >
-              <Navigation2 size={16} />
-              Route
-            </Button>
+            ))}
           </div>
-          </div>
-        ) : (
+        )}
+
+        {/* Whole-date actions */}
+        {days.length > 0 && (
           <div className="flex gap-2">
-            {day.status === "PLANNED" && (
-              <Button onClick={handleStartDay} disabled={isPending} className="flex-1" size="lg">
+            {plannedDays.length > 0 && (
+              <Button onClick={() => handleStart(plannedDays)} disabled={isPending} className="flex-1" size="lg">
                 <Play size={16} />
-                Start Area
+                {multi ? "Start day" : "Start Area"}
               </Button>
             )}
-            {day.status === "IN_PROGRESS" && (
-              <Button
-                onClick={handleCompleteDay}
-                disabled={isPending}
-                className="flex-1"
-                size="lg"
-                variant="secondary"
-              >
+            {plannedDays.length === 0 && openDays.length > 0 && (
+              <Button onClick={() => handleComplete(openDays)} disabled={isPending} className="flex-1" size="lg" variant="secondary">
                 <CheckSquare size={16} />
                 Complete Day
               </Button>
             )}
-            <Button
-              variant="outline"
-              onClick={() => setRouteModalOpen(true)}
-              size="lg"
-              className="flex-shrink-0"
-            >
+            {allComplete && single && (
+              <Button variant="outline" onClick={() => handleReopen(single)} disabled={isPending} className="flex-1" size="lg">
+                <RotateCcw size={16} />
+                Reopen Day
+              </Button>
+            )}
+            {multi && (
+              <Link
+                href={`/days/date/${dateISO}/print?sort=${viewMode}`}
+                aria-label="Print the day"
+                className="flex flex-shrink-0 items-center rounded-xl border border-slate-200 bg-white px-3 text-slate-700 hover:bg-slate-50"
+              >
+                <Printer size={16} />
+              </Link>
+            )}
+            <Button variant="outline" onClick={() => setRouteModalOpen(true)} size="lg" className="flex-shrink-0" aria-label="Route">
               <Navigation2 size={16} />
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => setAddJobOpen(true)}
-              size="lg"
-              className="flex-shrink-0"
-            >
-              <Plus size={16} />
-              Add Job
-            </Button>
+            {!allComplete && (
+              <Button variant="outline" onClick={openAddJob} size="lg" className="flex-shrink-0">
+                <Plus size={16} />
+                Add Job
+              </Button>
+            )}
           </div>
         )}
 
-        <DayTeamBar
-          dayId={day.id}
-          dayStatus={day.status}
-          dayAssignedUserId={day.assignedUserId ?? null}
-          jobs={day.jobs}
-          team={team}
-        />
-
-        {/* Day notes add prompt (when no notes exist and not editing) */}
-        {!day.notes && !dayNotesEditing && (
+        {multi && canReschedule && openDays.length > 0 && (
           <button
-            onClick={() => setDayNotesEditing(true)}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-amber-600 transition-colors group"
+            type="button"
+            onClick={() => setRainOff({ dayIds: openDays.map((d) => d.id), date: tomorrowISO() })}
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-700"
           >
-            <StickyNote size={13} className="group-hover:text-amber-500" />
-            Add day notes...
+            <CloudRain size={14} />
+            Rained off? Move the whole day to another date
           </button>
         )}
 
-        {/* Route active indicator */}
+        {/* One card per area on this date: its worker, notes, and area-only actions */}
+        <div className={multi ? "space-y-1.5" : "space-y-4"}>
+        {days.map((day) => {
+          const jobs = day.jobs.map(withLocal);
+          const done = jobs.filter((j) => j.status === "COMPLETE").length;
+          const value = jobs.reduce((s, j) => s + j.price, 0);
+          const open = openAreaId === day.id;
+          return (
+            <div key={day.id} className={cn("space-y-2", multi && "rounded-xl border border-slate-200 bg-white px-3 py-2.5")}>
+              {multi && (
+                <button
+                  type="button"
+                  onClick={() => setOpenAreaId(open ? null : day.id)}
+                  aria-expanded={open}
+                  className="flex w-full items-center gap-2 text-left"
+                >
+                  <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: day.area?.color ?? "#94a3b8" }} />
+                  <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-800">{areaLabel(day)}</span>
+                  <span className="text-xs text-slate-500 tabular-nums">
+                    {done}/{jobs.length}{!hidePrices && ` · ${fmtCurrency(value)}`}
+                  </span>
+                  <Badge variant={day.status === "COMPLETE" ? "success" : day.status === "IN_PROGRESS" ? "info" : "muted"}>
+                    {day.status === "COMPLETE" ? "Done" : day.status === "IN_PROGRESS" ? "Active" : "Planned"}
+                  </Badge>
+                  <ChevronDown size={15} className={cn("flex-shrink-0 text-slate-400 transition-transform", open && "rotate-180")} />
+                </button>
+              )}
+              {day.notes && multi && !open && (
+                <p className="flex items-start gap-1.5 text-xs text-amber-800"><StickyNote size={12} className="mt-0.5 flex-shrink-0 text-amber-600" />{day.notes}</p>
+              )}
+              {(!multi || open) && (<>
+              {multi && (
+                <div className="flex flex-wrap gap-1.5">
+                  {day.status === "IN_PROGRESS" && (
+                    <button type="button" onClick={() => handleComplete([day])} disabled={isPending}
+                      className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                      Complete area
+                    </button>
+                  )}
+                  {day.status === "COMPLETE" && (
+                    <button type="button" onClick={() => handleReopen(day)} disabled={isPending}
+                      className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                      Reopen area
+                    </button>
+                  )}
+                  <Link href={`/days/${day.id}`}
+                    className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                    Open area only
+                  </Link>
+                </div>
+              )}
+
+              <DayTeamBar
+                dayId={day.id}
+                dayStatus={day.status}
+                dayAssignedUserId={day.assignedUserId ?? null}
+                jobs={day.jobs}
+                team={team}
+                printHref={multi ? null : `/days/${day.id}/print?sort=${viewMode}`}
+              />
+
+              {notesEditingDayId === day.id ? (
+                <div className="flex items-end gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
+                  <textarea
+                    value={dayNotesText}
+                    onChange={(e) => setDayNotesText(e.target.value)}
+                    autoFocus
+                    rows={2}
+                    className="flex-1 text-xs border border-amber-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none bg-white"
+                  />
+                  <div className="flex flex-col gap-1 flex-shrink-0">
+                    <button onClick={handleSaveDayNotes} disabled={isPending}
+                      className="px-2 py-1 text-[11px] font-bold bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50">Save</button>
+                    <button onClick={() => setNotesEditingDayId(null)} className="px-2 py-1 text-[11px] text-slate-500 hover:text-slate-700">Cancel</button>
+                  </div>
+                </div>
+              ) : day.notes ? (
+                <button type="button" onClick={() => startNotes(day)}
+                  className="flex w-full items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-left">
+                  <StickyNote size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                  <span className="flex-1 text-xs text-amber-800 whitespace-pre-wrap">{day.notes}</span>
+                  <Pencil size={12} className="text-amber-600" />
+                </button>
+              ) : (
+                <button type="button" onClick={() => startNotes(day)}
+                  className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-amber-600 transition-colors group">
+                  <StickyNote size={13} className="group-hover:text-amber-500" />
+                  Add {multi ? "area" : "day"} notes...
+                </button>
+              )}
+              </>)}
+            </div>
+          );
+        })}
+        </div>
+
         {routeOrder && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700">
             <Navigation2 size={12} />
@@ -543,7 +830,7 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
               <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
                 Pending ({pendingJobs.length})
               </h2>
-              {pendingJobs.length > 1 && (
+              {pendingJobs.length > 1 && canReorder && (
                 <button
                   type="button"
                   onClick={() => setReorderMode((on) => !on)}
@@ -556,67 +843,26 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
                 </button>
               )}
             </div>
-            <div className="space-y-2">
-              {pendingJobs.map((job) => (
-                <div
-                  key={job.id}
-                  draggable
-                  onDragStart={() => { dragJobIdRef.current = job.id; setDragJobId(job.id); }}
-                  onDragEnd={() => { dragJobIdRef.current = null; setDragJobId(null); setDragOverJobId(null); }}
-                  onDragOver={(e) => { e.preventDefault(); setDragOverJobId(job.id); }}
-                  onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverJobId(null); }}
-                  onDrop={(e) => { e.preventDefault(); handleJobDrop(job.id); }}
-                  className={cn(
-                    "rounded-xl transition-all",
-                    dragOverJobId === job.id && dragJobId !== job.id && "ring-2 ring-blue-400 ring-offset-1"
-                  )}
-                >
-                  {reorderMode && (
-                    <div className="mb-1 flex gap-1">
-                      <button type="button" aria-label={`Move ${job.customer.name} up`} onClick={() => moveJob(job.id, -1)}
-                        className="flex-1 rounded-lg border border-slate-200 bg-white py-1.5 text-sm font-bold text-slate-600">↑</button>
-                      <button type="button" aria-label={`Move ${job.customer.name} down`} onClick={() => moveJob(job.id, 1)}
-                        className="flex-1 rounded-lg border border-slate-200 bg-white py-1.5 text-sm font-bold text-slate-600">↓</button>
+            {multi && viewMode === "area" && !routeOrder ? (
+              <div className="space-y-4">
+                {days.map((day) => {
+                  const list = pendingJobs.filter((j) => j.workDayId === day.id);
+                  if (list.length === 0) return null;
+                  return (
+                    <div key={day.id}>
+                      <div className="mb-1.5 flex items-center gap-2 px-1">
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: day.area?.color ?? "#94a3b8" }} />
+                        <span className="text-xs font-bold text-slate-700">{areaLabel(day)}</span>
+                        <span className="text-xs text-slate-400">{list.length}</span>
+                      </div>
+                      <div className="space-y-2">{list.map(renderPendingCard)}</div>
                     </div>
-                  )}
-                  <JobCard
-                    job={job}
-                    showWorker={team !== null}
-                    onToggle={() => handleJobTap(job)}
-                    isPending={isPending}
-                    onNotesClick={() => setNotesJob(job)}
-                    hidePrices={hidePrices}
-                    quickPayMethod={preferredMethod(job)}
-                    onQuickComplete={() =>
-                      safely(async () => {
-                        await doComplete(job);
-                        refreshIfOnline();
-                      })
-                    }
-                    onQuickPay={(includeDebt: boolean, method: "CASH" | "BACS" | "CARD") =>
-                      safely(async () => {
-                        await doComplete(job);
-                        const allocations: Array<{jobId: number; amount: number}> = [{ jobId: job.id, amount: job.price }];
-                        if (includeDebt) {
-                          const prevJobs = (job.customer.jobs ?? []).filter((j) => j.id !== job.id);
-                          for (const pj of prevJobs) {
-                            const paid = (pj.allocations ?? []).reduce((s: number, a: {amount: number}) => s + a.amount, 0);
-                            const due = Number(Math.max(0, pj.price - paid).toFixed(2));
-                            if (due > 0.005) allocations.push({ jobId: pj.id, amount: due });
-                          }
-                        }
-                        await doPay(job, allocations, method);
-                        refreshIfOnline();
-                      })
-                    }
-                    onOpenInPayMode={() => {
-                      setOpenJobInPayMode(true);
-                      setSelectedJob(job);
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-2">{pendingJobs.map(renderPendingCard)}</div>
+            )}
           </section>
         )}
 
@@ -628,7 +874,8 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
             </h2>
             <div className="space-y-2">
               {doneJobs.map((job) => (
-                <JobCard key={job.id} job={job} showWorker={team !== null} onToggle={() => handleJobTap(job)} isPending={isPending}
+                <JobCard key={job.id} job={job} areaTag={multi ? areaOf(job) : null}
+                  showWorker={team !== null} onToggle={() => setSelectedJob(job)} isPending={isPending}
                   onNotesClick={() => setNotesJob(job)} hidePrices={hidePrices} />
               ))}
             </div>
@@ -643,32 +890,35 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
             </h2>
             <div className="space-y-2">
               {otherJobs.map((job) => (
-                <JobCard key={job.id} job={job} showWorker={team !== null} onToggle={() => handleJobTap(job)} isPending={isPending}
+                <JobCard key={job.id} job={job} areaTag={multi ? areaOf(job) : null} showWorker={team !== null} onToggle={() => setSelectedJob(job)} isPending={isPending}
                   onNotesClick={() => setNotesJob(job)} hidePrices={hidePrices} />
               ))}
             </div>
           </section>
         )}
 
-        {day.jobs.length === 0 && (
+        {sortedJobs.length === 0 && (
           <Card className="border-dashed border-slate-300">
             <CardContent className="py-8 text-center text-slate-500">
-              <p className="text-sm">No jobs on this day yet.</p>
-              <button
-                onClick={() => setAddJobOpen(true)}
-                className="text-blue-600 text-sm hover:underline mt-1"
-              >
-                Add your first job →
-              </button>
+              {days.length === 0 ? (
+                <p className="text-sm">Nothing booked on this date.</p>
+              ) : filtering ? (
+                <p className="text-sm">No jobs for this person on this date.</p>
+              ) : (
+                <>
+                  <p className="text-sm">No jobs on this day yet.</p>
+                  <button onClick={openAddJob} className="text-blue-600 text-sm hover:underline mt-1">
+                    Add your first job →
+                  </button>
+                </>
+              )}
             </CardContent>
           </Card>
         )}
       </div>
 
-      {/* ── Customer Notes Modal ─────────────────────────────── */}
       <CustomerNotesModal job={notesJob} onClose={() => setNotesJob(null)} hidePrices={hidePrices} />
 
-      {/* ── Route Optimiser Modal ────────────────────────────── */}
       <RouteOptimiserModal
         jobs={sortedJobs}
         open={routeModalOpen}
@@ -676,11 +926,54 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
         onApply={(ids) => { setRouteOrder(ids); setRouteModalOpen(false); }}
       />
 
+      {/* ── Rained off: move area day(s) to another date ───────────── */}
+      <Modal open={rainOff !== null} onClose={() => setRainOff(null)} title="Move to another date">
+        {rainOff && (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+              Moves {rainOff.dayIds.length === 1
+                ? <strong>{areaLabel(dayById.get(rainOff.dayIds[0])!)}</strong>
+                : <strong>{rainOff.dayIds.length} areas</strong>} and all their jobs. Each customer&apos;s next visit
+              is worked out from when the area is actually done, so nothing else needs changing.
+            </p>
+            <input
+              type="date"
+              value={rainOff.date}
+              onChange={(e) => setRainOff({ ...rainOff, date: e.target.value })}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+            <div className="flex gap-2">
+              <Button onClick={handleConfirmRainOff} disabled={isPending || !rainOff.date} className="flex-1">
+                {isPending ? "Moving..." : "Move"}
+              </Button>
+              <Button variant="outline" onClick={() => setRainOff(null)}>Cancel</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Add job: which area? ─────────────────────────────── */}
+      <Modal open={addJobPickerOpen} onClose={() => setAddJobPickerOpen(false)} title="Add a job to which area?">
+        <div className="space-y-2">
+          {(openDays.length ? openDays : days).map((day) => (
+            <button
+              key={day.id}
+              type="button"
+              onClick={() => { setAddJobPickerOpen(false); setAddJobDayId(day.id); }}
+              className="flex w-full items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-left text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            >
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: day.area?.color ?? "#94a3b8" }} />
+              {areaLabel(day)}
+            </button>
+          ))}
+        </div>
+      </Modal>
+
       {/* ── Complete Day Modal ──────────────────────────────── */}
       <Modal
-        open={completeDayOpen}
-        onClose={() => setCompleteDayOpen(false)}
-        title="Complete Day"
+        open={completeScope !== null}
+        onClose={() => setCompleteScope(null)}
+        title={completeScope && completeScope.length === 1 && multi ? `Complete ${areaLabel(dayById.get(completeScope[0])!)}` : "Complete Day"}
       >
         <div className="space-y-4">
           {shouldPromptForCompletedDate && (
@@ -690,7 +983,7 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
                 <div>
                   <p className="text-sm font-semibold">When was this run actually completed?</p>
                   <p className="text-xs text-blue-800/80">
-                    It was scheduled for {fmtDate(day.date)}. The next run will be calculated from the date you choose here.
+                    It was scheduled for {fmtDate(`${dateISO}T12:00:00Z`)}. The next run will be calculated from the date you choose here.
                   </p>
                 </div>
               </div>
@@ -703,37 +996,28 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
             </div>
           )}
 
-          {pendingJobs.length > 0 && (
+          {completePending.length > 0 && (
             <>
               <p className="text-sm text-slate-600">
-                {pendingJobs.length} job{pendingJobs.length !== 1 ? "s" : ""} still unfinished. Ticked jobs carry over to the day below. Untick any you want to skip this time (they wait for their next normal visit).
+                {completePending.length} job{completePending.length !== 1 ? "s" : ""} still unfinished. Ticked jobs carry over to the day below. Untick any you want to skip this time (they wait for their next normal visit).
               </p>
 
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-slate-500">
-                  {selectedPendingIds.size} selected
-                </p>
+                <p className="text-xs font-medium text-slate-500">{selectedPendingIds.size} selected</p>
                 <div className="flex items-center gap-3 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPendingIds(new Set(pendingJobs.map((j) => j.id)))}
-                    className="text-blue-600 hover:underline"
-                  >
+                  <button type="button" onClick={() => setSelectedPendingIds(new Set(completePending.map((j) => j.id)))} className="text-blue-600 hover:underline">
                     Select all
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPendingIds(new Set())}
-                    className="text-slate-400 hover:underline"
-                  >
+                  <button type="button" onClick={() => setSelectedPendingIds(new Set())} className="text-slate-400 hover:underline">
                     Clear
                   </button>
                 </div>
               </div>
 
               <div className="space-y-1.5 max-h-56 overflow-y-auto">
-                {pendingJobs.map((job) => {
+                {completePending.map((job) => {
                   const checked = selectedPendingIds.has(job.id);
+                  const area = multi ? dayById.get(job.workDayId)?.area?.name : null;
                   return (
                     <button
                       key={job.id}
@@ -744,14 +1028,10 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
                         checked ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300 bg-white"
                       )}
                     >
-                      {checked ? (
-                        <CheckSquare size={16} className="text-blue-600 flex-shrink-0" />
-                      ) : (
-                        <Square size={16} className="text-slate-400 flex-shrink-0" />
-                      )}
+                      {checked ? <CheckSquare size={16} className="text-blue-600 flex-shrink-0" /> : <Square size={16} className="text-slate-400 flex-shrink-0" />}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-slate-800 truncate">{job.customer.name}</p>
-                        <p className="text-xs font-medium text-blue-700 truncate">{getJobTitle(job)}</p>
+                        <p className="text-xs font-medium text-blue-700 truncate">{getJobTitle(job)}{area && ` · ${area}`}</p>
                         <p className="text-xs text-slate-500 truncate">
                           {job.customer.address}{!hidePrices && ` · ${fmtCurrency(job.price)}`}
                         </p>
@@ -764,11 +1044,7 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
               {selectedPendingIds.size > 0 && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
                   {!bulkMoveOpen ? (
-                    <Button
-                      onClick={() => setBulkMoveOpen(true)}
-                      variant="outline"
-                      className="w-full"
-                    >
+                    <Button onClick={() => setBulkMoveOpen(true)} variant="outline" className="w-full">
                       <ArrowRight size={14} />
                       Move {selectedPendingIds.size} selected to another day
                     </Button>
@@ -783,9 +1059,7 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
                           onClick={() => setBulkDest("new")}
                           className={cn(
                             "flex flex-col items-center gap-1 p-2 rounded-lg border text-xs font-medium transition-colors text-center",
-                            bulkDest === "new"
-                              ? "border-amber-500 bg-amber-500 text-white"
-                              : "border-slate-200 text-slate-600 hover:border-amber-300"
+                            bulkDest === "new" ? "border-amber-500 bg-amber-500 text-white" : "border-slate-200 text-slate-600 hover:border-amber-300"
                           )}
                         >
                           <CalendarDays size={14} />
@@ -796,9 +1070,7 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
                           onClick={() => setBulkDest("existing")}
                           className={cn(
                             "flex flex-col items-center gap-1 p-2 rounded-lg border text-xs font-medium transition-colors text-center",
-                            bulkDest === "existing"
-                              ? "border-blue-600 bg-blue-600 text-white"
-                              : "border-slate-200 text-slate-600 hover:border-blue-300"
+                            bulkDest === "existing" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 text-slate-600 hover:border-blue-300"
                           )}
                         >
                           <ArrowRight size={14} />
@@ -808,9 +1080,7 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
 
                       {bulkDest === "new" ? (
                         <div className="space-y-1">
-                          <label className="block text-xs font-medium text-slate-600">
-                            Date for the overdue batch
-                          </label>
+                          <label className="block text-xs font-medium text-slate-600">Date for the overdue batch</label>
                           <input
                             type="date"
                             value={bulkNewDate}
@@ -818,14 +1088,12 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
                             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                           />
                           <p className="text-[11px] text-slate-500">
-                            Creates a temporary “Overdue – {day.area?.name ?? "jobs"}” group on this date.
+                            Creates a temporary “Overdue – area” group on this date for each area.
                           </p>
                         </div>
                       ) : (
                         <div className="space-y-1">
-                          <label className="block text-xs font-medium text-slate-600">
-                            Add alongside an existing day
-                          </label>
+                          <label className="block text-xs font-medium text-slate-600">Add alongside an existing day</label>
                           <select
                             value={bulkExistingDayId}
                             onChange={(e) => setBulkExistingDayId(e.target.value)}
@@ -840,8 +1108,6 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
                           </select>
                         </div>
                       )}
-
-                      
                     </>
                   )}
                 </div>
@@ -850,23 +1116,17 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
           )}
 
           <div className="flex gap-2 pt-1">
-            <Button
-              onClick={handleConfirmCompleteDay}
-              disabled={isPending || !completionDate}
-              className="flex-1"
-            >
+            <Button onClick={handleConfirmCompleteDay} disabled={isPending || !completionDate} className="flex-1">
               {isPending
                 ? "Completing..."
                 : (() => {
-                    const carry = pendingJobs.filter((j) => selectedPendingIds.has(j.id)).length;
-                    const skip = pendingJobs.length - carry;
-                    if (pendingJobs.length === 0) return "Complete Day";
+                    const carry = completePending.filter((j) => selectedPendingIds.has(j.id)).length;
+                    const skip = completePending.length - carry;
+                    if (completePending.length === 0) return "Complete";
                     return [carry && `Carry over ${carry}`, skip && `skip ${skip}`].filter(Boolean).join(", ") + " & complete";
                   })()}
             </Button>
-            <Button variant="outline" onClick={() => setCompleteDayOpen(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setCompleteScope(null)}>Cancel</Button>
           </div>
         </div>
       </Modal>
@@ -907,7 +1167,6 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
             refreshIfOnline();
           });
         }}
-
         onDoneAndPaid={async (visitPrice, allocations, method, notes) => {
           if (!selectedJob) return;
           const job = selectedJob;
@@ -954,15 +1213,16 @@ export function DayView({ day, futureDays, hidePrices = false, team = null }: Pr
         hidePrices={hidePrices}
       />
 
-      {/* ── Add Job Modal ───────────────────────────────────── */}
-      <AddJobModal
-        open={addJobOpen}
-        onClose={() => setAddJobOpen(false)}
-        workDayId={day.id}
-        currentAreaId={day.areaId ?? undefined}
-        existingCustomerIds={day.jobs.map((j) => j.customerId)}
-        hidePrices={hidePrices}
-      />
+      {addJobDayId !== null && dayById.get(addJobDayId) && (
+        <AddJobModal
+          open
+          onClose={() => setAddJobDayId(null)}
+          workDayId={addJobDayId}
+          currentAreaId={dayById.get(addJobDayId)!.areaId ?? undefined}
+          existingCustomerIds={dayById.get(addJobDayId)!.jobs.map((j) => j.customerId)}
+          hidePrices={hidePrices}
+        />
+      )}
     </div>
   );
 }
@@ -1646,9 +1906,12 @@ function JobCard({
   hidePrices = false,
   showWorker = false,
   quickPayMethod = "CASH",
+  areaTag = null,
 }: {
   job: Job;
   showWorker?: boolean;
+  /** Shown when jobs from several areas are mixed in one list. */
+  areaTag?: { name: string; color: string } | null;
   quickPayMethod?: "CASH" | "BACS" | "CARD";
   onToggle: () => void;
   isPending: boolean;
@@ -1707,9 +1970,19 @@ function JobCard({
 
         {/* Customer info */}
         <div className="flex-1 min-w-0">
-          <p className={cn("text-sm font-semibold truncate", isDone ? "text-green-800" : "text-slate-800")}>
-            {job.customer.name}
-          </p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className={cn("text-sm font-semibold truncate", isDone ? "text-green-800" : "text-slate-800")}>
+              {job.customer.name}
+            </p>
+            {areaTag && (
+              <span
+                className="flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                style={{ backgroundColor: areaTag.color }}
+              >
+                {areaTag.name}
+              </span>
+            )}
+          </div>
           {isQuote ? (
             <p className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-purple-800">
               <span className="rounded bg-purple-600 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Quote</span>

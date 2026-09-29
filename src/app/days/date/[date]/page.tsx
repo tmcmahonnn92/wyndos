@@ -1,34 +1,33 @@
 import { notFound } from "next/navigation";
-import { getAssignableTeam, getWorkDay, getWorkDays } from "@/lib/actions";
+import { getAssignableTeam, getWorkDays, getWorkDaysOnDate } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
-import { DayView } from "./day-view";
+import { DayView } from "../../[id]/day-view";
 
 export const dynamic = "force-dynamic";
 
 interface Props {
-  params: Promise<{ id: string }>;
+  params: Promise<{ date: string }>;
 }
 
-/** One area on one date. The whole date (all areas) is at /days/date/[date]. */
-export default async function DayPage({ params }: Props) {
+/**
+ * The whole working day: every area booked on this date in one list.
+ * Scheduling stays per area; this is just how the cleaner works through the day.
+ */
+export default async function DatePage({ params }: Props) {
   await requirePermission("schedule");
   const user = await getActiveUserContext();
   const hidePrices = user.role === "WORKER" && !(user.permissions ?? []).includes("viewprices");
-  const { id } = await params;
-  const day = await getWorkDay(Number(id));
-  if (!day) notFound();
+  const { date } = await params;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(new Date(`${date}T00:00:00Z`).getTime())) notFound();
 
-  const dateISO = new Date(day.date).toISOString().slice(0, 10);
+  const days = await getWorkDaysOnDate(date);
   const allDays = await getWorkDays();
   const futureDays = allDays.filter(
     (d) =>
-      d.id !== day.id &&
+      new Date(d.date).toISOString().slice(0, 10) !== date &&
       new Date(d.date) >= new Date(new Date().setHours(0, 0, 0, 0)) &&
       d.status !== "COMPLETE"
   );
-  const otherAreasOnDate = allDays.filter(
-    (d) => d.id !== day.id && new Date(d.date).toISOString().slice(0, 10) === dateISO
-  ).length;
 
   const isOwner = user.role === "OWNER" || user.role === "SUPER_ADMIN";
   const team = isOwner ? await getAssignableTeam() : null;
@@ -36,13 +35,12 @@ export default async function DayPage({ params }: Props) {
 
   return (
     <DayView
-      days={[day]}
-      dateISO={dateISO}
+      days={days}
+      dateISO={date}
       futureDays={futureDays}
       hidePrices={hidePrices}
       team={team}
       canReschedule={canReschedule}
-      otherAreasOnDate={otherAreasOnDate}
     />
   );
 }

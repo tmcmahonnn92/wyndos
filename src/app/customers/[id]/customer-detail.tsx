@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { fmtDate, fmtCurrency, cn } from "@/lib/utils";
+import { AddressFields } from "@/components/address-fields";
+import { addressPartsOf, type AddressParts } from "@/lib/address";
 
 type Customer = NonNullable<Awaited<ReturnType<typeof getCustomer>>> & {
   goCardlessCustomerReference: string;
@@ -99,10 +101,10 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
     new Set(customer.tags.map((t) => t.tagId))
   );
 
-  // Edit form state
+  // Edit form state. Older customers have no parts yet: prefill a best guess from the address line.
+  const [addressParts, setAddressParts] = useState<AddressParts>(() => addressPartsOf(customer));
   const [form, setForm] = useState({
     name: customer.name,
-    address: customer.address,
     email: customer.email ?? "",
     phone: customer.phone ?? "",
     areaId: String(customer.areaId),
@@ -246,7 +248,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
     startTransition(async () => {
       await updateCustomer(customer.id, {
         name: form.name,
-        address: form.address,
+        ...addressParts,
         email: form.email,
         phone: form.phone,
         areaId: Number(form.areaId),
@@ -677,11 +679,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
             <input type="text" value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
-            <input type="text" value={form.address} onChange={(e) => setForm(f => ({ ...f, address: e.target.value }))}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
+          <AddressFields value={addressParts} onChange={setAddressParts} />
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>

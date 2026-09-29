@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
+import type { Prisma } from "@/generated/prisma/client";
 import { matchesLooseCustomerSearch } from "@/lib/customer-search";
 import { getExpenseCategory, getOtherIncomeCategory, getTaxTreatment, EXPENSE_CATEGORIES, OTHER_INCOME_CATEGORIES, TAX_TREATMENT_OPTIONS } from "@/lib/accounting";
 import { calcNextDue } from "@/lib/utils";
@@ -19,6 +20,16 @@ import {
   type Actor,
 } from "@/lib/guards";
 import { decryptSettingsSecrets, encryptSecret } from "@/lib/secrets";
+import {
+  EMPTY_ADDRESS,
+  addressPartsOf,
+  collectKnownTowns,
+  compareByStreet,
+  composeAddress,
+  normalisePostcode,
+  splitAddress,
+  type AddressParts,
+} from "@/lib/address";
 
 type PaymentMethodValue = "CASH" | "BACS" | "CARD";
 
@@ -909,7 +920,11 @@ export async function getCustomer(id: number) {
 export async function bulkImportCustomers(
   records: Array<{
     name: string;
-    address: string;
+    address: string;           // full line; may be "" when the sheet has separate columns
+    houseNameNumber?: string;
+    street?: string;
+    town?: string;
+    postcode?: string;
     price: number;
     areaId?: number;           // undefined when areaName is provided for creation
     areaName?: string;         // raw area name — used when createMissingAreas is true
@@ -959,6 +974,22 @@ export async function bulkImportCustomers(
   const existingAreaCount = await prisma.area.count({ where: { tenantId } });
   let colourIndex = existingAreaCount % AREA_COLOURS.length;
 
+  // Towns seen anywhere in the sheet help split "eden house cuckney" into name + town.
+  const knownTowns = collectKnownTowns(records.map((r) => r.address ?? ""));
+  const importAddress = (r: (typeof records)[number]) => {
+    const hasParts = [r.houseNameNumber, r.street, r.town, r.postcode].some((v) => v && v.trim());
+    if (hasParts) {
+      const parts: AddressParts = {
+        houseNameNumber: r.houseNameNumber?.trim() ?? "",
+        street: r.street?.trim() ?? "",
+        town: r.town?.trim() ?? "",
+        postcode: normalisePostcode(r.postcode ?? ""),
+      };
+      return { ...parts, address: composeAddress(parts) || r.address.trim() };
+    }
+    return { ...splitAddress(r.address, knownTowns), address: r.address.trim() };
+  };
+
   for (let i = 0; i < records.length; i++) {
     const r = records[i];
     try {
@@ -990,8 +1021,10 @@ export async function bulkImportCustomers(
       const area = await prisma.area.findFirst({ where: { id: resolvedAreaId, tenantId } });
       if (!area) throw new Error(`Area ID ${resolvedAreaId} not found`);
 
+      const addressFields = importAddress(r);
+      if (!addressFields.address) throw new Error("No address");
       const customerData = {
-        address: r.address.trim(),
+        ...addressFields,
         email: r.email?.trim() ?? "",
         phone: r.phone?.trim() ?? "",
         areaId: resolvedAreaId,
@@ -1012,7 +1045,7 @@ export async function bulkImportCustomers(
         const matchField = options.matchField ?? "name";
         const existing = await prisma.customer.findFirst({
           where: matchField === "nameAddress"
-            ? { tenantId, name: r.name.trim(), address: r.address.trim() }
+            ? { tenantId, name: r.name.trim(), address: addressFields.address }
             : { tenantId, name: r.name.trim() },
         });
         if (existing) {
@@ -1289,9 +1322,93 @@ async function syncCustomerOpenJobs(
   revalidatePath("/days");
 }
 
-export async function createCustomer(data: {
+type AddressInput = {
+  address?: string;
+  houseNameNumber?: string;
+  street?: string;
+  town?: string;
+  postcode?: string;
+};
+
+/**
+ * Parts win: if any part is given, the display line is rebuilt from them.
+ * If only a free-text line is given (old forms, API, import), split it into parts.
+ */
+function resolveAddress(data: AddressInput): { address: string } & AddressParts | null {
+  const hasParts = [data.houseNameNumber, data.street, data.town, data.postcode].some((v) => v !== undefined);
+  if (hasParts) {
+    const parts: AddressParts = {
+      houseNameNumber: (data.houseNameNumber ?? "").trim(),
+      street: (data.street ?? "").trim(),
+      town: (data.town ?? "").trim(),
+      postcode: normalisePostcode(data.postcode ?? ""),
+    };
+    return { ...parts, address: composeAddress(parts) || (data.address ?? "").trim() };
+  }
+  if (data.address !== undefined) {
+    return { ...splitAddress(data.address), address: data.address.trim() };
+  }
+  return null;
+}
+
+function addressForCreate(data: AddressInput) {
+  const fields = resolveAddress(data);
+  if (!fields?.address) throw new Error("Address is required");
+  return fields;
+}
+
+/** Customers with their address split into parts, for the "Tidy addresses" screen. */
+export async function getAddressReview() {
+  const actor = await requirePerm("customers");
+  const customers = await prisma.customer.findMany({
+    where: { tenantId: actor.tenantId },
+    select: {
+      id: true, name: true, address: true, active: true, isProspect: true,
+      houseNameNumber: true, street: true, town: true, postcode: true,
+      area: { select: { name: true, sortOrder: true, isSystemArea: true } },
+    },
+    orderBy: [{ area: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }],
+  });
+  const knownTowns = collectKnownTowns(customers.map((c) => c.address));
+  return customers.map((c) => {
+    const saved = Boolean(c.houseNameNumber || c.street || c.town || c.postcode);
+    let parts = addressPartsOf(c, knownTowns);
+    // No town in the old line: the area is usually the village, so suggest it.
+    if (!saved && !parts.town && c.area && !c.area.isSystemArea) parts = { ...parts, town: c.area.name };
+    return {
+      id: c.id,
+      name: c.name,
+      address: c.address,
+      areaName: c.area?.name ?? "",
+      active: c.active && !c.isProspect,
+      saved,
+      parts,
+    };
+  });
+}
+
+/** Save the address parts for many customers at once; the display line is rebuilt from them. */
+export async function saveAddressParts(rows: Array<{ id: number } & AddressParts>) {
+  const actor = await requirePerm("customers");
+  const tenantId = actor.tenantId;
+  const ids = rows.map((r) => r.id);
+  const owned = await prisma.customer.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true } });
+  const allowed = new Set(owned.map((c) => c.id));
+  let saved = 0;
+  for (const row of rows) {
+    if (!allowed.has(row.id)) continue;
+    const fields = resolveAddress(row);
+    if (!fields?.address) continue; // never blank an address
+    await prisma.customer.update({ where: { id: row.id }, data: fields });
+    saved++;
+  }
+  revalidatePath("/customers");
+  revalidatePath("/days");
+  return { saved };
+}
+
+export async function createCustomer(data: AddressInput & {
   name: string;
-  address: string;
   email?: string;
   phone?: string;
   areaId: number;
@@ -1320,7 +1437,7 @@ export async function createCustomer(data: {
   });
   const customer = await prisma.customer.create({ data: { tenantId,
       name: data.name,
-      address: data.address,
+      ...addressForCreate(data),
       email: data.email ?? "",
       phone: data.phone ?? "",
       areaId: data.areaId,
@@ -1347,9 +1464,8 @@ export async function createCustomer(data: {
 
 export async function updateCustomer(
   id: number,
-  data: {
+  data: AddressInput & {
     name?: string;
-    address?: string;
     email?: string;
     phone?: string;
     areaId?: number;
@@ -1380,10 +1496,12 @@ export async function updateCustomer(
   const areaChanged = current.areaId !== resolvedAreaId;
   const area = await requireTenantArea(tenantId, resolvedAreaId);
 
-  const { paidByCustomerId: rawPaidBy, ...rest } = data;
+  const { paidByCustomerId: rawPaidBy, address: _a, houseNameNumber: _h, street: _s, town: _t, postcode: _p, ...rest } = data;
   const paidByCustomerId = await resolvePaidBy(tenantId, rawPaidBy, id);
+  const addressFields = resolveAddress(data);
   const updateData = {
     ...rest,
+    ...(addressFields ?? {}),
     ...(paidByCustomerId !== undefined && { paidByCustomerId }),
     ...(data.goCardlessCustomerReference !== undefined && {
       goCardlessCustomerReference: data.goCardlessCustomerReference.trim(),
@@ -1532,13 +1650,8 @@ export async function getWorkDays() {
   });
 }
 
-export async function getWorkDay(id: number) {
-  const actor = await requirePerm("schedule");
-  const tenantId = actor.tenantId;
-  const where = await getVisibleWorkDayWhere(tenantId);
-  return prisma.workDay.findFirst({
-    where: { id, ...where },
-    include: {
+function workDayInclude(actor: Actor) {
+  return {
       area: true,
       assignedUser: { select: { id: true, name: true, email: true } },
       jobs: {
@@ -1598,8 +1711,34 @@ export async function getWorkDay(id: number) {
         },
         orderBy: [{ sortOrder: "asc" }, { customer: { name: "asc" } }],
       },
-    },
+    } satisfies Prisma.WorkDayInclude;
+}
+
+export async function getWorkDay(id: number) {
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
+  const where = await getVisibleWorkDayWhere(tenantId);
+  return prisma.workDay.findFirst({
+    where: { id, ...where },
+    include: workDayInclude(actor),
   });
+}
+
+/**
+ * Every area day on one date the user can see, for the whole-day view.
+ * Areas in the order they were created (then name); jobs in each area's route order.
+ */
+export async function getWorkDaysOnDate(dateISO: string) {
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
+  const where = await getVisibleWorkDayWhere(tenantId);
+  const days = await prisma.workDay.findMany({
+    where: { ...where, date: isoToUTC(dateISO) },
+    include: workDayInclude(actor),
+    orderBy: [{ area: { sortOrder: "asc" } }, { id: "asc" }],
+  });
+  // A worker only sees area days that have at least one of their jobs.
+  return actor.isWorker ? days.filter((day) => day.jobs.length > 0) : days;
 }
 
 export async function createWorkDay(date: Date, areaId?: number, assignedUserId?: string | null) {
@@ -1735,7 +1874,7 @@ export async function createCustomerAndAddToDay(
   const area = await requireTenantArea(tenantId, data.areaId);
   const customer = await prisma.customer.create({ data: { tenantId,
       name: data.name,
-      address: data.address,
+      ...addressForCreate(data),
       email: data.email ?? "",
       phone: data.phone ?? "",
       areaId: data.areaId,
@@ -1788,7 +1927,7 @@ export async function createOneOffCustomerAndAddToDay(
   }
   const customer = await prisma.customer.create({ data: { tenantId,
       name: data.name,
-      address: data.address,
+      ...addressForCreate(data),
       email: data.email ?? "",
       phone: data.phone ?? "",
       areaId,
@@ -1841,7 +1980,7 @@ export async function createOneOffCustomerAndBookByDate(
 
   const customer = await prisma.customer.create({ data: { tenantId,
       name: data.name,
-      address: data.address,
+      ...addressForCreate(data),
       email: data.email ?? "",
       phone: data.phone ?? "",
       areaId,
@@ -1899,7 +2038,7 @@ export async function createQuoteVisit(
   const customer = await prisma.customer.create({ data: {
     tenantId,
     name: data.name.trim(),
-    address: data.address.trim(),
+    ...addressForCreate(data),
     phone: data.phone?.trim() ?? "",
     email: data.email?.trim() ?? "",
     notes: data.notes?.trim() || null,
