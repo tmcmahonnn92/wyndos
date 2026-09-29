@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertCircle, BellRing, CalendarDays, CreditCard, RotateCcw } from "lucide-react";
+import { AlertCircle, CalendarDays, CreditCard } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fmtCurrency, fmtDate } from "@/lib/utils";
 import { getSchedulerTodoSummary } from "@/lib/actions";
@@ -37,26 +37,6 @@ export function SchedulerTodoPanel({ summary }: { summary: SchedulerTodoSummary 
       detail: summary.customersOwing.count > 0
         ? `${summary.customersOwing.count} customer${summary.customersOwing.count === 1 ? "" : "s"} owe ${fmtCurrency(summary.customersOwing.totalAmount)}.`
         : "No customer debt at the moment.",
-    },
-    {
-      title: "Reminders Due",
-      icon: BellRing,
-      count: summary.reminderCustomers.count,
-      accent: "text-emerald-600",
-      href: "/payments",
-      detail: summary.reminderCustomers.count > 0
-        ? `${summary.reminderCustomers.count} customer${summary.reminderCustomers.count === 1 ? "" : "s"} need advance notice soon.`
-        : "No advance notice reminders are due today.",
-    },
-    {
-      title: "Outstanding Visits",
-      icon: RotateCcw,
-      count: summary.outstandingVisits.count,
-      accent: "text-violet-600",
-      href: "/outstanding",
-      detail: summary.outstandingVisits.count > 0
-        ? `${summary.outstandingVisits.count} visit${summary.outstandingVisits.count === 1 ? " is" : "s are"} marked outstanding.`
-        : "No outstanding visits right now.",
     },
   ];
 

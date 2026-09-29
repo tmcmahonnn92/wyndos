@@ -31,6 +31,7 @@ import {
   Search,
   MapPin,
   Users,
+  UserRound,
   CheckSquare,
   Square,
 } from "lucide-react";
@@ -829,9 +830,8 @@ function CalendarCell({
                 {wd.status === "IN_PROGRESS" && <Clock size={10} className="flex-shrink-0 opacity-80" />}
               </div>
               {wd.assignedUser && (
-                <div className="flex items-center gap-1 pl-3.5 opacity-90 text-[10px]">
-                  <Users size={8} className="flex-shrink-0" />
-                  <span className="truncate">{wd.assignedUser.name ?? wd.assignedUser.email ?? "Assigned worker"}</span>
+                <div className="pl-3.5">
+                  <WorkerPill name={wd.assignedUser.name ?? wd.assignedUser.email ?? "Worker"} />
                 </div>
               )}
               {/* Row 2: job count + value */}
@@ -914,8 +914,10 @@ function MonthCalendarCell({
 }) {
   const isToday = isoDate(date) === todayISO();
   const isCurrentMonth = date.getMonth() === monthStart.getMonth();
-  const visibleDays = workDays.slice(0, 3);
-  const hiddenCount = Math.max(0, workDays.length - visibleDays.length);
+  // Show 3 areas per day; "+N more" expands the cell to show them all.
+  const [showAll, setShowAll] = useState(false);
+  const visibleDays = showAll ? workDays : workDays.slice(0, 3);
+  const hiddenCount = Math.max(0, workDays.length - 3);
   const { customerCount, totalValue } = getCalendarDayTotals(workDays);
 
   const dropColour: DropColour =
@@ -1026,16 +1028,32 @@ function MonthCalendarCell({
               <span className="truncate font-bold">{workDay.area?.name ?? workDay.jobs[0]?.customer?.name ?? "Work day"}</span>
               <span className="truncate opacity-90">{workDay.jobs.length} job{workDay.jobs.length !== 1 ? "s" : ""}</span>
               {workDay.assignedUser && (
-                <span className="truncate opacity-80">{workDay.assignedUser.name ?? workDay.assignedUser.email}</span>
+                <WorkerPill name={workDay.assignedUser.name ?? workDay.assignedUser.email ?? "Worker"} />
               )}
             </button>
           </div>
         ))}
         {hiddenCount > 0 && (
-          <p className="px-1 text-[11px] font-medium text-slate-500">+{hiddenCount} more</p>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setShowAll((open) => !open); }}
+            className="w-full rounded-md px-1 py-0.5 text-left text-[11px] font-semibold text-blue-600 hover:bg-blue-50"
+          >
+            {showAll ? "Show less" : `+${hiddenCount} more`}
+          </button>
         )}
       </div>
     </div>
+  );
+}
+
+/** Who is doing this day: small white pill with a person icon, readable on any area colour. */
+function WorkerPill({ name }: { name: string }) {
+  return (
+    <span className="mt-0.5 inline-flex max-w-full items-center gap-1 rounded-full bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-800 shadow-sm">
+      <UserRound size={10} className="flex-shrink-0 text-slate-600" />
+      <span className="truncate">{name}</span>
+    </span>
   );
 }
 

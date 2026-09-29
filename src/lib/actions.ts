@@ -3499,15 +3499,12 @@ export async function getSchedulerTodoSummary() {
   const actor = await requirePerm("scheduler");
   const tenantId = actor.tenantId;
   const today = startOfDay(new Date());
-  const reminderCutoff = addDays(today, 1);
 
   const [
     overdueAreas,
     holidays,
     openWorkDays,
     customersForDebt,
-    reminderCustomers,
-    outstandingJobs,
   ] = await Promise.all([
     prisma.area.findMany({
       where: { tenantId, isSystemArea: false, nextDueDate: { lt: today } },
@@ -3539,15 +3536,6 @@ export async function getSchedulerTodoSummary() {
         },
       },
     }),
-    prisma.customer.count({
-      where: {
-        tenantId,
-        active: true,
-        advanceNotice: true,
-        nextDueDate: { gte: today, lte: reminderCutoff },
-      },
-    }),
-    prisma.job.count({ where: { tenantId, status: "OUTSTANDING" } }),
   ]);
 
   const holidayConflicts = openWorkDays.filter((workDay) =>
@@ -3584,12 +3572,6 @@ export async function getSchedulerTodoSummary() {
     customersOwing: {
       count: customersOwing.length,
       totalAmount: Number(customersOwing.reduce((sum, customer) => sum + customer.debt, 0).toFixed(2)),
-    },
-    reminderCustomers: {
-      count: reminderCustomers,
-    },
-    outstandingVisits: {
-      count: outstandingJobs,
     },
   };
 }
