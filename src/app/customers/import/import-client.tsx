@@ -82,7 +82,7 @@ const FIELDS: FieldDef[] = [
   { key: "preferredPaymentMethod", label: "Payment Method", required: false, type: "select",
     options: ["", "CASH", "BACS", "CARD", "DD", "INVOICE"] },
   { key: "advanceNotice", label: "Advance Notice", required: false, type: "boolean" },
-  { key: "frequencyWeeks", label: "Frequency (Weeks)", required: false, type: "number", defaultValue: "" },
+  { key: "frequencyWeeks", label: "Frequency (weeks) — a different frequency goes in its own area", required: false, type: "number", defaultValue: "" },
   { key: "slip", label: "Leave a slip", required: false, type: "boolean" },
   { key: "tags", label: "Tags (comma or ; separated)", required: false, type: "text" },
   { key: "active", label: "Active (Yes / No)", required: false, type: "boolean" },
@@ -454,6 +454,25 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         }
       }
 
+      // Each frequency has its own area: a customer on a different frequency from their
+      // area goes into "<area> (N weekly)" (created if it doesn't exist yet).
+      let areaNameOverride: string | null = null;
+      const rowFreq = parseInt(g("frequencyWeeks").replace(/[^0-9]/g, ""), 10);
+      if (areaId && rowFreq > 0) {
+        const existingArea = areas.find((a) => a.id === areaId);
+        if (existingArea && existingArea.frequencyWeeks !== rowFreq) {
+          const altName = `${existingArea.name} (${rowFreq} weekly)`;
+          const altId = areaLookup.get(altName.toLowerCase());
+          if (altId) {
+            areaId = altId;
+          } else {
+            areaId = null;
+            areaIsNew = true;
+            areaNameOverride = altName;
+          }
+        }
+      }
+
       // Dates: UK style (31/12/2026) or ISO (2026-12-31)
       const rawDate = g("nextDueDate");
       const dateStr = parseUkDate(rawDate);
@@ -469,7 +488,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         raw: row,
         name, address, addressParts,
         price: priceStr,
-        area: areaId ? (areas.find((a) => a.id === areaId)?.name ?? areaStr) : areaStr.trim(),
+        area: areaId ? (areas.find((a) => a.id === areaId)?.name ?? areaStr) : (areaNameOverride ?? areaStr.trim()),
         areaId,
         areaIsNew,
         email: g("email"),
@@ -492,29 +511,34 @@ export function ImportClient({ areas }: { areas: Area[] }) {
 
     // ── New areas: one per name. Customers keep their own frequency, so a village with
     // 4- and 8-weekly customers stays one area (8-weeklies join every other run).
-    if (createMissingAreas || mappings["area"]?.source === "fixed") {
-      const groups = new Map<string, { origName: string; indices: number[]; freqs: number[] }>();
+    if (createMissingAreas || mappings["area"]?.source === "fixed" || resolved.some((row) => row.areaIsNew)) {
+      // New areas: one per name AND frequency (each frequency has its own area).
+      // If a name comes with several frequencies, the most common keeps the plain name
+      // and the others become "<name> (N weekly)".
+      const byName = new Map<string, { origName: string; byFreq: Map<number, number[]> }>();
       resolved.forEach((row, idx) => {
         if (!row.areaIsNew) return;
         const lowerName = row.area.toLowerCase();
-        if (!groups.has(lowerName)) groups.set(lowerName, { origName: row.area, indices: [], freqs: [] });
-        const group = groups.get(lowerName)!;
-        group.indices.push(idx);
-        const freq = parseInt(row.frequencyWeeks);
-        if (!isNaN(freq) && freq > 0) group.freqs.push(freq);
+        if (!byName.has(lowerName)) byName.set(lowerName, { origName: row.area, byFreq: new Map() });
+        const parsed = parseInt(row.frequencyWeeks, 10);
+        const freq = !isNaN(parsed) && parsed > 0 ? parsed : 4;
+        const entry = byName.get(lowerName)!;
+        entry.byFreq.set(freq, [...(entry.byFreq.get(freq) ?? []), idx]);
       });
 
       const newConfigs: Record<string, NewAreaConfig> = {};
       let colourIdx = areas.length;
-      groups.forEach(({ origName, indices, freqs }, lowerName) => {
-        // Visit the area as often as its most frequent customers need.
-        const freq = freqs.length > 0 ? Math.min(...freqs) : 4;
-        const key = `${lowerName}|||default`;
-        newConfigs[key] = newAreaConfigs[key]
-          ? { ...newAreaConfigs[key], rowCount: indices.length }
-          : { key, displayName: origName, color: COLOUR_PALETTE[colourIdx % COLOUR_PALETTE.length], frequencyWeeks: freq, rowCount: indices.length };
-        colourIdx++;
-        indices.forEach((idx) => { resolved[idx].newAreaKey = key; });
+      byName.forEach(({ origName, byFreq }, lowerName) => {
+        const freqs = [...byFreq.entries()].sort((a, b) => b[1].length - a[1].length);
+        freqs.forEach(([freq, indices], rank) => {
+          const key = `${lowerName}|||${freq}`;
+          const displayName = rank === 0 ? origName : `${origName} (${freq} weekly)`;
+          newConfigs[key] = newAreaConfigs[key]
+            ? { ...newAreaConfigs[key], rowCount: indices.length }
+            : { key, displayName, color: COLOUR_PALETTE[colourIdx % COLOUR_PALETTE.length], frequencyWeeks: freq, rowCount: indices.length };
+          colourIdx++;
+          indices.forEach((idx) => { resolved[idx].newAreaKey = key; });
+        });
       });
 
       setNewAreaConfigs(newConfigs);

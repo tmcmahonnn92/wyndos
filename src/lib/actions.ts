@@ -294,18 +294,18 @@ async function syncAreaScheduleAfterCompletion(
   });
 
   // Only customers actually cleaned on this day count as cleaned. Skipped / not-done
-  // customers keep their own due date, and each customer keeps their own frequency
-  // (an 8-weekly customer can sit in a 4-weekly area and is simply included every other run).
+  // customers keep their own due date. Frequency belongs to the area (a different
+  // frequency means a different area, e.g. "Cuckney 8 weekly").
   const cleanedJobs = await prisma.job.findMany({
     where: { tenantId, workDayId: workDay.id, status: "COMPLETE" },
-    select: { customerId: true, customer: { select: { frequencyWeeks: true } } },
+    select: { customerId: true },
   });
   for (const cleaned of cleanedJobs) {
     await prisma.customer.update({
       where: { id: cleaned.customerId },
       data: {
         lastCompletedDate: fallbackCompletedDate,
-        nextDueDate: addUtcDays(fallbackCompletedDate, (cleaned.customer.frequencyWeeks || workDay.area.frequencyWeeks) * 7),
+        nextDueDate: addUtcDays(fallbackCompletedDate, (workDay.area.frequencyWeeks || 4) * 7),
       },
     });
   }
@@ -428,7 +428,10 @@ export async function updateArea(
   const tenantId = actor.tenantId;
   const area = await requireTenantArea(tenantId, id);
   await prisma.area.update({ where: { id: area.id }, data });
-  // Area frequency is how often the area is visited. Customers keep their own frequency.
+  // Frequency belongs to the area: every customer in it follows the area.
+  if (data.frequencyWeeks !== undefined && !area.isSystemArea) {
+    await prisma.customer.updateMany({ where: { tenantId, areaId: area.id }, data: { frequencyWeeks: data.frequencyWeeks } });
+  }
   revalidatePath("/days");
   revalidatePath("/customers");
   revalidatePath("/areas");
@@ -1062,7 +1065,7 @@ export async function bulkImportCustomers(
         jobName: r.jobName?.trim() || "Window Cleaning",
         advanceNotice: r.advanceNotice ?? false,
         preferredPaymentMethod: r.preferredPaymentMethod?.trim() ?? "",
-        frequencyWeeks: r.frequencyWeeks ?? area.frequencyWeeks,
+        frequencyWeeks: area.frequencyWeeks, // frequency belongs to the area
         nextDueDate: r.nextDueDate ? new Date(r.nextDueDate + "T00:00:00.000Z") : null,
         // The order of rows in the sheet is the walking order of the round.
         sortOrder: i,
@@ -1483,7 +1486,7 @@ export async function createCustomer(data: AddressInput & {
       goCardlessCustomerReference: data.goCardlessCustomerReference?.trim() ?? "",
       goCardlessCustomerId: data.goCardlessCustomerId?.trim() || null,
       goCardlessMandateId: data.goCardlessMandateId?.trim() || null,
-      frequencyWeeks: data.frequencyWeeks ?? area?.frequencyWeeks ?? 4,
+      frequencyWeeks: area?.frequencyWeeks ?? 4, // frequency belongs to the area
       nextDueDate: data.nextDueDate ?? null,   // null = never cleaned; picked up on first area run
       slip: data.slip ?? true,
       paidByCustomerId: paidByCustomerId ?? null,
@@ -1547,8 +1550,8 @@ export async function updateCustomer(
       goCardlessMandateId: data.goCardlessMandateId.trim() || null,
     }),
     areaId: resolvedAreaId,
-    // Each customer keeps their own frequency; the area's is only the default.
-    frequencyWeeks: data.frequencyWeeks ?? (areaChanged ? area?.frequencyWeeks ?? 4 : undefined),
+    // Frequency belongs to the area.
+    frequencyWeeks: area?.frequencyWeeks ?? 4,
   };
 
   await prisma.customer.update({ where: { id }, data: updateData });
@@ -1612,7 +1615,7 @@ export async function bulkUpdateCustomers(
       });
       if (!area) continue;
 
-      const { id, frequencyWeeks, address: _a, houseNameNumber: _h, street: _s, town: _t, postcode: _p, ...rest } = update;
+      const { id, frequencyWeeks: _f, address: _a, houseNameNumber: _h, street: _s, town: _t, postcode: _p, ...rest } = update;
       // Address parts rebuild the display line; each customer keeps their own frequency.
       const addressFields = resolveAddress(update);
       await tx.customer.update({
@@ -1621,7 +1624,7 @@ export async function bulkUpdateCustomers(
           ...rest,
           ...(addressFields?.address ? addressFields : {}),
           areaId: resolvedAreaId,
-          frequencyWeeks: frequencyWeeks ?? (update.areaId !== undefined && update.areaId !== current.areaId ? area?.frequencyWeeks ?? 4 : undefined),
+          frequencyWeeks: area?.frequencyWeeks ?? 4, // frequency belongs to the area
         },
       });
     }
@@ -1965,7 +1968,7 @@ export async function createOneOffCustomerAndAddToDay(
   if (data.areaId) {
     const area = await requireTenantArea(tenantId, data.areaId);
     areaId = area.id;
-    freqWeeks = data.frequencyWeeks ?? 4;
+    freqWeeks = area.frequencyWeeks;
   } else {
     const systemArea = await getOrCreateOneOffSystemArea(tenantId);
     areaId = systemArea.id;
@@ -2018,7 +2021,7 @@ export async function createOneOffCustomerAndBookByDate(
   if (data.areaId && !actor.isWorker) {
     const area = await requireTenantArea(tenantId, data.areaId);
     areaId = area.id;
-    freqWeeks = data.frequencyWeeks ?? 4;
+    freqWeeks = area.frequencyWeeks;
   } else {
     const systemArea = await getOrCreateOneOffSystemArea(tenantId);
     areaId = systemArea.id;
@@ -2139,10 +2142,7 @@ export async function markQuoted(jobId: number, data: { price: number; frequency
     notes: data.notes?.trim() ? data.notes.trim() : job.notes,
   } });
   // Keep the prospect's details in step with the quote.
-  await prisma.customer.update({ where: { id: job.customerId }, data: {
-    price,
-    ...(frequencyWeeks ? { frequencyWeeks } : {}),
-  } });
+  await prisma.customer.update({ where: { id: job.customerId }, data: { price } });
   await prisma.workDay.updateMany({ where: { id: job.workDayId, tenantId, status: "PLANNED" }, data: { status: "IN_PROGRESS" } });
 
   revalidatePath(`/days/${job.workDayId}`);
@@ -2165,7 +2165,8 @@ export async function markQuoteWon(
   if (area.isSystemArea) throw new Error("Choose the area this customer will be cleaned in.");
   const price = Number(data.price);
   if (!Number.isFinite(price) || price <= 0) throw new Error("Enter the regular price.");
-  const frequencyWeeks = Math.max(1, Math.round(Number(data.frequencyWeeks) || area.frequencyWeeks || 4));
+  // Frequency comes from the area they join (a different frequency = a different area).
+  const frequencyWeeks = area.frequencyWeeks || 4;
 
   const lastInArea = await prisma.customer.findFirst({
     where: { tenantId, areaId: area.id },

@@ -2589,23 +2589,7 @@ function DayDetailModal({
                             {addAreas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
                           </select>
                         </div>
-                        {addOneOffNewAreaIdStr && (
-                          <div className="col-span-2">
-                            <label className="block text-xs font-medium text-slate-700 mb-1">Frequency</label>
-                            <div className="flex gap-1.5">
-                              {["1","2","4","6","8","12"].map((w) => (
-                                <button key={w} type="button" onClick={() => setAddOneOffNewFrequency(w)}
-                                  className={`flex-1 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
-                                    addOneOffNewFrequency === w
-                                      ? "border-blue-600 bg-blue-600 text-white"
-                                      : "border-slate-200 text-slate-600 hover:border-blue-300"
-                                  }`}>
-                                  {w}w
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+                        {/* Frequency comes from the area. */}
                         <div className="col-span-2">
                           <label className="block text-xs font-medium text-slate-700 mb-1">Notes <span className="text-slate-400 font-normal">(optional)</span></label>
                           <input type="text" value={addNewNotes} onChange={(e) => setAddNewNotes(e.target.value)}

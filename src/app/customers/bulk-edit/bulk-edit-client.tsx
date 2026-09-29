@@ -505,7 +505,7 @@ export function BulkEditClient({
                 { label: "Postcode", w: "min-w-[90px]" },
                 { label: "Area", w: "min-w-[130px]" },
                 { label: "Price (£)", w: "min-w-[90px]" },
-                { label: "Every (wks)", w: "min-w-[80px]" },
+                { label: "Every (area)", w: "min-w-[80px]" },
                 { label: "Phone", w: "min-w-[130px]" },
                 { label: "Email", w: "min-w-[170px]" },
                 { label: "Usually pays", w: "min-w-[110px]" },
@@ -597,17 +597,9 @@ export function BulkEditClient({
                     </div>
                   </td>
 
-                  {/* Frequency (each customer can differ from their area) */}
-                  <td className={cn("border-b border-slate-100 px-3 py-1.5", dirty && "border-amber-200")}>
-                    <input
-                      type="number"
-                      min={1}
-                      max={52}
-                      aria-label="Every (weeks)"
-                      value={d.frequencyWeeks}
-                      onChange={(e) => update(c.id, { frequencyWeeks: Math.max(1, Number(e.target.value) || 1) })}
-                      className="w-16 rounded border border-slate-200 px-1.5 py-0.5 text-sm text-slate-800 bg-white focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                    />
+                  {/* Frequency comes from the area */}
+                  <td className={cn("border-b border-slate-100 px-3 py-1.5 text-sm text-slate-500", dirty && "border-amber-200")}>
+                    {d.frequencyWeeks} wks
                   </td>
 
                   {/* Phone / email */}

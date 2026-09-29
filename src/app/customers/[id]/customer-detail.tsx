@@ -258,7 +258,6 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
         jobName: form.jobName || undefined,
         advanceNotice: form.advanceNotice,
         preferredPaymentMethod: form.preferredPaymentMethod || undefined,
-        frequencyWeeks: Number(form.frequencyWeeks) || undefined,
         slip: form.slip,
         paidByCustomerId: form.paidByCustomerId ? Number(form.paidByCustomerId) : null,
         goCardlessCustomerReference: form.goCardlessCustomerReference || "",
@@ -742,12 +741,9 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Clean every</label>
-              <select value={form.frequencyWeeks} onChange={(e) => setForm(f => ({ ...f, frequencyWeeks: e.target.value }))}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                {[1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 26, 52].map((weeks) => (
-                  <option key={weeks} value={weeks}>{weeks} week{weeks === 1 ? "" : "s"}</option>
-                ))}
-              </select>
+              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+                {customer.area?.frequencyWeeks ?? customer.frequencyWeeks} weeks <span className="text-xs text-slate-400">(set by the area)</span>
+              </p>
             </div>
             <div className="flex flex-col justify-end pb-0.5">
               <label className="flex items-center gap-2.5 cursor-pointer select-none">

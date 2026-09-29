@@ -134,7 +134,11 @@ export function QuoteActions({ job, canMarkLive }: { job: QuoteJob; canMarkLive:
             <select value={areaId} onChange={(e) => setAreaId(e.target.value)}
               className="mt-1 w-full rounded-lg border border-green-200 bg-white px-2 py-2 text-sm">
               <option value="">Choose area…</option>
-              {areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
+              {areas.map((area) => (
+                <option key={area.id} value={area.id}>
+                  {area.name}{"frequencyWeeks" in area && area.frequencyWeeks ? ` · every ${area.frequencyWeeks} wks` : ""}
+                </option>
+              ))}
             </select>
           </label>
           <div className="grid grid-cols-2 gap-2">
@@ -142,13 +146,6 @@ export function QuoteActions({ job, canMarkLive }: { job: QuoteJob; canMarkLive:
               Price (£)
               <input type="number" step="0.01" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)}
                 className="mt-1 w-full rounded-lg border border-green-200 bg-white px-2 py-2 text-sm" />
-            </label>
-            <label className="text-[11px] font-medium text-green-900">
-              Every
-              <select value={frequency} onChange={(e) => setFrequency(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-green-200 bg-white px-2 py-2 text-sm">
-                {FREQUENCIES.map((weeks) => <option key={weeks} value={weeks}>{weeks} week{weeks === 1 ? "" : "s"}</option>)}
-              </select>
             </label>
             <label className="text-[11px] font-medium text-green-900">
               First clean <span className="font-normal">(optional)</span>
