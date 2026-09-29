@@ -93,6 +93,8 @@ model TenantSettings {
   tmplCleanedBank       String @default("Hi {{customerFirstName}}, your windows at {{customerAddress}} have been cleaned today. {{amountDue}} is due. To pay by bank: {{bankDetails}}. Please use {{paymentReference}} as the reference. Thanks, {{businessName}}")
 
   // Automatic texts. Test mode logs every text instead of sending it.
+  /// PHONE: each text opens in the user's own Messages app (one tap each). VOODOO: sent by the server.
+  textSendMethod           String  @default("PHONE")
   textsTestMode            Boolean @default(true)
   textCleanedEnabled       Boolean @default(false)
   textSkipCleanedIfPaid    Boolean @default(true)
@@ -557,7 +559,7 @@ model MessageLog {
   kind         String
   toNumber     String
   body         String
-  /// TEST (not sent), SENT, FAILED
+  /// TEST (not sent), SENT, FAILED, TO_SEND (waiting to go from a phone), PHONE (opened on a phone to send)
   status       String
   error        String   @default("")
   sentByUserId String?
@@ -565,4 +567,5 @@ model MessageLog {
 
   @@index([tenantId, createdAt])
   @@index([tenantId, kind, customerId])
+  @@index([tenantId, status])
 }

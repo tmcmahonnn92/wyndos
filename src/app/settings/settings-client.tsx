@@ -35,6 +35,7 @@ interface Settings {
   tmplPaymentReminder3: string; tmplPaymentReceived: string;
   tmplJobAndPayment: string; tmplInvoiceNote: string;
   tmplCleanedBank: string;
+  textSendMethod: string;
   textsTestMode: boolean; textCleanedEnabled: boolean; textSkipCleanedIfPaid: boolean;
   textPaymentReminderDays: number; textPaymentReminder2Days: number; textsServerLive: boolean;
   canManageProviderSettings: boolean;
@@ -215,6 +216,7 @@ export function SettingsClient({
 
   // Automatic texts
   const [autoTexts, setAutoTexts] = useState({
+    textSendMethod: settings.textSendMethod === "VOODOO" ? "VOODOO" : "PHONE",
     textsTestMode: settings.textsTestMode ?? true,
     textCleanedEnabled: settings.textCleanedEnabled ?? false,
     textSkipCleanedIfPaid: settings.textSkipCleanedIfPaid ?? true,
@@ -680,7 +682,24 @@ export function SettingsClient({
           <Card>
             <CardHeader><CardTitle><Send size={16} className="inline mr-2 text-blue-600" />Automatic texts</CardTitle></CardHeader>
             <CardContent className="space-y-4 text-sm">
-              <label className="flex items-start gap-3">
+              <div className="space-y-1.5">
+                <p className="font-semibold text-slate-800">How texts are sent</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {([
+                    ["PHONE", "From my phone", "Free on your phone plan. Each text opens in Messages; tap Send and the next one is ready. Automatic texts wait on the Texts page until you send them."],
+                    ["VOODOO", "Automatically (VoodooSMS)", "Sent for you, no tapping. Pay VoodooSMS per text. Needs your API key below."],
+                  ] as const).map(([key, label, hint]) => (
+                    <button key={key} type="button" onClick={() => setAutoTexts((a) => ({ ...a, textSendMethod: key }))}
+                      className={cn("rounded-lg border p-3 text-left", autoTexts.textSendMethod === key ? "border-blue-600 bg-blue-50" : "border-slate-200 hover:border-blue-300")}>
+                      <span className="block text-sm font-semibold text-slate-800">{label}</span>
+                      <span className="block text-xs text-slate-500">{hint}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-400">You can still pick the other way each time you send.</p>
+              </div>
+
+              <label className={cn("flex items-start gap-3", autoTexts.textSendMethod === "PHONE" && "opacity-50")}>
                 <input type="checkbox" className="mt-1" checked={autoTexts.textsTestMode}
                   onChange={(e) => setAutoTexts((a) => ({ ...a, textsTestMode: e.target.checked }))} />
                 <span>
@@ -733,7 +752,7 @@ export function SettingsClient({
                         const r = await runPaymentRemindersNow();
                         setReminderRun(r.skipped === "off"
                           ? "Payment reminders are off (both set to 0). Save first if you just changed them."
-                          : `${r.logged} reminder${r.logged === 1 ? "" : "s"} ${r.test ? "logged (test mode, not sent)" : "sent"}.`);
+                          : `${r.logged} reminder${r.logged === 1 ? "" : "s"} ${r.phone ? "ready to send from your phone (Texts page)" : r.test ? "logged (test mode, not sent)" : "sent"}.`);
                       } catch (e) { setReminderRun(String(e)); }
                     })}>
                     Run reminders now

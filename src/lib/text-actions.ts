@@ -8,6 +8,8 @@ import {
   deliverTexts,
   isLive,
   liveSendingAllowedByServer,
+  sendMethodOf,
+  type SendMethod,
   loadTextSettings,
   money,
   renderText,
@@ -29,6 +31,8 @@ export async function getTextSetup() {
     provider: settings?.messagingProvider ?? "voodoosms",
     dayReminderTemplate: settings?.tmplCleaningReminder ?? "",
     businessName: settings?.businessName ?? "",
+    sendMethod: sendMethodOf(settings),
+    voodooConfigured: Boolean(settings?.voodooApiKey),
   };
 }
 
@@ -88,6 +92,7 @@ export async function sendDayReminders(input: {
   customerIds: number[];
   template: string;
   saveAsDefault?: boolean;
+  method?: SendMethod;
 }) {
   const actor = await requirePerm("messaging");
   const tenantId = actor.tenantId;
@@ -105,7 +110,7 @@ export async function sendDayReminders(input: {
   if (input.saveAsDefault && !actor.isWorker) {
     await prisma.tenantSettings.update({ where: { tenantId }, data: { tmplCleaningReminder: input.template } });
   }
-  const result = await deliverTexts(tenantId, settings, "DAY_REMINDER", texts, actor.userId);
+  const result = await deliverTexts(tenantId, settings, "DAY_REMINDER", texts, actor.userId, input.method ?? sendMethodOf(settings));
   revalidatePath("/messages");
   return result;
 }
@@ -123,7 +128,30 @@ export async function getBulkRecipients() {
     },
     orderBy: [{ area: { sortOrder: "asc" } }, { sortOrder: "asc" }],
   });
-  const { balance } = await balancesFor(tenantId, customers.map((c) => c.id));
+  const ids = customers.map((c) => c.id);
+  const [{ balance, unpaidJobs }, nextBooked, settings, reminded] = await Promise.all([
+    balancesFor(tenantId, ids),
+    nextBookedCleans(tenantId, ids),
+    loadTextSettings(tenantId),
+    prisma.messageLog.findMany({
+      where: { tenantId, kind: { in: ["PAYMENT_REMINDER_1", "PAYMENT_REMINDER_2"] }, customerId: { in: ids } },
+      select: { kind: true, jobId: true },
+    }),
+  ]);
+  const done = new Set(reminded.map((r) => `${r.kind}:${r.jobId}`));
+  // Same rule as the automatic reminders; if they're off, anything unpaid 14+ days counts as due.
+  const first = settings?.textPaymentReminderDays || 14;
+  const second = settings?.textPaymentReminder2Days || 0;
+  const now = Date.now();
+  const reminderStage = (customerId: number) => {
+    const jobs = (unpaidJobs.get(customerId) ?? []).filter((j) => j.completedAt);
+    if (jobs.length === 0) return null;
+    const oldest = jobs.reduce((a, b) => (a.completedAt! < b.completedAt! ? a : b));
+    const age = Math.floor((now - oldest.completedAt!.getTime()) / 86_400_000);
+    const stage = second > 0 && age >= second ? 2 : age >= first ? 1 : null;
+    if (!stage || done.has(`PAYMENT_REMINDER_${stage}:${oldest.id}`)) return null;
+    return { stage, age };
+  };
   return customers.map((c) => ({
     id: c.id,
     name: c.name,
@@ -136,11 +164,29 @@ export async function getBulkRecipients() {
     nextDue: c.nextDueDate ? textDate(c.nextDueDate) : "",
     area: c.area && !c.area.isSystemArea ? { id: c.area.id, name: c.area.name, color: c.area.color } : null,
     tags: c.tags.map((t) => t.tag),
+    unpaidCleans: (unpaidJobs.get(c.id) ?? []).length,
+    reminderDue: reminderStage(c.id),
+    nextClean: nextBooked.get(c.id)
+      ? { date: nextBooked.get(c.id)!.date.toISOString().slice(0, 10), label: textDate(nextBooked.get(c.id)!.date) }
+      : null,
   }));
 }
 
+/** Each customer's next booked (not yet done) clean from today. */
+async function nextBookedCleans(tenantId: number, customerIds: number[]) {
+  const today = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
+  const jobs = await prisma.job.findMany({
+    where: { tenantId, customerId: { in: customerIds }, status: "PENDING", isQuote: false, workDay: { date: { gte: today } } },
+    select: { customerId: true, workDay: { select: { id: true, date: true } } },
+    orderBy: { workDay: { date: "asc" } },
+  });
+  const next = new Map<number, { date: Date; workDayId: number }>();
+  for (const job of jobs) if (!next.has(job.customerId)) next.set(job.customerId, { date: job.workDay.date, workDayId: job.workDay.id });
+  return next;
+}
+
 /** Bulk message with placeholders to the chosen customers. */
-export async function sendBulkTexts(input: { customerIds: number[]; template: string }) {
+export async function sendBulkTexts(input: { customerIds: number[]; template: string; method?: SendMethod }) {
   const actor = await requirePerm("messaging");
   const tenantId = actor.tenantId;
   if (!input.template.trim()) throw new Error("Write the message first.");
@@ -152,6 +198,7 @@ export async function sendBulkTexts(input: { customerIds: number[]; template: st
     select: { id: true, name: true, address: true, phone: true, price: true, nextDueDate: true, area: { select: { name: true } } },
   });
   const { balance } = await balancesFor(tenantId, customers.map((c) => c.id));
+  const nextBooked = await nextBookedCleans(tenantId, customers.map((c) => c.id));
   const texts: OutgoingText[] = [];
   for (const c of customers) {
     const to = ukMobile(c.phone);
@@ -162,10 +209,11 @@ export async function sendBulkTexts(input: { customerIds: number[]; template: st
       body: renderText(input.template, varsFor(c, settings, {
         amountDue: money(balance.get(c.id) ?? 0),
         nextDueDate: c.nextDueDate ? textDate(c.nextDueDate) : "",
+        jobDate: nextBooked.get(c.id) ? textDate(nextBooked.get(c.id)!.date) : "",
       })),
     });
   }
-  const result = await deliverTexts(tenantId, settings, "BULK", texts, actor.userId);
+  const result = await deliverTexts(tenantId, settings, "BULK", texts, actor.userId, input.method ?? sendMethodOf(settings));
   revalidatePath("/messages");
   return { ...result, noMobile: customers.length - texts.length };
 }
@@ -192,4 +240,55 @@ export async function getMessageLog(limit = 200) {
   });
   const names = new Map(customers.map((c) => [c.id, c.name]));
   return logs.map((l) => ({ ...l, customerName: l.customerId ? names.get(l.customerId) ?? "" : "" }));
+}
+
+// ── Sending from the user's own phone ─────────────────────────────────────────
+
+/** Texts waiting to be sent from a phone (all, or just for some area days / some ids). */
+export async function getPhoneOutbox(filter: { workDayIds?: number[]; ids?: number[] } = {}) {
+  const actor = await requirePerm("messaging");
+  const logs = await prisma.messageLog.findMany({
+    where: {
+      tenantId: actor.tenantId,
+      status: "TO_SEND",
+      ...(filter.ids ? { id: { in: filter.ids } } : {}),
+      ...(filter.workDayIds ? { workDayId: { in: filter.workDayIds } } : {}),
+    },
+    orderBy: { id: "asc" },
+    take: 500,
+  });
+  const customers = await prisma.customer.findMany({
+    where: { tenantId: actor.tenantId, id: { in: logs.map((l) => l.customerId).filter((id): id is number => id !== null) } },
+    select: { id: true, name: true },
+  });
+  const names = new Map(customers.map((c) => [c.id, c.name]));
+  return logs.map((l) => ({
+    id: l.id,
+    kind: l.kind,
+    to: l.toNumber,
+    body: l.body,
+    workDayId: l.workDayId,
+    name: l.customerId ? names.get(l.customerId) ?? "" : "",
+  }));
+}
+
+export async function getPhoneOutboxCount() {
+  const actor = await requirePerm("messaging");
+  return prisma.messageLog.count({ where: { tenantId: actor.tenantId, status: "TO_SEND" } });
+}
+
+/** The text was opened in the phone's Messages app (we can't see the tap on Send itself). */
+export async function markPhoneTextOpened(id: number, editedBody?: string) {
+  const actor = await requirePerm("messaging");
+  await prisma.messageLog.updateMany({
+    where: { id, tenantId: actor.tenantId, status: "TO_SEND" },
+    data: { status: "PHONE", sentByUserId: actor.userId, ...(editedBody?.trim() ? { body: editedBody } : {}) },
+  });
+}
+
+/** Drop texts that are waiting to go (e.g. changed your mind). */
+export async function discardPhoneTexts(ids: number[]) {
+  const actor = await requirePerm("messaging");
+  await prisma.messageLog.deleteMany({ where: { tenantId: actor.tenantId, status: "TO_SEND", id: { in: ids } } });
+  revalidatePath("/messages");
 }

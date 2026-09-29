@@ -109,19 +109,31 @@ export type OutgoingText = {
   body: string;
 };
 
-/** Log every text; really send only when live. Returns how many were logged, sent and failed. */
+export type SendMethod = "PHONE" | "VOODOO";
+
+/** How this business sends texts: from their own phone (default) or via VoodooSMS. */
+export function sendMethodOf(settings: Pick<TextSettings, "textSendMethod"> | null): SendMethod {
+  return settings?.textSendMethod === "VOODOO" ? "VOODOO" : "PHONE";
+}
+
+/**
+ * PHONE: every text is saved as TO_SEND, waiting to be sent one tap at a time from a phone.
+ * VOODOO: log every text; really send only when live (otherwise status TEST).
+ */
 export async function deliverTexts(
   tenantId: number,
   settings: TextSettings | null,
   kind: TextKind,
   texts: OutgoingText[],
   sentByUserId: string | null,
+  method: SendMethod = sendMethodOf(settings),
 ) {
-  const live = isLive(settings);
+  const live = method === "VOODOO" && isLive(settings);
   let sent = 0;
   let failed = 0;
+  const ids: number[] = [];
   for (const text of texts) {
-    let status = "TEST";
+    let status = method === "PHONE" ? "TO_SEND" : "TEST";
     let error = "";
     if (live) {
       try {
@@ -134,7 +146,7 @@ export async function deliverTexts(
         failed++;
       }
     }
-    await prisma.messageLog.create({
+    const log = await prisma.messageLog.create({
       data: {
         tenantId,
         customerId: text.customerId,
@@ -147,9 +159,11 @@ export async function deliverTexts(
         error,
         sentByUserId,
       },
+      select: { id: true },
     });
+    ids.push(log.id);
   }
-  return { logged: texts.length, sent, failed, test: !live };
+  return { logged: texts.length, sent, failed, test: method === "VOODOO" && !live, phone: method === "PHONE", ids };
 }
 
 /**
@@ -208,7 +222,7 @@ export async function runPaymentReminders(tenantId: number, sentByUserId: string
   const settings = await loadTextSettings(tenantId);
   const first = settings?.textPaymentReminderDays ?? 0;
   const second = settings?.textPaymentReminder2Days ?? 0;
-  if (!settings || (first <= 0 && second <= 0)) return { logged: 0, sent: 0, failed: 0, test: true, skipped: "off" as const };
+  if (!settings || (first <= 0 && second <= 0)) return { logged: 0, sent: 0, failed: 0, test: true, phone: false, skipped: "off" as const };
 
   const customers = await prisma.customer.findMany({
     where: { tenantId, active: true, isProspect: false, paidByCustomerId: null, NOT: { preferredPaymentMethod: "DD" } },
@@ -240,5 +254,5 @@ export async function runPaymentReminders(tenantId: number, sentByUserId: string
   }
   const a = await deliverTexts(tenantId, settings, "PAYMENT_REMINDER_1", byKind.PAYMENT_REMINDER_1, sentByUserId);
   const b = await deliverTexts(tenantId, settings, "PAYMENT_REMINDER_2", byKind.PAYMENT_REMINDER_2, sentByUserId);
-  return { logged: a.logged + b.logged, sent: a.sent + b.sent, failed: a.failed + b.failed, test: a.test, skipped: null };
+  return { logged: a.logged + b.logged, sent: a.sent + b.sent, failed: a.failed + b.failed, test: a.test, phone: a.phone, skipped: null };
 }

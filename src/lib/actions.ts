@@ -4580,6 +4580,7 @@ export async function getBusinessSettingsForClient() {
     tmplInvoiceNote: settings.tmplInvoiceNote,
     tmplCleanedBank: settings.tmplCleanedBank,
     textsTestMode: settings.textsTestMode,
+    textSendMethod: settings.textSendMethod,
     textCleanedEnabled: settings.textCleanedEnabled,
     textSkipCleanedIfPaid: settings.textSkipCleanedIfPaid,
     textPaymentReminderDays: settings.textPaymentReminderDays,
@@ -4630,6 +4631,7 @@ export async function updateBusinessSettings(data: {
   tmplInvoiceNote?: string;
   tmplCleanedBank?: string;
   // Automatic texts
+  textSendMethod?: string;
   textsTestMode?: boolean;
   textCleanedEnabled?: boolean;
   textSkipCleanedIfPaid?: boolean;

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { MessageSquare, Send } from "lucide-react";
 import { sendBulkTexts } from "@/lib/text-actions";
 import { Button } from "@/components/ui/button";
+import { SendMethodToggle } from "@/components/phone-send-queue";
+import { PhoneOutboxModal } from "@/components/phone-outbox-modal";
 import { greetingName } from "@/lib/text-format";
 import { cn } from "@/lib/utils";
 import {
@@ -27,6 +29,22 @@ type Recipient = {
   nextDue: string;
   area: { id: number; name: string; color: string } | null;
   tags: Array<{ id: number; name: string }>;
+  unpaidCleans: number;
+  reminderDue: { stage: number; age: number } | null;
+  nextClean: { date: string; label: string } | null;
+};
+
+type View = "all" | "unpaid" | "reminder" | "soon";
+const VIEWS: Array<{ key: View; label: string }> = [
+  { key: "all", label: "Everyone" },
+  { key: "unpaid", label: "Unpaid cleans" },
+  { key: "reminder", label: "Reminder due" },
+  { key: "soon", label: "Cleaning soon" },
+];
+const TEMPLATES_FOR_VIEW: Partial<Record<View, string>> = {
+  unpaid: "Hi {{customerFirstName}}, just a reminder you have {{amountDue}} outstanding for window cleaning. To pay by bank: {{bankDetails}}, reference {{paymentReference}}. Thanks, {{businessName}}",
+  reminder: "Hi {{customerFirstName}}, just a friendly reminder you have {{amountDue}} outstanding for window cleaning. To pay by bank: {{bankDetails}}, reference {{paymentReference}}. Thanks, {{businessName}}",
+  soon: "Hi {{customerFirstName}}, just to let you know we'll be cleaning your windows on {{jobDate}}. Thanks, {{businessName}}",
 };
 
 type LogEntry = {
@@ -47,6 +65,7 @@ const KIND_LABELS: Record<string, string> = {
   PAYMENT_REMINDER_2: "Payment reminder 2",
   BULK: "Bulk",
 };
+const STATUS_LABELS: Record<string, string> = { TEST: "TEST – not sent", TO_SEND: "Waiting (phone)", PHONE: "Opened on phone" };
 
 const pad = (n: number) => String(n).padStart(2, "0");
 function when(iso: string) {
@@ -59,17 +78,22 @@ export function MessagesClient({
   setup,
   recipients,
   log,
+  outboxCount,
 }: {
   initialTab: "send" | "log";
-  setup: { live: boolean; businessName: string };
+  setup: { live: boolean; businessName: string; sendMethod: "PHONE" | "VOODOO" };
   recipients: Recipient[];
   log: LogEntry[];
+  outboxCount: number;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<"send" | "log">(initialTab);
   const [areaIds, setAreaIds] = useState<Set<number>>(new Set());
   const [tagId, setTagId] = useState<string>("");
-  const [owesOnly, setOwesOnly] = useState(false);
+  const [view, setView] = useState<View>("all");
+  const [soonDays, setSoonDays] = useState(7);
+  const [method, setMethod] = useState<"PHONE" | "VOODOO">(setup.sendMethod);
+  const [queue, setQueue] = useState<{ ids?: number[] } | null>(null);
   const [includeQuotes, setIncludeQuotes] = useState(false);
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<Set<number>>(new Set());
@@ -100,7 +124,13 @@ export function MessagesClient({
     if (!includeQuotes && r.isProspect) return false;
     if (areaIds.size > 0 && !(r.area && areaIds.has(r.area.id))) return false;
     if (tagId && !r.tags.some((t) => String(t.id) === tagId)) return false;
-    if (owesOnly && r.owed <= 0.005) return false;
+    if (view === "unpaid" && r.owed <= 0.005) return false;
+    if (view === "reminder" && !r.reminderDue) return false;
+    if (view === "soon") {
+      if (!r.nextClean) return false;
+      const days = (new Date(r.nextClean.date + "T00:00:00Z").getTime() - Date.now()) / 86_400_000;
+      if (days > soonDays) return false;
+    }
     const q = search.trim().toLowerCase();
     if (q && !`${r.name} ${r.address}`.toLowerCase().includes(q)) return false;
     return true;
@@ -116,6 +146,8 @@ export function MessagesClient({
         areaName: sample.area?.name ?? "",
         jobPrice: `£${sample.price.toFixed(2)}`,
         amountDue: `£${sample.owed.toFixed(2)}`,
+        jobDate: sample.nextClean?.label ?? "",
+        bankDetails: "(your bank details)",
         nextDueDate: sample.nextDue,
         businessName: setup.businessName,
         paymentReference: sample.address.split(",")[0],
@@ -135,7 +167,11 @@ export function MessagesClient({
     setResult(null);
     startTransition(async () => {
       try {
-        const r = await sendBulkTexts({ customerIds: [...picked], template: message });
+        const r = await sendBulkTexts({ customerIds: [...picked], template: message, method });
+        if (r.phone) {
+          setQueue({ ids: r.ids });
+          return;
+        }
         setResult(
           `${r.logged} text${r.logged === 1 ? "" : "s"} ${r.test ? "written to the log (test mode, nothing sent)" : "sent"}` +
             (r.failed ? `, ${r.failed} failed` : "") +
@@ -166,12 +202,44 @@ export function MessagesClient({
         </div>
       </div>
 
-      <TestModeBanner live={setup.live} />
+      {outboxCount > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5">
+          <span className="text-sm font-semibold text-green-800">{outboxCount} text{outboxCount === 1 ? "" : "s"} waiting to send from your phone</span>
+          <Button size="sm" onClick={() => setQueue({})}>Send now</Button>
+        </div>
+      )}
+      {method === "VOODOO" && <TestModeBanner live={setup.live} />}
+      <PhoneOutboxModal open={queue !== null} onClose={() => setQueue(null)} filter={queue ?? undefined} />
 
       {tab === "send" ? (
         <div className="space-y-4">
           <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
             <p className="text-sm font-semibold text-slate-800">1. Who to</p>
+            <div className="flex flex-wrap gap-1.5">
+              {VIEWS.map((v) => (
+                <button key={v.key} type="button"
+                  onClick={() => {
+                    setView(v.key);
+                    setPicked(new Set());
+                    if (TEMPLATES_FOR_VIEW[v.key] && !message.trim()) setMessage(TEMPLATES_FOR_VIEW[v.key]!);
+                  }}
+                  className={cn("rounded-lg border px-3 py-1.5 text-xs font-semibold",
+                    view === v.key ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700")}>
+                  {v.label}
+                  {v.key === "unpaid" && ` (${recipients.filter((r) => r.owed > 0.005).length})`}
+                  {v.key === "reminder" && ` (${recipients.filter((r) => r.reminderDue).length})`}
+                </button>
+              ))}
+              {view === "soon" && (
+                <select value={soonDays} onChange={(e) => setSoonDays(Number(e.target.value))}
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">
+                  <option value={1}>tomorrow</option>
+                  <option value={3}>next 3 days</option>
+                  <option value={7}>next 7 days</option>
+                  <option value={14}>next 2 weeks</option>
+                </select>
+              )}
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {areas.map((a) => (
                 <button key={a.id} type="button" onClick={() => toggleArea(a.id)}
@@ -183,9 +251,7 @@ export function MessagesClient({
               ))}
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs">
-              <label className="flex items-center gap-1.5">
-                <input type="checkbox" checked={owesOnly} onChange={(e) => setOwesOnly(e.target.checked)} /> Owes money
-              </label>
+
               <label className="flex items-center gap-1.5">
                 <input type="checkbox" checked={includeQuotes} onChange={(e) => setIncludeQuotes(e.target.checked)} /> Include quotes (not live yet)
               </label>
@@ -219,6 +285,8 @@ export function MessagesClient({
                     })} />
                   <span className="min-w-0 flex-1 truncate text-sm text-slate-800">{r.name}</span>
                   {r.owed > 0.005 && <span className="text-[11px] font-semibold text-red-600">owes £{r.owed.toFixed(2)}</span>}
+                  {r.reminderDue && <span className="rounded bg-red-100 px-1 text-[10px] font-bold text-red-700">reminder {r.reminderDue.stage} due · {r.reminderDue.age}d</span>}
+                  {view === "soon" && r.nextClean && <span className="text-[11px] font-semibold text-blue-700">{r.nextClean.label}</span>}
                   <span className="text-[11px] text-slate-400">{r.area?.name ?? ""}</span>
                   {!r.mobile && <span className="text-[10px] font-semibold text-amber-600">no mobile</span>}
                 </label>
@@ -229,6 +297,7 @@ export function MessagesClient({
 
           <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
             <p className="text-sm font-semibold text-slate-800">2. Message</p>
+            <SendMethodToggle value={method} onChange={setMethod} />
             <textarea ref={textRef} rows={5} value={message} onChange={(e) => setMessage(e.target.value)}
               placeholder="e.g. Hi {{customerFirstName}}, we're in {{areaName}} next week…"
               className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -247,7 +316,9 @@ export function MessagesClient({
           {result && <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{result}</p>}
           <Button onClick={send} disabled={isPending || withMobile.length === 0 || !message.trim()} className="w-full">
             <Send size={14} />
-            {isPending ? "Sending…" : `${setup.live ? "Send" : "Test send"} to ${withMobile.length} customer${withMobile.length === 1 ? "" : "s"}`}
+            {isPending ? "Preparing…" : method === "PHONE"
+              ? `Start sending ${withMobile.length} from my phone`
+              : `${setup.live ? "Send" : "Test send"} to ${withMobile.length} customer${withMobile.length === 1 ? "" : "s"}`}
             {pickedList.length > withMobile.length && ` (${pickedList.length - withMobile.length} have no mobile)`}
           </Button>
         </div>
@@ -266,7 +337,7 @@ export function MessagesClient({
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className={cn("rounded-full px-2 py-0.5 font-bold",
                       l.status === "SENT" ? "bg-green-100 text-green-800" : l.status === "FAILED" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800")}>
-                      {l.status === "TEST" ? "TEST – not sent" : l.status}
+                      {STATUS_LABELS[l.status] ?? l.status}
                     </span>
                     <span className="font-semibold text-slate-700">{KIND_LABELS[l.kind] ?? l.kind}</span>
                     <span className="text-slate-500">{l.customerName}</span>

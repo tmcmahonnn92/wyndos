@@ -66,6 +66,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { DayTeamBar, type TeamMember } from "./day-team-bar";
 import { TextRemindersModal } from "./text-reminders-modal";
+import { PhoneOutboxModal } from "@/components/phone-outbox-modal";
+import { SharePdfButton } from "@/components/share-pdf-button";
+import { getPhoneOutbox } from "@/lib/text-actions";
 import { QuoteActions, quoteCardClass, quoteSummary } from "./quote-actions";
 import { getQueue, onQueueChange, runOrQueue } from "@/lib/offline-queue";
 import { expectsPaymentAtDoor, normalisePreference, preferenceLabel } from "@/lib/payment-preference";
@@ -201,6 +204,17 @@ export function DayView({
   // Taps saved on the phone while offline show immediately, before they reach the server.
   const [localStatus, setLocalStatus] = useState<Record<number, "COMPLETE" | "SKIPPED">>({});
   const dayIdKey = dayIds.join(",");
+  // Texts waiting to go from the phone for these days (e.g. "cleaned, here's how to pay").
+  const [outboxCount, setOutboxCount] = useState(0);
+  const [outboxOpen, setOutboxOpen] = useState(false);
+  useEffect(() => {
+    if (!canText) return;
+    let cancelled = false;
+    getPhoneOutbox({ workDayIds: dayIdKey.split(",").map(Number) })
+      .then((list) => !cancelled && setOutboxCount(list.length))
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [canText, dayIdKey, nextRuns, outboxOpen]);
   useEffect(() => {
     const ids = new Set(dayIdKey.split(",").map(Number));
     const load = () => {
@@ -239,6 +253,8 @@ export function DayView({
     return worker === workerFilter;
   };
   const filtering = workerFilter !== "all";
+  // Print / share follows the person filter ("me" = the owner's own jobs, including unassigned).
+  const printWorkerParam = !filtering ? null : workerFilter === meId ? "me" : workerFilter;
 
   const knownTowns = useMemo(() => collectKnownTowns(allJobs.map((j) => j.customer.address)), [allJobs]);
   const streetKey = useMemo(() => {
@@ -717,8 +733,17 @@ export function DayView({
               </Button>
             )}
             {multi && (
+              <SharePdfButton
+                href={`/api/run-sheet?date=${dateISO}&sort=${viewMode}${printWorkerParam ? `&worker=${printWorkerParam}` : ""}`}
+                fileName={`run-sheet-${dateISO}.pdf`}
+                title="Run sheet"
+                label=""
+                className="flex flex-shrink-0 items-center rounded-xl border border-slate-200 bg-white px-3 text-slate-700 hover:bg-slate-50"
+              />
+            )}
+            {multi && (
               <Link
-                href={`/days/date/${dateISO}/print?sort=${viewMode}`}
+                href={`/days/date/${dateISO}/print?sort=${viewMode}${printWorkerParam ? `&worker=${printWorkerParam}` : ""}`}
                 aria-label="Print the day"
                 className="flex flex-shrink-0 items-center rounded-xl border border-slate-200 bg-white px-3 text-slate-700 hover:bg-slate-50"
               >
@@ -731,6 +756,15 @@ export function DayView({
                 Add Job
               </Button>
             )}
+          </div>
+        )}
+
+        {canText && outboxCount > 0 && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5">
+            <span className="text-xs font-semibold text-green-800">
+              {outboxCount} text{outboxCount === 1 ? "" : "s"} ready to send from your phone
+            </span>
+            <Button size="sm" onClick={() => setOutboxOpen(true)}>Send</Button>
           </div>
         )}
 
@@ -809,12 +843,15 @@ export function DayView({
               )}
 
               <DayTeamBar
+                key={`${day.id}-${printWorkerParam ?? "all"}`}
                 dayId={day.id}
                 dayStatus={day.status}
                 dayAssignedUserId={day.assignedUserId ?? null}
                 jobs={day.jobs}
                 team={team}
                 printHref={multi ? null : `/days/${day.id}/print?sort=${viewMode}`}
+                pdfHref={`/api/run-sheet?day=${day.id}&sort=${viewMode}`}
+                defaultPrintWorker={printWorkerParam}
               />
 
               {notesEditingDayId === day.id ? (
@@ -985,6 +1022,13 @@ export function DayView({
         )}
       </Modal>
 
+      {canText && (
+        <PhoneOutboxModal
+          open={outboxOpen}
+          onClose={() => setOutboxOpen(false)}
+          filter={{ workDayIds: dayIds }}
+        />
+      )}
       {canText && (
         <TextRemindersModal
           open={textsOpen}

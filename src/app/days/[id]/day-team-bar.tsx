@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { SharePdfButton } from "@/components/share-pdf-button";
 import { CloudRain, Printer, UserRound, Undo2, Users, X } from "lucide-react";
 import { assignJobs, assignWorkDayWorker, rescheduleWorkDay, takeBackWork } from "@/lib/actions";
 
@@ -23,6 +24,10 @@ interface Props {
   team: TeamMember[] | null; // null = viewer is a worker (no assigning)
   /** Where Print goes; null hides it (the whole-day view has its own Print). */
   printHref?: string | null;
+  /** PDF for the Share button (same sheet as Print). */
+  pdfHref?: string | null;
+  /** Start the Print/Share sheet on one person's jobs ("me" or a user id). */
+  defaultPrintWorker?: string | null;
 }
 
 function tomorrowISO() {
@@ -36,7 +41,16 @@ function tomorrowISO() {
  * assignment ("keep this one" / "send this one to Jake"), take back, rained off,
  * and print. Workers only see the Print button.
  */
-export function DayTeamBar({ dayId, dayStatus, dayAssignedUserId, jobs, team, printHref = `/days/${dayId}/print` }: Props) {
+export function DayTeamBar({
+  dayId,
+  dayStatus,
+  dayAssignedUserId,
+  jobs,
+  team,
+  printHref = `/days/${dayId}/print?sort=area`,
+  pdfHref = `/api/run-sheet?day=${dayId}&sort=area`,
+  defaultPrintWorker = null,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -78,14 +92,17 @@ export function DayTeamBar({ dayId, dayStatus, dayAssignedUserId, jobs, team, pr
   };
 
   const pendingJobs = jobs.filter((job) => job.status === "PENDING");
+  // Print / share one person's jobs when the day is split between people.
+  const [printWorker, setPrintWorker] = useState<string>(defaultPrintWorker ?? "");
+  const withWorker = (href: string) => (printWorker ? `${href}${href.includes("?") ? "&" : "?"}worker=${printWorker}` : href);
+  const printFor = split.length > 1 && team;
   const isOwner = team !== null;
   const workers = (team ?? []).filter((member) => !member.isMe);
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
         {isOwner && (
-          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+          <label className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
             <UserRound size={15} className="flex-shrink-0 text-slate-400" />
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Day</span>
             <select
@@ -102,13 +119,20 @@ export function DayTeamBar({ dayId, dayStatus, dayAssignedUserId, jobs, team, pr
             </select>
           </label>
         )}
-        {printHref && <Link
-          href={printHref}
-          className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          <Printer size={15} /> Print
-        </Link>}
-      </div>
+      {printHref && printFor && (
+        <label className="flex items-center gap-2 px-1 text-xs text-slate-600">
+          Print / share for
+          <select value={printWorker} onChange={(e) => setPrintWorker(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold">
+            <option value="">Everyone</option>
+            {split.map((entry) => (
+              <option key={entry.id ?? "me"} value={!entry.id || entry.id === me?.id ? "me" : entry.id}>
+                {nameOf(entry.id === me?.id ? null : entry.id)} ({entry.count})
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {isOwner && split.length > 1 && (
         <p className="px-1 text-xs text-slate-500">
@@ -116,8 +140,23 @@ export function DayTeamBar({ dayId, dayStatus, dayAssignedUserId, jobs, team, pr
         </p>
       )}
 
+      <div className="flex flex-wrap items-center gap-2">
+        {printHref && <Link
+          href={withWorker(printHref)}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          <Printer size={13} /> Print
+        </Link>}
+        {printHref && pdfHref && (
+          <SharePdfButton
+            href={withWorker(pdfHref)}
+            fileName={`run-sheet-${dayId}${printWorker ? `-${nameOf(printWorker === "me" ? null : printWorker).replace(/\s+/g, "-")}` : ""}.pdf`}
+            title="Run sheet"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          />
+        )}
       {isOwner && dayStatus !== "COMPLETE" && (
-        <div className="flex flex-wrap gap-2">
+        <>
           <button
             type="button"
             onClick={() => setPanel(panel === "assign" ? "none" : "assign")}
@@ -142,8 +181,9 @@ export function DayTeamBar({ dayId, dayStatus, dayAssignedUserId, jobs, team, pr
           >
             <CloudRain size={13} /> Rained off
           </button>
-        </div>
+        </>
       )}
+      </div>
 
       {panel === "rain" && (
         <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50 p-3">

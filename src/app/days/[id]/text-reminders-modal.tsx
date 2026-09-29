@@ -6,6 +6,8 @@ import { getDayReminderRecipients, getTextSetup, sendDayReminders } from "@/lib/
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { PlaceholderButtons, TestModeBanner, fillTemplate, insertAtCursor, smsParts } from "@/components/text-placeholders";
+import { PhoneSendQueue, SendMethodToggle, type PhoneText } from "@/components/phone-send-queue";
+import { getPhoneOutbox } from "@/lib/text-actions";
 
 type Recipient = Awaited<ReturnType<typeof getDayReminderRecipients>>[number];
 
@@ -26,6 +28,8 @@ export function TextRemindersModal({
 }) {
   const [loading, setLoading] = useState(false);
   const [live, setLive] = useState(false);
+  const [method, setMethod] = useState<"PHONE" | "VOODOO">("PHONE");
+  const [phoneItems, setPhoneItems] = useState<PhoneText[] | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [template, setTemplate] = useState("");
@@ -42,10 +46,12 @@ export function TextRemindersModal({
     setLoading(true);
     setResult(null);
     setError(null);
+    setPhoneItems(null);
     Promise.all([getTextSetup(), getDayReminderRecipients(idsKey.split(",").map(Number))])
       .then(([setup, list]) => {
         if (cancelled) return;
         setLive(setup.live);
+        setMethod(setup.sendMethod);
         setTemplate(setup.dayReminderTemplate);
         setRecipients(list);
         setPicked(new Set(list.filter((r) => r.to).map((r) => r.customerId)));
@@ -69,7 +75,12 @@ export function TextRemindersModal({
           customerIds: [...picked],
           template,
           saveAsDefault: saveDefault,
+          method,
         });
+        if (r.phone) {
+          setPhoneItems(await getPhoneOutbox({ ids: r.ids }));
+          return;
+        }
         setResult(`${r.logged} reminder${r.logged === 1 ? "" : "s"} ${r.test ? "written to the text log (test mode, nothing sent)" : "sent"}${r.failed ? `, ${r.failed} failed` : ""}.`);
       } catch (issue) {
         setError(issue instanceof Error ? issue.message : "Could not send.");
@@ -80,8 +91,14 @@ export function TextRemindersModal({
   return (
     <Modal open={open} onClose={onClose} title="Text reminders">
       <div className="space-y-3">
-        <TestModeBanner live={live} />
-        {loading ? (
+        {phoneItems ? null : method === "VOODOO" ? <TestModeBanner live={live} /> : (
+          <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+            Sends from your own phone, one tap each. Free on your phone plan; replies come to you.
+          </p>
+        )}
+        {phoneItems ? (
+          <PhoneSendQueue items={phoneItems} onFinished={(n) => setResult(`${n} reminder${n === 1 ? "" : "s"} opened to send from your phone.`)} />
+        ) : loading ? (
           <p className="py-6 text-center text-sm text-slate-500">Loading…</p>
         ) : result ? (
           <div className="space-y-3">
@@ -93,6 +110,7 @@ export function TextRemindersModal({
           </div>
         ) : (
           <>
+            <SendMethodToggle value={method} onChange={setMethod} />
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">Message</label>
               <textarea
@@ -104,7 +122,7 @@ export function TextRemindersModal({
               />
               <PlaceholderButtons
                 onInsert={(v) => insertAtCursor(textRef.current, template, v, setTemplate)}
-                only={["{{customerFirstName}}", "{{jobDate}}", "{{jobPrice}}", "{{amountDue}}", "{{customerAddress}}", "{{businessName}}", "{{businessPhone}}"]}
+                only={["{{customerFirstName}}", "{{jobDate}}", "{{jobPrice}}", "{{amountDue}}", "{{customerAddress}}", "{{bankDetails}}", "{{paymentReference}}", "{{businessName}}", "{{businessPhone}}"]}
               />
               {canSaveDefault && (
                 <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
@@ -159,7 +177,7 @@ export function TextRemindersModal({
             <div className="flex gap-2">
               <Button className="flex-1" onClick={send} disabled={isPending || chosen.length === 0 || !template.trim()}>
                 <Send size={14} />
-                {isPending ? "Sending…" : `${live ? "Send" : "Test send"} ${chosen.length}`}
+                {isPending ? "Preparing…" : method === "PHONE" ? `Start sending ${chosen.length} from my phone` : `${live ? "Send" : "Test send"} ${chosen.length}`}
               </Button>
               <Button variant="outline" onClick={onClose}>Cancel</Button>
             </div>

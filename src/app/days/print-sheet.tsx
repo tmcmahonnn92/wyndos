@@ -1,11 +1,10 @@
 import { fmtCurrency } from "@/lib/utils";
 import { preferenceLabel } from "@/lib/payment-preference";
-import { addressPartsOf, collectKnownTowns, compareByStreet, withTownFallback } from "@/lib/address";
+import { buildRunSheet, runSheetDateLabel } from "@/lib/run-sheet";
 import type { getWorkDay } from "@/lib/actions";
 import { PrintButton } from "./[id]/print/print-button";
 
 type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
-type Job = Day["jobs"][number];
 
 /**
  * A4 run sheet: route order (or by street), price, how they pay, slip, full notes,
@@ -18,44 +17,25 @@ export function PrintSheet({
   hidePrices,
   sort,
   backHref,
+  worker = null,
+  viewer,
+  pdfHref,
 }: {
   days: Day[];
   dateISO: string;
   hidePrices: boolean;
   sort: "area" | "street";
   backHref: string;
+  /** Only this person's jobs ("me" = the viewer). */
+  worker?: string | null;
+  viewer: { id: string; name?: string | null };
+  pdfHref: string;
 }) {
-  const multi = days.length > 1;
-  const areaOf = new Map(days.map((d) => [d.id, d.area?.name ?? "One-off"]));
-  let jobs: Job[] = days.flatMap((d) => d.jobs).filter((job) => job.status !== "MOVED");
-  if (sort === "street") {
-    const towns = collectKnownTowns(jobs.map((j) => j.customer.address));
-    const areaById = new Map(days.map((d) => [d.id, d.area]));
-    const key = new Map(jobs.map((j) => {
-      const area = areaById.get(j.workDayId);
-      const fallback = area && !area.isSystemArea ? area.name : j.customer.area?.name;
-      return [j.id, withTownFallback(addressPartsOf(j.customer, towns), fallback)];
-    }));
-    jobs = [...jobs].sort((a, b) => compareByStreet(key.get(a.id)!, key.get(b.id)!));
-  }
-  const total = jobs.reduce((sum, job) => sum + job.price, 0);
-  const dateLabel = new Date(`${dateISO}T00:00:00Z`).toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-  const workers = [...new Set(days.map((d) => d.assignedUser?.name ?? d.assignedUser?.email).filter(Boolean))];
-  const title = multi ? days.map((d) => d.area?.name ?? "One-off").join(", ") : days[0]?.area?.name ?? "Round";
-
-  const owes = (job: Job) =>
-    job.customer.jobs
-      .filter((previous) => previous.id !== job.id)
-      .reduce((sum, previous) => {
-        const paid = previous.allocations.reduce((s, allocation) => s + allocation.amount, 0);
-        return sum + Math.max(0, previous.price - paid);
-      }, 0);
+  const sheet = buildRunSheet(days, { sort, worker, viewer });
+  const { jobs, total, multi, title, owes } = sheet;
+  const dateLabel = runSheetDateLabel(dateISO);
+  const areaOf = { get: (id: number) => days.find((d) => d.id === id)?.area?.name ?? "One-off" };
+  const workers = sheet.peopleLabel ? [sheet.peopleLabel] : [];
 
   return (
     <div className="print-sheet mx-auto max-w-4xl bg-white px-4 py-5 text-slate-900 print:max-w-none print:px-0 print:py-0">
@@ -75,10 +55,10 @@ export function PrintSheet({
           <p className="text-sm text-slate-600">
             {jobs.length} job{jobs.length === 1 ? "" : "s"}
             {!hidePrices && ` · ${fmtCurrency(total)}`}
-            {workers.length > 0 && ` · ${workers.join(", ")}`}
+            {workers.length > 0 && ` · ${sheet.workerName ? "For " : ""}${workers.join(", ")}`}
           </p>
         </div>
-        <PrintButton backHref={backHref} />
+        <PrintButton backHref={backHref} pdfHref={pdfHref} fileName={`run-sheet-${dateISO}${sheet.workerName ? `-${sheet.workerName}` : ""}.pdf`} />
       </div>
 
       <table className="w-full border-collapse text-[12px] leading-snug">
