@@ -71,3 +71,30 @@ export function TestModeBanner({ live }: { live: boolean }) {
     </p>
   );
 }
+
+/** "Start from a saved template" picker for any text box. */
+export function TemplatePicker({
+  templates,
+  onPick,
+}: {
+  templates: Array<{ key: string; label: string; body: string }>;
+  onPick: (body: string) => void;
+}) {
+  if (templates.length === 0) return null;
+  return (
+    <select
+      value=""
+      onChange={(e) => {
+        const t = templates.find((x) => x.key === e.target.value);
+        if (t) onPick(t.body);
+      }}
+      aria-label="Start from a template"
+      className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700"
+    >
+      <option value="">Start from a template…</option>
+      {templates.map((t) => (
+        <option key={t.key} value={t.key}>{t.label}</option>
+      ))}
+    </select>
+  );
+}

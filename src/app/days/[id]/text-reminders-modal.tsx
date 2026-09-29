@@ -5,7 +5,7 @@ import { Send } from "lucide-react";
 import { getDayReminderRecipients, getTextSetup, sendDayReminders } from "@/lib/text-actions";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { PlaceholderButtons, TestModeBanner, fillTemplate, insertAtCursor, smsParts } from "@/components/text-placeholders";
+import { PlaceholderButtons, TemplatePicker, TestModeBanner, fillTemplate, insertAtCursor, smsParts } from "@/components/text-placeholders";
 import { PhoneSendQueue, SendMethodToggle, type PhoneText } from "@/components/phone-send-queue";
 import { getPhoneOutbox } from "@/lib/text-actions";
 
@@ -33,6 +33,7 @@ export function TextRemindersModal({
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [template, setTemplate] = useState("");
+  const [templates, setTemplates] = useState<Array<{ key: string; label: string; body: string }>>([]);
   const [saveDefault, setSaveDefault] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +54,7 @@ export function TextRemindersModal({
         setLive(setup.live);
         setMethod(setup.sendMethod);
         setTemplate(setup.dayReminderTemplate);
+        setTemplates(setup.templates);
         setRecipients(list);
         setPicked(new Set(list.filter((r) => r.to).map((r) => r.customerId)));
       })
@@ -113,6 +115,7 @@ export function TextRemindersModal({
             <SendMethodToggle value={method} onChange={setMethod} />
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">Message</label>
+              <div className="mb-1.5"><TemplatePicker templates={templates} onPick={setTemplate} /></div>
               <textarea
                 ref={textRef}
                 rows={4}

@@ -37,7 +37,7 @@ const navItems = [
   { href: "/areas",     label: "Areas",     icon: Layers,         desktopOnly: false, permission: "areas"      },
   { href: "/payments",  label: "Payments",  icon: CreditCard,     desktopOnly: false, permission: "payments"   },
   { href: "/messages",  label: "Texts",     icon: MessageSquare,  desktopOnly: false, permission: "messaging"  },
-  { href: "/accounting",label: "Accounting",icon: Receipt,        desktopOnly: false, permission: "payments"   },
+  { href: "/accounting",label: "Accounting",icon: Receipt,        desktopOnly: false, permission: "accounting" },
   { href: "/settings",  label: "Settings",  icon: Settings,       desktopOnly: false, permission: "settings"   },
 ];
 

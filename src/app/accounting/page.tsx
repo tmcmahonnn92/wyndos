@@ -9,7 +9,7 @@ export default async function AccountingPage({
 }: {
   searchParams?: Promise<{ taxYear?: string; start?: string; end?: string; action?: string }>;
 }) {
-  await requirePermission("payments");
+  await requirePermission("accounting");
   const params = (await searchParams) ?? {};
   const parsedTaxYear = Number.parseInt(params.taxYear ?? "", 10);
   const parsedStart = params.start ? new Date(params.start) : null;

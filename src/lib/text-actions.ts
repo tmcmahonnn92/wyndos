@@ -33,6 +33,19 @@ export async function getTextSetup() {
     businessName: settings?.businessName ?? "",
     sendMethod: sendMethodOf(settings),
     voodooConfigured: Boolean(settings?.voodooApiKey),
+    // The saved wording from Settings → Templates, to start any text from.
+    templates: settings
+      ? [
+          { key: "dayReminder", label: "Day reminder", body: settings.tmplCleaningReminder },
+          { key: "cleanedBank", label: "Cleaned — how to pay", body: settings.tmplCleanedBank },
+          { key: "jobComplete", label: "Job complete", body: settings.tmplJobComplete },
+          { key: "jobAndPayment", label: "Job complete + payment due", body: settings.tmplJobAndPayment },
+          { key: "payment1", label: "Payment reminder 1", body: settings.tmplPaymentReminder1 },
+          { key: "payment2", label: "Payment reminder 2", body: settings.tmplPaymentReminder2 },
+          { key: "payment3", label: "Payment reminder 3 (final)", body: settings.tmplPaymentReminder3 },
+          { key: "paymentReceived", label: "Payment received", body: settings.tmplPaymentReceived },
+        ].filter((t) => t.body?.trim())
+      : [],
   };
 }
 

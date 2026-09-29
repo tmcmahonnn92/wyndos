@@ -15,6 +15,7 @@ import {
   fillTemplate,
   insertAtCursor,
   smsParts,
+  TemplatePicker,
 } from "@/components/text-placeholders";
 
 type Recipient = {
@@ -81,7 +82,7 @@ export function MessagesClient({
   outboxCount,
 }: {
   initialTab: "send" | "log";
-  setup: { live: boolean; businessName: string; sendMethod: "PHONE" | "VOODOO" };
+  setup: { live: boolean; businessName: string; sendMethod: "PHONE" | "VOODOO"; templates: Array<{ key: string; label: string; body: string }> };
   recipients: Recipient[];
   log: LogEntry[];
   outboxCount: number;
@@ -297,6 +298,7 @@ export function MessagesClient({
 
           <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
             <p className="text-sm font-semibold text-slate-800">2. Message</p>
+            <TemplatePicker templates={setup.templates} onPick={setMessage} />
             <SendMethodToggle value={method} onChange={setMethod} />
             <textarea ref={textRef} rows={5} value={message} onChange={(e) => setMessage(e.target.value)}
               placeholder="e.g. Hi {{customerFirstName}}, we're in {{areaName}} next week…"

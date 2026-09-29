@@ -4114,7 +4114,7 @@ export async function createExpense(data: {
   repeatAnchorDate?: Date | null;
   repeatEndsAt?: Date | null;
 }) {
-  const actor = await requirePerm("payments");
+  const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
   const category = getExpenseCategory(data.category);
   const amount = Number(data.amount);
@@ -4174,7 +4174,7 @@ export async function updateExpense(
     notes?: string;
   }
 ) {
-  const actor = await requirePerm("payments");
+  const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
   const existing = await prisma.expense.findFirst({
     where: { id: expenseId, tenantId },
@@ -4240,7 +4240,7 @@ export async function createOtherIncome(data: {
   repeatAnchorDate?: Date | null;
   repeatEndsAt?: Date | null;
 }) {
-  const actor = await requirePerm("payments");
+  const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
   const category = getOtherIncomeCategory(data.category);
   const amount = Number(data.amount);
@@ -4289,7 +4289,7 @@ export async function createOtherIncome(data: {
 }
 
 export async function deleteExpense(expenseId: number) {
-  const actor = await requirePerm("payments");
+  const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
   const expense = await requireTenantExpense(tenantId, expenseId);
   await prisma.expense.delete({ where: { id: expense.id } });
@@ -4297,7 +4297,7 @@ export async function deleteExpense(expenseId: number) {
 }
 
 export async function deleteOtherIncome(otherIncomeId: number) {
-  const actor = await requirePerm("payments");
+  const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
   const income = await requireTenantOtherIncome(tenantId, otherIncomeId);
   await prisma.otherIncome.delete({ where: { id: income.id } });
@@ -4309,7 +4309,7 @@ export async function getAccountingPage(options?: {
   dateFrom?: Date | null;
   dateTo?: Date | null;
 }) {
-  const actor = await requirePerm("payments");
+  const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
   await Promise.all([
     materialiseRecurringExpenseTemplates(tenantId),

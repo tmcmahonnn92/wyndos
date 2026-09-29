@@ -13,7 +13,8 @@ export const PERMISSIONS = {
   ROUTE_OPTIMISER: "routeoptimiser", // optimise daily route order in scheduler
   CUSTOMERS:   "customers",   // view & manage customers
   AREAS:       "areas",       // view & manage round areas
-  PAYMENTS:    "payments",    // view & log customer payments
+  PAYMENTS:    "payments",    // all customer payments & invoices (doorstep payments on their own jobs need no permission)
+  ACCOUNTING:  "accounting",  // expenses, other income, business finances
   SETTINGS:    "settings",    // access business settings
   VIEW_PRICES: "viewprices",  // see job/customer prices
   MESSAGING:   "messaging",   // send texts: day reminders and bulk messages
@@ -22,7 +23,14 @@ export const PERMISSIONS = {
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
 
 export const ALL_PERMISSIONS: Permission[] = [
-  "dashboard", "schedule", "scheduler", "routeoptimiser", "customers", "areas", "payments", "settings", "viewprices", "messaging",
+  // Their own work
+  "dashboard", "schedule", "viewprices",
+  // Customers and money
+  "customers", "payments", "messaging",
+  // Planning
+  "scheduler", "areas", "routeoptimiser",
+  // Office
+  "accounting", "settings",
 ];
 
 /**
@@ -46,7 +54,7 @@ export const ROLE_PRESETS: Array<{ key: string; label: string; description: stri
     key: "office",
     label: "Office / admin",
     description: "Everything except business settings.",
-    permissions: ["dashboard", "schedule", "scheduler", "routeoptimiser", "customers", "areas", "payments", "viewprices", "messaging"],
+    permissions: ["dashboard", "schedule", "scheduler", "routeoptimiser", "customers", "areas", "payments", "viewprices", "messaging", "accounting"],
   },
 ];
 
@@ -54,16 +62,17 @@ export const ROLE_PRESETS: Array<{ key: string; label: string; description: stri
 export const DEFAULT_WORKER_PERMISSIONS: Permission[] = ["dashboard", "schedule", "viewprices"];
 
 export const PERMISSION_LABELS: Record<Permission, { label: string; description: string }> = {
-  dashboard:  { label: "Dashboard",    description: "Access the main dashboard"            },
-  schedule:   { label: "Schedule",     description: "View & manage work days and runs"     },
-  scheduler:  { label: "Scheduler",    description: "Use the drag-drop scheduler"          },
-  routeoptimiser: { label: "Route Optimiser", description: "Optimise route order in Scheduler" },
-  customers:  { label: "Customers",    description: "View & manage the customer list"      },
-  areas:      { label: "Areas",        description: "View & manage round areas"            },
-  payments:   { label: "Payments",     description: "View & log customer payments"         },
-  settings:   { label: "Settings",     description: "Access business settings"             },
-  viewprices: { label: "View Prices",  description: "See job and customer prices"          },
-  messaging:  { label: "Texts",        description: "Send day reminders and bulk texts"    },
+  dashboard:  { label: "Dashboard",     description: "Home screen with today's work"                          },
+  schedule:   { label: "Their days",    description: "See and work their own days, take payment at the door"  },
+  viewprices: { label: "See prices",    description: "Prices and amounts owed on their jobs"                  },
+  customers:  { label: "Customers",     description: "Customer list: view, add and edit; quotes"              },
+  payments:   { label: "All payments",  description: "Every customer payment, log or edit any, invoices"      },
+  messaging:  { label: "Texts",         description: "Send day reminders and bulk texts"                      },
+  scheduler:  { label: "Plan the diary", description: "Scheduler: book, move and give out days"               },
+  areas:      { label: "Areas",         description: "Create and change areas and their frequency"            },
+  routeoptimiser: { label: "Route optimiser", description: "Optimise route order (hidden for now)"            },
+  accounting: { label: "Accounting",    description: "Expenses, other income and business finances"           },
+  settings:   { label: "Settings",      description: "Business settings (not team or data)"                   },
 };
 
 /** Parse the stored JSON permissions string back into a Permission array. */
