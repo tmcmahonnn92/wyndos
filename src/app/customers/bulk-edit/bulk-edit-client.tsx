@@ -12,46 +12,85 @@ type Customer = {
   id: number;
   name: string;
   address: string;
+  houseNameNumber: string;
+  street: string;
+  town: string;
+  postcode: string;
   areaId: number;
   price: number;
   frequencyWeeks: number;
   notes: string | null;
   active: boolean;
+  phone: string;
+  email: string;
+  preferredPaymentMethod: string;
+  slip: boolean;
+  advanceNotice: boolean;
 };
 
 type Draft = {
   name: string;
-  address: string;
+  houseNameNumber: string;
+  street: string;
+  town: string;
+  postcode: string;
   areaId: number;
   price: string; // string for input control
   frequencyWeeks: number;
   notes: string;
   active: boolean;
+  phone: string;
+  email: string;
+  preferredPaymentMethod: string;
+  slip: boolean;
+  advanceNotice: boolean;
 };
+
+const TEXT_FIELDS = ["name", "houseNameNumber", "street", "town", "postcode", "phone", "email", "preferredPaymentMethod"] as const;
 
 function initDraft(c: Customer): Draft {
   return {
     name: c.name,
-    address: c.address,
+    houseNameNumber: c.houseNameNumber,
+    street: c.street,
+    town: c.town,
+    postcode: c.postcode,
     areaId: c.areaId,
     price: c.price.toFixed(2),
     frequencyWeeks: c.frequencyWeeks,
     notes: c.notes ?? "",
     active: c.active,
+    phone: c.phone,
+    email: c.email,
+    preferredPaymentMethod: c.preferredPaymentMethod,
+    slip: c.slip,
+    advanceNotice: c.advanceNotice,
   };
 }
 
 function isDirty(original: Customer, draft: Draft): boolean {
   return (
-    draft.name.trim() !== original.name ||
-    draft.address.trim() !== original.address ||
+    TEXT_FIELDS.some((key) => draft[key].trim() !== (original[key] ?? "")) ||
     draft.areaId !== original.areaId ||
     parseFloat(draft.price) !== original.price ||
     draft.frequencyWeeks !== original.frequencyWeeks ||
     draft.notes.trim() !== (original.notes ?? "") ||
-    draft.active !== original.active
+    draft.active !== original.active ||
+    draft.slip !== original.slip ||
+    draft.advanceNotice !== original.advanceNotice
   );
 }
+
+const PAY_OPTIONS = [
+  { value: "", label: "–" },
+  { value: "CASH", label: "Cash" },
+  { value: "BACS", label: "Bank" },
+  { value: "CARD", label: "Card" },
+  { value: "DD", label: "Direct Debit" },
+  { value: "INVOICE", label: "Invoice" },
+];
+
+const cellInput = "w-full rounded border border-transparent px-1 py-0.5 text-sm text-slate-700 bg-transparent focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400";
 
 export function BulkEditClient({
   customers,
@@ -99,7 +138,7 @@ export function BulkEditClient({
       if (filterDirty && !dirtyIds.includes(c.id)) return false;
       if (filterArea !== "all" && c.areaId !== Number(filterArea)) return false;
       const q = search.toLowerCase();
-      if (q && !c.name.toLowerCase().includes(q) && !c.address.toLowerCase().includes(q)) return false;
+      if (q && !`${c.name} ${c.address} ${c.phone} ${c.email} ${c.postcode}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [customers, search, filterArea, filterDirty, dirtyIds]);
@@ -196,12 +235,20 @@ export function BulkEditClient({
         return {
           id: c.id,
           name: d.name.trim(),
-          address: d.address.trim(),
+          houseNameNumber: d.houseNameNumber.trim(),
+          street: d.street.trim(),
+          town: d.town.trim(),
+          postcode: d.postcode.trim(),
           areaId: d.areaId,
           price,
           frequencyWeeks: d.frequencyWeeks,
           notes: d.notes.trim() || undefined,
           active: d.active,
+          phone: d.phone.trim(),
+          email: d.email.trim(),
+          preferredPaymentMethod: d.preferredPaymentMethod,
+          slip: d.slip,
+          advanceNotice: d.advanceNotice,
         };
       });
     if (updates.length === 0) return;
@@ -452,10 +499,18 @@ export function BulkEditClient({
               </th>
               {[
                 { label: "Name", w: "min-w-[160px]" },
-                { label: "Address", w: "min-w-[220px]" },
+                { label: "House no./name", w: "min-w-[110px]" },
+                { label: "Street", w: "min-w-[150px]" },
+                { label: "Town", w: "min-w-[110px]" },
+                { label: "Postcode", w: "min-w-[90px]" },
                 { label: "Area", w: "min-w-[130px]" },
                 { label: "Price (£)", w: "min-w-[90px]" },
-                { label: "Frequency", w: "min-w-[150px]" },
+                { label: "Every (wks)", w: "min-w-[80px]" },
+                { label: "Phone", w: "min-w-[130px]" },
+                { label: "Email", w: "min-w-[170px]" },
+                { label: "Usually pays", w: "min-w-[110px]" },
+                { label: "Slip", w: "min-w-[50px] text-center" },
+                { label: "Notice", w: "min-w-[60px] text-center" },
                 { label: "Active", w: "min-w-[70px] text-center" },
                 { label: "Notes", w: "min-w-[200px]" },
               ].map(({ label, w }) => (
@@ -501,15 +556,18 @@ export function BulkEditClient({
                     />
                   </td>
 
-                  {/* Address */}
-                  <td className={cn("border-b border-slate-100 px-3 py-1.5", dirty && "border-amber-200")}>
-                    <input
-                      type="text"
-                      value={d.address}
-                      onChange={(e) => update(c.id, { address: e.target.value })}
-                      className="w-full rounded border border-transparent px-1 py-0.5 text-sm text-slate-600 bg-transparent focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                    />
-                  </td>
+                  {/* Address parts */}
+                  {(["houseNameNumber", "street", "town", "postcode"] as const).map((key) => (
+                    <td key={key} className={cn("border-b border-slate-100 px-3 py-1.5", dirty && "border-amber-200")}>
+                      <input
+                        type="text"
+                        aria-label={key}
+                        value={d[key]}
+                        onChange={(e) => update(c.id, { [key]: e.target.value } as Partial<Draft>)}
+                        className={cn(cellInput, key === "postcode" && "uppercase")}
+                      />
+                    </td>
+                  ))}
 
                   {/* Area */}
                   <td className={cn("border-b border-slate-100 px-3 py-1.5", dirty && "border-amber-200")}>
@@ -539,13 +597,55 @@ export function BulkEditClient({
                     </div>
                   </td>
 
-                  {/* Frequency */}
+                  {/* Frequency (each customer can differ from their area) */}
                   <td className={cn("border-b border-slate-100 px-3 py-1.5", dirty && "border-amber-200")}>
-                    <div className="rounded border border-slate-200 px-2 py-1 text-sm text-slate-600 bg-slate-50">
-                      Every {d.frequencyWeeks} week{d.frequencyWeeks !== 1 ? "s" : ""}
-                      <span className="ml-2 text-xs text-slate-400">(from area)</span>
-                    </div>
+                    <input
+                      type="number"
+                      min={1}
+                      max={52}
+                      aria-label="Every (weeks)"
+                      value={d.frequencyWeeks}
+                      onChange={(e) => update(c.id, { frequencyWeeks: Math.max(1, Number(e.target.value) || 1) })}
+                      className="w-16 rounded border border-slate-200 px-1.5 py-0.5 text-sm text-slate-800 bg-white focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    />
                   </td>
+
+                  {/* Phone / email */}
+                  {(["phone", "email"] as const).map((key) => (
+                    <td key={key} className={cn("border-b border-slate-100 px-3 py-1.5", dirty && "border-amber-200")}>
+                      <input
+                        type={key === "email" ? "email" : "tel"}
+                        aria-label={key}
+                        value={d[key]}
+                        onChange={(e) => update(c.id, { [key]: e.target.value } as Partial<Draft>)}
+                        className={cellInput}
+                      />
+                    </td>
+                  ))}
+
+                  {/* Usually pays */}
+                  <td className={cn("border-b border-slate-100 px-3 py-1.5", dirty && "border-amber-200")}>
+                    <select
+                      aria-label="Usually pays"
+                      value={d.preferredPaymentMethod}
+                      onChange={(e) => update(c.id, { preferredPaymentMethod: e.target.value })}
+                      className="w-full rounded border border-slate-200 px-1.5 py-0.5 text-sm text-slate-700 bg-white"
+                    >
+                      {PAY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </td>
+
+                  {/* Slip / advance notice */}
+                  {(["slip", "advanceNotice"] as const).map((key) => (
+                    <td key={key} className={cn("border-b border-slate-100 px-3 py-1.5 text-center", dirty && "border-amber-200")}>
+                      <input
+                        type="checkbox"
+                        aria-label={key}
+                        checked={d[key]}
+                        onChange={(e) => update(c.id, { [key]: e.target.checked } as Partial<Draft>)}
+                      />
+                    </td>
+                  ))}
 
                   {/* Active */}
                   <td className={cn("border-b border-slate-100 px-3 py-1.5 text-center", dirty && "border-amber-200")}>
@@ -583,7 +683,7 @@ export function BulkEditClient({
             })}
             {visible.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-12 text-center text-slate-400 text-sm">
+                <td colSpan={16} className="py-12 text-center text-slate-400 text-sm">
                   No customers match your filters.
                 </td>
               </tr>

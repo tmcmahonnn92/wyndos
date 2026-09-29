@@ -795,7 +795,8 @@ export async function createOneOffJob(data: {
   price?: number;
   notes?: string;
 }) {
-  const actor = await requirePerm("scheduler");
+  // Workers can add one-offs too (e.g. asked on the doorstep); theirs go on their own day.
+  const actor = await requirePerm("schedule");
   const tenantId = actor.tenantId;
   const d = utcDay(data.date);
   if (isNaN(d.getTime())) throw new Error("Invalid date — please select a valid date.");
@@ -819,7 +820,7 @@ export async function createOneOffJob(data: {
     return { workDay: existing.workDay, job: existing, alreadyExisted: true };
   }
 
-  const workDay = await prisma.workDay.create({ data: { tenantId, date: d } });
+  const workDay = await prisma.workDay.create({ data: { tenantId, date: d, ...(actor.isWorker ? { assignedUserId: actor.userId } : {}) } });
 
   const job = await prisma.job.create({ data: { tenantId,
       workDayId: workDay.id,
@@ -940,6 +941,9 @@ export async function bulkImportCustomers(
     nextDueDate?: string;
     frequencyWeeks?: number;
     slip?: boolean;
+    lastCompletedDate?: string;
+    tags?: string[];
+    active?: boolean;
   }>,
   options: {
     createMissingAreas?: boolean;
@@ -974,6 +978,30 @@ export async function bulkImportCustomers(
   // Start offset from existing area count so re-imports get fresh colours
   const existingAreaCount = await prisma.area.count({ where: { tenantId } });
   let colourIndex = existingAreaCount % AREA_COLOURS.length;
+
+  // Tags by name, created on first use (one lookup per name for the whole import).
+  const tagIds = new Map<string, number>();
+  const linkImportTags = async (customerId: number, names?: string[]) => {
+    for (const raw of names ?? []) {
+      const name = raw.trim().slice(0, 40);
+      if (!name) continue;
+      let tagId = tagIds.get(name.toLowerCase());
+      if (!tagId) {
+        const tag = await prisma.tag.upsert({
+          where: { tenantId_name: { tenantId, name } },
+          create: { tenantId, name },
+          update: {},
+        });
+        tagId = tag.id;
+        tagIds.set(name.toLowerCase(), tagId);
+      }
+      await prisma.customerTag.upsert({
+        where: { customerId_tagId: { customerId, tagId } },
+        create: { customerId, tagId },
+        update: {},
+      });
+    }
+  };
 
   // Towns seen anywhere in the sheet help split "eden house cuckney" into name + town.
   const knownTowns = collectKnownTowns(records.map((r) => r.address ?? ""));
@@ -1039,6 +1067,8 @@ export async function bulkImportCustomers(
         // The order of rows in the sheet is the walking order of the round.
         sortOrder: i,
         ...(r.slip !== undefined ? { slip: r.slip } : {}),
+        ...(r.active !== undefined ? { active: r.active } : {}),
+        ...(r.lastCompletedDate ? { lastCompletedDate: new Date(r.lastCompletedDate + "T00:00:00.000Z") } : {}),
       };
 
       // ── Create or update ────────────────────────────────────────────────────
@@ -1051,13 +1081,16 @@ export async function bulkImportCustomers(
         });
         if (existing) {
           await prisma.customer.update({ where: { id: existing.id }, data: customerData });
+          await linkImportTags(existing.id, r.tags);
           updated++;
         } else {
-          await prisma.customer.create({ data: { tenantId, name: r.name.trim(), ...customerData } });
+          const made = await prisma.customer.create({ data: { tenantId, name: r.name.trim(), ...customerData } });
+          await linkImportTags(made.id, r.tags);
           created++;
         }
       } else {
-        await prisma.customer.create({ data: { tenantId, name: r.name.trim(), ...customerData } });
+        const made = await prisma.customer.create({ data: { tenantId, name: r.name.trim(), ...customerData } });
+        await linkImportTags(made.id, r.tags);
         created++;
       }
     } catch (e) {
@@ -1545,6 +1578,15 @@ export async function bulkUpdateCustomers(
     frequencyWeeks?: number;
     notes?: string;
     active?: boolean;
+    houseNameNumber?: string;
+    street?: string;
+    town?: string;
+    postcode?: string;
+    phone?: string;
+    email?: string;
+    preferredPaymentMethod?: string;
+    slip?: boolean;
+    advanceNotice?: boolean;
   }>
 ) {
   const actor = await requirePerm("customers");
@@ -1570,13 +1612,16 @@ export async function bulkUpdateCustomers(
       });
       if (!area) continue;
 
-      const { id, frequencyWeeks: _ignoredFrequencyWeeks, ...rest } = update;
+      const { id, frequencyWeeks, address: _a, houseNameNumber: _h, street: _s, town: _t, postcode: _p, ...rest } = update;
+      // Address parts rebuild the display line; each customer keeps their own frequency.
+      const addressFields = resolveAddress(update);
       await tx.customer.update({
         where: { id },
         data: {
           ...rest,
+          ...(addressFields?.address ? addressFields : {}),
           areaId: resolvedAreaId,
-          frequencyWeeks: area?.frequencyWeeks ?? 4,
+          frequencyWeeks: frequencyWeeks ?? (update.areaId !== undefined && update.areaId !== current.areaId ? area?.frequencyWeeks ?? 4 : undefined),
         },
       });
     }
@@ -1962,14 +2007,15 @@ export async function createOneOffCustomerAndBookByDate(
   },
   date: Date
 ) {
-  const actor = await requirePerm("scheduler");
+  const actor = await requirePerm("schedule");
   const tenantId = actor.tenantId;
   const d = utcDay(date);
   if (isNaN(d.getTime())) throw new Error("Invalid date — please select a valid date.");
 
   let areaId: number;
   let freqWeeks: number;
-  if (data.areaId) {
+  // A worker's new customer is a one-off; the owner decides whether they join a round.
+  if (data.areaId && !actor.isWorker) {
     const area = await requireTenantArea(tenantId, data.areaId);
     areaId = area.id;
     freqWeeks = data.frequencyWeeks ?? 4;
@@ -1994,7 +2040,7 @@ export async function createOneOffCustomerAndBookByDate(
 
   // Each one-off books onto its own standalone (area-less) work day so they stay
   // separate in the scheduler rather than being grouped under the first job.
-  const workDay = await prisma.workDay.create({ data: { tenantId, date: d } });
+  const workDay = await prisma.workDay.create({ data: { tenantId, date: d, ...(actor.isWorker ? { assignedUserId: actor.userId } : {}) } });
 
   await prisma.job.create({ data: { tenantId, workDayId: workDay.id, customerId: customer.id, price: customer.price, isOneOff: true },
   });
@@ -2028,13 +2074,14 @@ export async function createQuoteVisit(
   dateISO: string,
   assignedUserId?: string | null,
 ) {
-  const actor = await requirePerm("scheduler");
+  // Workers can book quote visits too (asked on the doorstep); they go on the worker's own day.
+  const actor = await requirePerm("schedule");
   const tenantId = actor.tenantId;
   const date = isoToUTC(dateISO);
   if (!data.name?.trim() || !data.address?.trim()) throw new Error("Name and address are required.");
 
-  const area = data.areaId ? await requireTenantArea(tenantId, data.areaId) : await getOrCreateOneOffSystemArea(tenantId);
-  const workerId = await resolveAssignedWorkerId(tenantId, assignedUserId);
+  const area = data.areaId && !actor.isWorker ? await requireTenantArea(tenantId, data.areaId) : await getOrCreateOneOffSystemArea(tenantId);
+  const workerId = actor.isWorker ? actor.userId : await resolveAssignedWorkerId(tenantId, assignedUserId);
 
   const customer = await prisma.customer.create({ data: {
     tenantId,

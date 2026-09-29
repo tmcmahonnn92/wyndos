@@ -22,6 +22,7 @@ import { bulkImportCustomers, deleteAllCustomers, bulkImportJobHistory } from "@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { composeAddress, type AddressParts } from "@/lib/address";
+import { ukMobile } from "@/lib/text-format";
 import {
   normalisePaymentMethod,
   parsePrice,
@@ -65,7 +66,7 @@ interface FieldDef {
 
 const FIELDS: FieldDef[] = [
   { key: "name",    label: "Customer Name",    required: true,  type: "text", defaultValue: "" },
-  { key: "address", label: "Address (full line)", required: true,  type: "text", defaultValue: "" },
+  { key: "address", label: "Address (full line)", required: false, type: "text", defaultValue: "" },
   { key: "houseNameNumber", label: "House name / number", required: false, type: "text" },
   { key: "street",  label: "Street",           required: false, type: "text" },
   { key: "town",    label: "Town / village",   required: false, type: "text" },
@@ -77,11 +78,14 @@ const FIELDS: FieldDef[] = [
   { key: "notes",   label: "Notes",            required: false, type: "text" },
   { key: "jobName", label: "Job Name",         required: false, type: "text", defaultValue: "Window Cleaning" },
   { key: "nextDueDate", label: "Next Due Date", required: false, type: "date" },
+  { key: "lastCompletedDate", label: "Last Cleaned", required: false, type: "date" },
   { key: "preferredPaymentMethod", label: "Payment Method", required: false, type: "select",
     options: ["", "CASH", "BACS", "CARD", "DD", "INVOICE"] },
   { key: "advanceNotice", label: "Advance Notice", required: false, type: "boolean" },
   { key: "frequencyWeeks", label: "Frequency (Weeks)", required: false, type: "number", defaultValue: "" },
   { key: "slip", label: "Leave a slip", required: false, type: "boolean" },
+  { key: "tags", label: "Tags (comma or ; separated)", required: false, type: "text" },
+  { key: "active", label: "Active (Yes / No)", required: false, type: "boolean" },
 ];
 
 const COLOUR_PALETTE = [
@@ -158,7 +162,11 @@ function buildAutoMapping(headers: string[]): Record<string, MappingConfig> {
     housenumber: "houseNameNumber", houseno: "houseNameNumber", number: "houseNameNumber", no: "houseNameNumber",
     housename: "houseNameNumber", housenamenumber: "houseNameNumber",
     village: "area", town: "area", round: "area", route: "area",
-    telephonenumber: "phone", phonenumber: "phone", contact: "phone",
+    telephonenumber: "phone", phonenumber: "phone", contact: "phone", mobilenumber: "phone", mobilephone: "phone",
+    // Headings used by Wyndos' own export, so an export can be re-imported as-is.
+    housenoname: "houseNameNumber", everyweeks: "frequencyWeeks", usuallypays: "preferredPaymentMethod",
+    lastcleaned: "lastCompletedDate", lastclean: "lastCompletedDate", lastdone: "lastCompletedDate", lastcompleted: "lastCompletedDate",
+    tags: "tags", tag: "tags", active: "active",
   };
   const out: Record<string, MappingConfig> = {};
   FIELDS.forEach((f) => {
@@ -171,6 +179,14 @@ function buildAutoMapping(headers: string[]): Record<string, MappingConfig> {
       out[f.key] = { source: f.required ? "column" : "skip" };
     }
   });
+  // A sheet with its own Area column: "Town" is the town part of the address, not the area.
+  const areaHeader = lower.findIndex((lh) => lh === "area" || lh === "round" || lh === "route");
+  const townHeader = lower.findIndex((lh) => lh === "town" || lh === "village" || lh === "towncity" || lh === "townvillage");
+  if (areaHeader >= 0 && townHeader >= 0) {
+    out.area = { source: "column", column: headers[areaHeader] };
+    out.town = { source: "column", column: headers[townHeader] };
+  }
+
   // Many sheets use the address as the name ("2 lake view"): use it for both.
   // Not when the sheet has separate street/house columns: the line is built from those.
   const hasPartColumns = ["houseNameNumber", "street"].some((k) => out[k]?.source === "column" && out[k]?.column);
@@ -192,9 +208,9 @@ function buildAutoMapping(headers: string[]): Record<string, MappingConfig> {
 
 // ── Template CSV ──────────────────────────────────────────────────────────────
 
-const TEMPLATE_HEADERS = "Name,Address,Price,Area,Email,Phone,Notes,Job Name,Next Due Date,Payment Method,Advance Notice,Frequency (Weeks)";
-const TEMPLATE_SAMPLE = `John Smith,123 High Street Nottingham,35.00,Edwinstowe,john@example.com,07700900123,Side gate code: 1234,Window Cleaning,2026-05-19,CASH,false,4
-Jane Doe,456 Oak Avenue Mansfield,28.00,Edwinstowe,,,Front only,,, ,false,8`;
+const TEMPLATE_HEADERS = "Name,House no./name,Street,Town,Postcode,Area,Price,Every (weeks),Next due,Last cleaned,Phone,Email,Usually pays,Slip,Advance notice,Job name,Tags,Notes";
+const TEMPLATE_SAMPLE = `John Smith,29,Beardsley Road,Edwinstowe,NG21 9AA,Edwinstowe,15.00,4,19/10/2026,21/09/2026,07700 900123,john@example.com,Cash,Yes,No,Window Cleaning,,Side gate code 1234
+Jane Doe,Eden House,Main Street,Cuckney,NG20 9NB,Cuckney,40.00,8,,,07700 900456,,Bank transfer,No,Yes,Windows + conservatory roof,VIP; Gutters,Ring before`;
 
 // ── History fields & helpers ─────────────────────────────────────────────────
 
@@ -253,6 +269,10 @@ type PreviewRow = {
   advanceNotice: string;
   frequencyWeeks: string;
   slip: boolean | undefined;
+  lastCompletedDate: string;
+  tags: string[];
+  active: boolean | undefined;
+  noMobile: boolean;
   newAreaKey: string | null;  // key into newAreaConfigs (set when areaIsNew=true)
   errors: string[];
 };
@@ -440,6 +460,9 @@ export function ImportClient({ areas }: { areas: Area[] }) {
       if (rawDate.trim() && !dateStr) {
         errors.push("Next due date not recognised (use 31/12/2026)");
       }
+      const rawLast = g("lastCompletedDate");
+      const lastDate = parseUkDate(rawLast);
+      if (rawLast.trim() && !lastDate) errors.push("Last cleaned date not recognised (use 31/12/2026)");
 
       return {
         index: i + 1,
@@ -458,6 +481,10 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         advanceNotice: parseYes(g("advanceNotice")) ? "true" : "false",
         frequencyWeeks: g("frequencyWeeks").replace(/[^0-9]/g, ""),
         slip: mappings["slip"]?.source === "skip" || !mappings["slip"] ? undefined : parseSlip(g("slip")),
+        lastCompletedDate: lastDate,
+        tags: g("tags").split(/[;,]/).map((t) => t.trim()).filter(Boolean),
+        active: mappings["active"]?.source === "skip" || !mappings["active"] ? undefined : !/^(no|n|false|0|inactive)$/i.test(g("active").trim()),
+        noMobile: Boolean(g("phone").trim()) && !ukMobile(g("phone")),
         newAreaKey: null,
         errors,
       };
@@ -562,6 +589,9 @@ export function ImportClient({ areas }: { areas: Area[] }) {
           advanceNotice: r.advanceNotice === "true",
           frequencyWeeks: r.frequencyWeeks ? parseInt(r.frequencyWeeks, 10) || undefined : undefined,
           slip: r.slip,
+          lastCompletedDate: r.lastCompletedDate || undefined,
+          tags: r.tags.length ? r.tags : undefined,
+          active: r.active,
         })),
         {
           createMissingAreas: forceName || createMissingAreas || valid.some((r) => r.areaIsNew),
@@ -1330,7 +1360,10 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                       ) : <span className="text-red-400 italic cursor-pointer" onClick={() => openRowEdit(row)}>{row.area || "missing"}</span>}
                     </td>
                     <td className="px-3 py-2 text-slate-500 max-w-[100px] truncate">{row.email || "—"}</td>
-                    <td className="px-3 py-2 text-slate-500">{row.phone || "—"}</td>
+                    <td className="px-3 py-2 text-slate-500">
+                      {row.phone || "—"}
+                      {row.noMobile && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800" title="Texts only go to UK mobiles (07…)">not a mobile</span>}
+                    </td>
                     <td className="px-3 py-2">
                       {isEditing ? (
                         <div className="flex gap-1">

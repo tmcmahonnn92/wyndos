@@ -26,6 +26,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { OneOffJobModal } from "@/app/days/one-off-job-modal";
 
 const navItems = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard, desktopOnly: false, permission: "dashboard"  },
@@ -158,6 +159,7 @@ export function Nav({
   const currentRole = activeRole ?? user.role;
   const isWorker = currentRole === "WORKER";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [quickModal, setQuickModal] = useState<"search" | "quote" | null>(null);
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -191,10 +193,11 @@ export function Nav({
   // Only offer what this person is allowed to do (a worker without "customers"
   // would otherwise land on a page that bounces them away).
   const can = (...needed: string[]) => !isWorker || needed.every((p) => permissions.includes(p));
-  const mobileQuickActions = [
+  // One-off jobs and quote visits open right here (workers can add them too, onto their own day).
+  const mobileQuickActions: Array<{ href?: string; mode?: "search" | "quote"; label: string; icon: typeof Zap; ok: boolean }> = [
     { href: "/customers?action=new-customer", label: "New Customer", icon: UserPlus, ok: can("customers") },
-    { href: "/days?action=new-one-off", label: "One-off Job", icon: Zap, ok: can("schedule", "scheduler") },
-    { href: "/quotes?action=book", label: "Book Quote", icon: ClipboardList, ok: can("customers", "scheduler") },
+    { mode: "search" as const, label: "One-off Job", icon: Zap, ok: can("schedule") },
+    { mode: "quote" as const, label: "Book Quote", icon: ClipboardList, ok: can("schedule") },
   ].filter((action) => action.ok);
 
   return (
@@ -310,17 +313,20 @@ export function Nav({
               <p className="px-1 pb-1 text-xs text-[#94a3b8]">Nothing to add with your account. Ask the owner if you need to.</p>
             )}
             <div className="grid grid-cols-1 gap-2">
-              {mobileQuickActions.map(({ href, label, icon: Icon }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-medium transition-colors border-[#1E2840] bg-[#131929] text-[#cbd5e1] hover:bg-[#16233D] hover:text-[#F8FAFF]"
-                >
-                  <Icon size={16} />
-                  <span className="truncate">{label}</span>
-                </Link>
-              ))}
+              {mobileQuickActions.map(({ href, mode, label, icon: Icon }) => {
+                const cls = "flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-medium transition-colors border-[#1E2840] bg-[#131929] text-[#cbd5e1] hover:bg-[#16233D] hover:text-[#F8FAFF] text-left";
+                return href ? (
+                  <Link key={label} href={href} onClick={() => setMobileMenuOpen(false)} className={cls}>
+                    <Icon size={16} />
+                    <span className="truncate">{label}</span>
+                  </Link>
+                ) : (
+                  <button key={label} type="button" onClick={() => { setMobileMenuOpen(false); setQuickModal(mode ?? "search"); }} className={cls}>
+                    <Icon size={16} />
+                    <span className="truncate">{label}</span>
+                  </button>
+                );
+              })}
             </div>
             {mobileMoreItems.length > 0 && (
               <>
@@ -387,6 +393,9 @@ export function Nav({
           </button>
         </div>
       </nav>
+      {quickModal && (
+        <OneOffJobModal key={quickModal} open initialMode={quickModal} onClose={() => setQuickModal(null)} />
+      )}
     </>
   );
 }

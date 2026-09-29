@@ -1,5 +1,6 @@
 import { getCustomers, getAreas } from "@/lib/actions";
 import { requirePermission } from "@/lib/tenant-context";
+import { addressPartsOf } from "@/lib/address";
 import { BulkEditClient } from "./bulk-edit-client";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,12 @@ export default async function BulkEditPage() {
     id: c.id,
     name: c.name,
     address: c.address,
+    ...addressPartsOf(c),
+    phone: c.phone ?? "",
+    email: c.email ?? "",
+    preferredPaymentMethod: c.preferredPaymentMethod ?? "",
+    slip: c.slip ?? true,
+    advanceNotice: c.advanceNotice ?? false,
     areaId: c.areaId,
     price: c.price,
     frequencyWeeks: c.frequencyWeeks,
