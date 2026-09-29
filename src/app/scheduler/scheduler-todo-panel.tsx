@@ -13,20 +13,18 @@ export function SchedulerTodoPanel({ summary }: { summary: SchedulerTodoSummary 
       icon: AlertCircle,
       count: summary.overdueAreas.count,
       accent: "text-red-600",
-      href: "/scheduler",
-      detail: summary.overdueAreas.count > 0
-        ? summary.overdueAreas.items.map((area) => `${area.name} · ${fmtDate(area.dueDate)}`).join("\n")
-        : "No overdue areas right now.",
+      href: null,
+      links: summary.overdueAreas.items.map((area) => ({ href: `/scheduler?area=${area.id}`, label: `${area.name} · ${fmtDate(area.dueDate)}` })),
+      detail: "No overdue areas right now.",
     },
     {
       title: "Holiday Conflicts",
       icon: CalendarDays,
       count: summary.holidayConflicts.count,
       accent: "text-amber-600",
-      href: "/scheduler",
-      detail: summary.holidayConflicts.count > 0
-        ? summary.holidayConflicts.items.map((day) => `${day.name} · ${fmtDate(day.date)}`).join("\n")
-        : "No scheduled work is landing on a holiday.",
+      href: null,
+      links: summary.holidayConflicts.items.map((day) => ({ href: `/scheduler?day=${day.id}`, label: `${day.name} · ${fmtDate(day.date)}` })),
+      detail: "No scheduled work is landing on a holiday.",
     },
     {
       title: "Customers Owing",
@@ -34,6 +32,7 @@ export function SchedulerTodoPanel({ summary }: { summary: SchedulerTodoSummary 
       count: summary.customersOwing.count,
       accent: "text-blue-600",
       href: "/payments",
+      links: [] as Array<{ href: string; label: string }>,
       detail: summary.customersOwing.count > 0
         ? `${summary.customersOwing.count} customer${summary.customersOwing.count === 1 ? "" : "s"} owe ${fmtCurrency(summary.customersOwing.totalAmount)}.`
         : "No customer debt at the moment.",
@@ -62,10 +61,24 @@ export function SchedulerTodoPanel({ summary }: { summary: SchedulerTodoSummary 
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <p className="whitespace-pre-line text-xs text-slate-500">{card.detail}</p>
-                <Link href={card.href} className="text-xs font-semibold text-blue-600 hover:underline">
-                  Open →
-                </Link>
+                {card.links.length > 0 ? (
+                  <ul className="space-y-1">
+                    {card.links.map((link) => (
+                      <li key={link.href}>
+                        <Link href={link.href} className="block rounded-md px-1.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50">
+                          {link.label} →
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="whitespace-pre-line text-xs text-slate-500">{card.detail}</p>
+                )}
+                {card.href && (
+                  <Link href={card.href} className="text-xs font-semibold text-blue-600 hover:underline">
+                    Open →
+                  </Link>
+                )}
               </CardContent>
             </Card>
           );

@@ -109,20 +109,24 @@ export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
         </button>
       </form>
 
-      <div className="relative py-1 text-center">
-        <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-slate-800" />
-        <span className="relative bg-slate-900 px-3 text-xs uppercase tracking-[0.25em] text-slate-500">or</span>
-      </div>
+      {googleEnabled && (
+        <div className="relative py-1 text-center">
+          <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-slate-800" />
+          <span className="relative bg-slate-900 px-3 text-xs uppercase tracking-[0.25em] text-slate-500">or</span>
+        </div>
+      )}
 
-      <button
-        type="button"
-        onClick={handleGoogle}
-        disabled={!googleEnabled || isGooglePending}
-        className="flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-400 disabled:opacity-70"
-      >
-        <GoogleMark />
-        {googleEnabled ? (isGooglePending ? "Redirecting to Google..." : "Continue with Google") : "Google sign-in needs AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET"}
-      </button>
+      {googleEnabled && (
+        <button
+          type="button"
+          onClick={handleGoogle}
+          disabled={!googleEnabled || isGooglePending}
+          className="flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-400 disabled:opacity-70"
+        >
+          <GoogleMark />
+          {googleEnabled ? (isGooglePending ? "Redirecting to Google..." : "Continue with Google") : "Google sign-in needs AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET"}
+        </button>
+      )}
     </div>
   );
 }

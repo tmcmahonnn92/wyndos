@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useTransition, useCallback, useEffect, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ChevronLeft,
@@ -33,8 +33,7 @@ import {
   Users,
   UserRound,
   CheckSquare,
-  Square,
-} from "lucide-react";
+  Square, MessageSquare } from "lucide-react";
 import {
   assignWorkDayWorker,
   applyOptimizedRouteOrder,
@@ -66,6 +65,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { DayTeamBar, type TeamMember } from "@/app/days/[id]/day-team-bar";
+import { TextRemindersModal } from "@/app/days/[id]/text-reminders-modal";
 import { cn } from "@/lib/utils";
 import { EditAreaButton } from "@/app/days/edit-area-button";
 import { OneOffJobModal } from "@/app/days/one-off-job-modal";
@@ -1642,11 +1642,14 @@ function DayDetailModal({
   team,
   canAssignWorkers,
   canUseRouteOptimiser,
+  onTextReminders,
 }: {
   workDay: WorkDay | null;
   onClose: () => void;
   workers: WorkerOption[];
   team: TeamMember[] | null;
+  /** Opens the text reminders window for this day (null = not allowed). */
+  onTextReminders: ((workDayId: number) => void) | null;
   canAssignWorkers: boolean;
   canUseRouteOptimiser: boolean;
 }) {
@@ -2050,6 +2053,16 @@ function DayDetailModal({
               </button>
             </div>
           </div>
+        )}
+
+        {onTextReminders && workDay.status !== "COMPLETE" && localJobs.some((job) => job.status === "PENDING") && (
+          <button
+            type="button"
+            onClick={() => onTextReminders(workDay.id)}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <MessageSquare size={14} /> Text reminders
+          </button>
         )}
 
         {/* Customer list header with full-day link */}
@@ -2819,6 +2832,8 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
   const [notesDay, setNotesDay] = useState<WorkDay | null>(null);
   const [notesDayText, setNotesDayText] = useState("");
   const [expandedDay, setExpandedDay] = useState<WorkDay | null>(null);
+  const [textDayId, setTextDayId] = useState<number | null>(null);
+  const canText = viewerRole !== "WORKER" || viewerPermissions.includes("messaging");
   const [completedExpandedDay, setCompletedExpandedDay] = useState<WorkDay | null>(null);
 
   const handleNotesClick = useCallback((wd: WorkDay) => {
@@ -3012,6 +3027,30 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
       areaCard?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
   }, []);
+
+  // Links from the to-do panel: ?day=ID opens that day, ?area=ID opens the area's next open day
+  // (or shows the area card so it can be dragged onto a date).
+  const searchParams = useSearchParams();
+  const linkKey = `${searchParams.get("day") ?? ""}|${searchParams.get("area") ?? ""}`;
+  useEffect(() => {
+    const dayId = Number(searchParams.get("day"));
+    const areaId = Number(searchParams.get("area"));
+    if (!dayId && !areaId) return;
+    const target = dayId
+      ? workDays.find((wd) => wd.id === dayId)
+      : workDays
+          .filter((wd) => wd.areaId === areaId && wd.status !== "COMPLETE")
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0];
+    if (target) {
+      const d = new Date(target.date);
+      setMonthStart(startOfMonth(d));
+      setWeekStart(getMondayOfWeek(d));
+      setExpandedDay(target);
+    } else if (areaId) {
+      revealAreaCard(areaId);
+    }
+    router.replace("/scheduler", { scroll: false });
+  }, [linkKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAreaDragStart = useCallback((area: Area) => setDragState({ type: "area", area }), []);
   const handleWorkDayDragStart = useCallback((wd: WorkDay) => setDragState({ type: "workday", workDay: wd }), []);
@@ -3279,13 +3318,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
             >
               <Umbrella size={12} /> Holidays
             </button>
-            <button
-              onClick={() => { setAutoError(null); setAutoProgress(""); setAutoOpen(true); }}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg border border-blue-200 bg-white text-xs font-semibold text-blue-600 hover:bg-blue-50 hover:border-blue-300 transition-colors"
-              title="Auto-schedule unscheduled areas across chosen days"
-            >
-              <Zap size={12} /> Auto-schedule
-            </button>
+            {/* Auto-schedule hidden for now (the modal and logic are kept). */}
             <button
               onClick={() => setClearConfirmOpen(true)}
               className="flex items-center gap-1 px-2 py-1 rounded-lg border border-red-200 bg-white text-xs font-semibold text-red-500 hover:bg-red-50 hover:border-red-300 transition-colors"
@@ -3658,10 +3691,19 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
         workDay={expandedDay ? workDays.find((day) => day.id === expandedDay.id) ?? expandedDay : null}
         workers={workers}
         team={team}
+        onTextReminders={canText ? (id) => setTextDayId(id) : null}
         canAssignWorkers={canManageSchedule}
         canUseRouteOptimiser={canUseRouteOptimiser}
         onClose={() => setExpandedDay(null)}
       />
+      {canText && (
+        <TextRemindersModal
+          open={textDayId !== null}
+          onClose={() => setTextDayId(null)}
+          workDayIds={textDayId !== null ? [textDayId] : []}
+          canSaveDefault={viewerRole !== "WORKER"}
+        />
+      )}
       <CompletedWorkDayModal
         workDay={completedExpandedDay}
         onClose={() => setCompletedExpandedDay(null)}

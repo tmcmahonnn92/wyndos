@@ -548,6 +548,48 @@ export async function removeTeamMember(memberId: string): Promise<{ ok: boolean;
   }
 }
 
+/**
+ * Owner sets a new password for one of their workers (e.g. they forgot it and have
+ * no email access). Give the password to the worker; they can change it in Settings.
+ * Refused if that person also belongs to another business, so an owner can never
+ * take over someone else's account.
+ */
+export async function resetWorkerPassword(
+  memberId: string,
+  newPassword?: string,
+): Promise<{ ok: boolean; password?: string; error?: string }> {
+  try {
+    const caller = await requireOwnerOrAdmin();
+    const tenantId = caller.tenantId;
+    if (!tenantId) return { ok: false, error: "No tenant." };
+    if (caller.id === memberId) return { ok: false, error: "Use Settings → Security to change your own password." };
+    const member = await db.membership.findFirst({ where: { userId: memberId, tenantId, role: "WORKER" } });
+    if (!member) return { ok: false, error: "Worker not found." };
+    const elsewhere = await db.membership.count({ where: { userId: memberId, tenantId: { not: tenantId } } });
+    const user = await db.user.findUnique({ where: { id: memberId }, select: { role: true, tenantId: true } });
+    if (!user) return { ok: false, error: "Worker not found." };
+    if (elsewhere > 0 || user.role === "SUPER_ADMIN" || (user.tenantId !== null && user.tenantId !== tenantId)) {
+      return { ok: false, error: "This person also uses Wyndos for another business, so they need to use “Forgot password” themselves." };
+    }
+    const password = newPassword?.trim() || generateTempPassword();
+    if (password.length < 8) return { ok: false, error: "Password must be at least 8 characters." };
+    await db.user.update({ where: { id: memberId }, data: { passwordHash: await hash(password, 12) } });
+    return { ok: true, password };
+  } catch (err: any) {
+    return { ok: false, error: err.message ?? "Failed to reset password." };
+  }
+}
+
+/** Easy to read out or text: no 0/O or 1/l. */
+function generateTempPassword() {
+  const letters = "abcdefghjkmnpqrstuvwxyz";
+  const digits = "23456789";
+  const bytes = randomBytes(10);
+  const word = Array.from(bytes.subarray(0, 6), (b) => letters[b % letters.length]).join("");
+  const num = Array.from(bytes.subarray(6, 10), (b) => digits[b % digits.length]).join("");
+  return `${word}-${num}`;
+}
+
 /** Update the permissions for a worker account (OWNER only). */
 export async function updateWorkerPermissions(
   memberId: string,

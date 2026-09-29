@@ -6,11 +6,11 @@ import {
   Tag as TagIcon, Plus, Trash2, MessageSquare, Send,
   Loader2, CheckCircle2, AlertCircle, FileText,
   ExternalLink, ShieldCheck, ChevronDown, ChevronUp,
-  Users, UserX, Link2, RefreshCw,
-} from "lucide-react";
+  Users, UserX, Link2, RefreshCw, KeyRound, Database } from "lucide-react";
 import { updateBusinessSettings, createTag, deleteTag } from "@/lib/actions";
 import { runPaymentRemindersNow } from "@/lib/text-actions";
-import { createInvite, listTeamMembers, listPendingInvites, revokeInvite, removeTeamMember, updateWorkerPermissions, changePassword } from "@/lib/auth-actions";
+import { DataTab, type DataCounts } from "./data-tab";
+import { createInvite, listTeamMembers, listPendingInvites, revokeInvite, removeTeamMember, updateWorkerPermissions, changePassword, resetWorkerPassword } from "@/lib/auth-actions";
 import { ROLE_PRESETS, ALL_PERMISSIONS, PERMISSION_LABELS, DEFAULT_WORKER_PERMISSIONS, type Permission } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,10 +52,10 @@ type PendingInvite = { id: number; email: string; expiresAt: Date; createdAt: Da
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TABS = ["general", "email", "messaging", "templates", "broadcast", "tags", "team", "security"] as const;
+const TABS = ["general", "email", "messaging", "templates", "broadcast", "tags", "team", "data", "security"] as const;
 type Tab = (typeof TABS)[number];
 const ROLLOUT_DISABLED_TABS: Tab[] = ["email"];
-const RESTRICTED_TABS: Tab[] = ["team"];
+const RESTRICTED_TABS: Tab[] = ["team", "data"];
 
 const TAB_META: Record<Tab, { label: string; icon: React.ReactNode }> = {
   general:   { label: "Business",   icon: <Building2 size={13} /> },
@@ -65,6 +65,7 @@ const TAB_META: Record<Tab, { label: string; icon: React.ReactNode }> = {
   broadcast: { label: "Broadcast",  icon: <Send size={13} /> },
   tags:      { label: "Tags",       icon: <TagIcon size={13} /> },
   team:      { label: "Team",       icon: <Users size={13} /> },
+  data:      { label: "Data",       icon: <Database size={13} /> },
   security:  { label: "Security",   icon: <ShieldCheck size={13} /> },
 };
 
@@ -150,6 +151,7 @@ export function SettingsClient({
   customers,
   initialTeam,
   initialInvites,
+  dataCounts = null,
 }: {
   settings: Settings;
   canManageProviderSettings: boolean;
@@ -157,6 +159,7 @@ export function SettingsClient({
   customers: BroadcastCustomer[];
   initialTeam: TeamMember[];
   initialInvites: PendingInvite[];
+  dataCounts?: DataCounts | null;
 }) {
   const [tab, setTab] = useState<Tab>("general");
   const visibleTabs = TABS.filter(
@@ -294,6 +297,10 @@ export function SettingsClient({
     await revokeInvite(id);
     setInvites((prev) => prev.filter((i) => i.id !== id));
   };
+
+  const [resetMemberId, setResetMemberId] = useState<string | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetResult, setResetResult] = useState<{ password?: string; error?: string } | null>(null);
 
   const handleRemoveMember = async (id: string) => {
     const res = await removeTeamMember(id);
@@ -472,7 +479,7 @@ export function SettingsClient({
   const lbl = "block text-sm font-medium text-slate-700 mb-1";
   const smtpPreset = SMTP_PROVIDERS.find((p) => p.value === smtp.smtpProvider);
   const appPwLink = APP_PW_LINKS[smtp.smtpProvider];
-  const showSave = tab !== "broadcast" && tab !== "tags" && tab !== "team";
+  const showSave = tab !== "broadcast" && tab !== "tags" && tab !== "team" && tab !== "data";
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1218,6 +1225,17 @@ export function SettingsClient({
                           <ShieldCheck size={14} />
                         </button>
                         <button
+                          onClick={() => {
+                            setResetMemberId(resetMemberId === member.id ? null : member.id);
+                            setResetPassword("");
+                            setResetResult(null);
+                          }}
+                          className="text-slate-400 hover:text-blue-500 p-1 rounded"
+                          title="Reset password"
+                        >
+                          <KeyRound size={14} />
+                        </button>
+                        <button
                           onClick={() => { if (confirm(`Remove ${member.name ?? member.email} from your team?`)) handleRemoveMember(member.id); }}
                           className="text-slate-400 hover:text-red-500 p-1 rounded"
                           title="Remove member"
@@ -1227,6 +1245,43 @@ export function SettingsClient({
                       </div>
                     )}
                   </div>
+
+                  {/* Reset a worker's password */}
+                  {resetMemberId === member.id && (
+                    <div className="border-t border-slate-100 bg-slate-50 px-3 py-3 space-y-2">
+                      <p className="text-xs font-semibold text-slate-700">Set a new password for {member.name ?? member.email}</p>
+                      {resetResult?.password ? (
+                        <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+                          New password: <strong className="select-all font-mono text-sm">{resetResult.password}</strong>
+                          <span className="block mt-1">Give this to them. They can change it in Settings → Security after signing in.</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={resetPassword}
+                              onChange={(e) => setResetPassword(e.target.value)}
+                              placeholder="Leave blank to make one up for you"
+                              className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs"
+                            />
+                            <button
+                              type="button"
+                              disabled={permSaving}
+                              onClick={() => startPermSaveTransition(async () => {
+                                const res = await resetWorkerPassword(member.id, resetPassword || undefined);
+                                setResetResult(res.ok ? { password: res.password } : { error: res.error });
+                              })}
+                              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              Set password
+                            </button>
+                          </div>
+                          {resetResult?.error && <p className="text-xs text-red-600">{resetResult.error}</p>}
+                        </>
+                      )}
+                    </div>
+                  )}
 
                   {/* Inline permission editor */}
                   {editingPermsMemberId === member.id && (
@@ -1308,6 +1363,8 @@ export function SettingsClient({
       )}
 
       {/* ── SECURITY ──────────────────────────────────────────────────────── */}
+      {tab === "data" && canManageProviderSettings && <DataTab counts={dataCounts} />}
+
       {tab === "security" && (
         <div className="space-y-6 max-w-md">
           <Card>

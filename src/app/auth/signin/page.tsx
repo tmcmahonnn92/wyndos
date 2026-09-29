@@ -4,7 +4,8 @@ import { SignInForm } from "./sign-in-form";
 export const dynamic = "force-dynamic";
 
 export default function SignInPage() {
-  const googleEnabled = Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);
+  // Google sign-in is switched off for now (email and password only).
+  const googleEnabled = false;
 
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
@@ -15,7 +16,7 @@ export default function SignInPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-white/80">Wyndos.io</p>
               <h1 className="text-4xl font-black leading-tight">Sign in to manage rounds, days, customers, and payments.</h1>
               <p className="text-sm leading-6 text-white/90">
-                Use email and password, or continue with Google. New Google accounts can finish customer and round linking after the first sign-in.
+                Sign in with your email and password.
               </p>
             </div>
           </div>

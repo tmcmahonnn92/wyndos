@@ -4,7 +4,8 @@ import { SignUpForm } from "./sign-up-form";
 export const dynamic = "force-dynamic";
 
 export default function SignUpPage() {
-  const googleEnabled = Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);
+  // Google sign-in is switched off for now (email and password only).
+  const googleEnabled = false;
 
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
