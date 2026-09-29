@@ -348,6 +348,9 @@ model WorkDay {
   manualRouteOrder  String?
   optimizedRouteOrder String?
   notes     String?
+  /// Set on a "part" of an area's run that was split onto another date: the id of the
+  /// run's main day. The area's next run is only booked once every part is done.
+  partOfId  Int?
   createdAt DateTime      @default(now())
   jobs      Job[]
 
@@ -356,6 +359,7 @@ model WorkDay {
   @@index([tenantId, date])
   @@index([tenantId, areaId])
   @@index([tenantId, assignedUserId])
+  @@index([partOfId])
 }
 
 model Job {

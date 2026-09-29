@@ -450,7 +450,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         } else if (createMissingAreas && areaStr.trim()) {
           areaIsNew = true; // will be created on import
         } else {
-          errors.push(`Area "${areaStr}" not found`);
+          errors.push(`Area "${areaStr}" doesn't exist yet: tick "Create new areas automatically", or click the row to choose or create one`);
         }
       }
 
@@ -676,7 +676,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
 
   const openRowEdit = (row: PreviewRow) => {
     setEditingRowIndex(row.index);
-    setEditingRowData({ name: row.name, address: row.address, price: row.price, areaId: row.areaId, area: row.area });
+    setEditingRowData({ name: row.name, address: row.address, price: row.price, areaId: row.areaId, area: row.area, areaIsNew: row.areaIsNew, newAreaKey: row.newAreaKey });
   };
 
   const commitRowEdit = () => {
@@ -688,18 +688,32 @@ export function ImportClient({ areas }: { areas: Area[] }) {
       const priceStr = editingRowData.price ?? row.price;
       const areaId = editingRowData.areaId !== undefined ? editingRowData.areaId : row.areaId;
       const area = editingRowData.area !== undefined ? editingRowData.area : row.area;
+      const areaIsNew = editingRowData.areaIsNew !== undefined ? editingRowData.areaIsNew : row.areaIsNew;
+      const newAreaKey = editingRowData.newAreaKey !== undefined ? editingRowData.newAreaKey : row.newAreaKey;
       const errors: string[] = [];
       if (!name.trim()) errors.push("Name is required");
       if (!address.trim()) errors.push("Address is required");
       const price = parseFloat(priceStr);
       if (!priceStr.trim() || isNaN(price) || price < 0) errors.push("Invalid price");
-      if (!areaId && !row.areaIsNew) errors.push(`Area "${area}" not found`);
+      if (!areaId && !areaIsNew) errors.push(`Area "${area}" not found`);
       const addressParts = address === row.address ? row.addressParts : null;
-      return { ...row, name, address, addressParts, price: priceStr, areaId, area, errors };
+      return { ...row, name, address, addressParts, price: priceStr, areaId, area, areaIsNew, newAreaKey, errors };
     }));
     setEditingRowIndex(null);
     setEditingRowData({});
   };
+  // Area names in the file that don't exist yet and aren't already set to be created:
+  // offered in the row editor so one can be made without re-running the import.
+  const unknownFileAreas = (() => {
+    const known = new Set(areas.map((a) => a.name.toLowerCase()));
+    Object.values(newAreaConfigs).forEach((c) => known.add(c.displayName.toLowerCase()));
+    const names = new Map<string, string>();
+    preview.forEach((r) => {
+      const name = r.area.trim();
+      if (name && !known.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
+    });
+    return [...names.values()].sort((a, b) => a.localeCompare(b));
+  })();
   const validCount = preview.filter((r) => r.errors.length === 0).length;
   const newAreaCount = preview.filter((r) => r.errors.length === 0 && r.areaIsNew).length;
   const uniqueNewAreaCount = Object.keys(newAreaConfigs).length;
@@ -1356,16 +1370,63 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                     <td className="px-3 py-2">
                       {isEditing ? (
                         <select
-                          value={editingRowData.areaId ?? row.areaId ?? ""}
+                          value={(() => {
+                            const isNew = editingRowData.areaIsNew ?? row.areaIsNew;
+                            const key = editingRowData.newAreaKey !== undefined ? editingRowData.newAreaKey : row.newAreaKey;
+                            if (isNew && key) return `new:${key}`;
+                            return String(editingRowData.areaId ?? row.areaId ?? "");
+                          })()}
                           onChange={(e) => {
-                            const id = Number(e.target.value) || null;
+                            const v = e.target.value;
+                            if (v.startsWith("create:")) {
+                              const name = v.slice(7);
+                              const parsed = parseInt(row.frequencyWeeks, 10);
+                              const freq = !isNaN(parsed) && parsed > 0 ? parsed : 4;
+                              const key = `${name.toLowerCase()}|||${freq}`;
+                              setNewAreaConfigs((prev) => prev[key] ? prev : {
+                                ...prev,
+                                [key]: { key, displayName: name, color: COLOUR_PALETTE[(areas.length + Object.keys(prev).length) % COLOUR_PALETTE.length], frequencyWeeks: freq, rowCount: 1 },
+                              });
+                              setEditingRowData((d) => ({ ...d, areaId: null, areaIsNew: true, newAreaKey: key, area: name }));
+                              // Other rows with the same missing area join the new area too.
+                              setPreview((prev) => prev.map((other) => (
+                                other.index !== row.index && !other.areaId && !other.areaIsNew && other.area.trim().toLowerCase() === name.toLowerCase()
+                                  ? { ...other, areaIsNew: true, newAreaKey: key, errors: other.errors.filter((e) => !e.startsWith("Area ")) }
+                                  : other
+                              )));
+                              return;
+                            }
+                            if (v.startsWith("new:")) {
+                              const key = v.slice(4);
+                              setEditingRowData((d) => ({ ...d, areaId: null, areaIsNew: true, newAreaKey: key, area: newAreaConfigs[key]?.displayName ?? key }));
+                              return;
+                            }
+                            const id = Number(v) || null;
                             const name = areas.find((a) => a.id === id)?.name ?? "";
-                            setEditingRowData((d) => ({ ...d, areaId: id, area: name }));
+                            setEditingRowData((d) => ({ ...d, areaId: id, areaIsNew: false, newAreaKey: null, area: name }));
                           }}
                           className="w-full border border-blue-400 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
                         >
                           <option value="">— select area —</option>
-                          {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          {areas.length > 0 && (
+                            <optgroup label="Your areas">
+                              {[...areas].sort((a, b) => a.name.localeCompare(b.name)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                            </optgroup>
+                          )}
+                          {unknownFileAreas.length > 0 && (
+                            <optgroup label="Create as a new area">
+                              {unknownFileAreas.map((name) => (
+                                <option key={name} value={`create:${name}`}>+ {name}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {Object.keys(newAreaConfigs).length > 0 && (
+                            <optgroup label="New areas from this file">
+                              {Object.values(newAreaConfigs).sort((a, b) => a.displayName.localeCompare(b.displayName)).map((c) => (
+                                <option key={c.key} value={`new:${c.key}`}>{c.displayName} (new)</option>
+                              ))}
+                            </optgroup>
+                          )}
                         </select>
                       ) : row.areaIsNew ? (
                         <span className="flex items-center gap-1 text-amber-700 font-medium cursor-pointer" onClick={() => openRowEdit(row)}>

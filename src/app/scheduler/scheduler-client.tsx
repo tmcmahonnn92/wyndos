@@ -50,6 +50,7 @@ import {
   addJobToWorkDay,
   addJobFromOtherArea,
   removeJobFromDay,
+  moveJobsToDate,
   deleteWorkDay,
   clearFutureSchedule,
   createHoliday,
@@ -110,6 +111,7 @@ type Job = {
 
 type WorkDay = {
   id: number;
+  partOfId?: number | null;
   date: Date | string;
   status: string;
   notes: string | null;
@@ -800,10 +802,10 @@ function CalendarCell({
             {canManageSchedule && wd.status !== "COMPLETE" && (
               <button
                 onClick={(e) => { e.stopPropagation(); onRemove(wd); }}
-                className="absolute -top-1 -right-1 z-20 w-4 h-4 rounded-full bg-white border border-slate-300 text-slate-400 hover:bg-red-500 hover:border-red-500 hover:text-white transition-colors hidden group-hover:flex items-center justify-center shadow-sm"
+                className="absolute -top-1.5 -right-1.5 z-20 w-5 h-5 rounded-full bg-white border border-slate-300 text-slate-500 hover:bg-red-500 hover:border-red-500 hover:text-white transition-colors hidden group-hover:flex items-center justify-center shadow-sm"
                 title="Remove from schedule"
               >
-                <X size={9} />
+                <X size={11} />
               </button>
             )}
             <button
@@ -811,7 +813,7 @@ function CalendarCell({
               onClick={(e) => { e.stopPropagation(); onExpand(wd); }}
               draggable={false}
               className={cn(
-                "relative overflow-hidden w-full text-left flex flex-col gap-0.5 px-2 py-1.5 rounded-lg text-[11px] select-none transition-all hover:opacity-90",
+                "relative overflow-hidden w-full text-left flex flex-col gap-0.5 px-1.5 py-1.5 rounded-lg text-[11px] select-none transition-all hover:opacity-90 shadow-sm",
                 workDayChipClass(wd.status)
               )}
               style={workDayChipStyle(wd.status, wd.area?.color)}
@@ -826,34 +828,29 @@ function CalendarCell({
               {wd.status === "IN_PROGRESS" && (
                 <div className="absolute inset-0 rounded-lg ring-2 ring-white/70 ring-inset animate-pulse pointer-events-none z-10" />
               )}
-              {/* Row 1: grip + name + status icon */}
-              <div className="flex items-center gap-1">
-                <GripVertical size={10} className="opacity-50 flex-shrink-0" />
-                <span className="font-bold truncate flex-1">{wd.area?.name ?? wd.jobs[0]?.customer?.name ?? "One-off"}</span>
-                {wd.status === "IN_PROGRESS" && <Clock size={10} className="flex-shrink-0 opacity-80" />}
+              {/* Name in full (wraps rather than cutting off), then the key numbers */}
+              <div className="flex items-start gap-1">
+                <GripVertical size={11} className="mt-0.5 opacity-50 flex-shrink-0" />
+                <span className="flex-1 break-words text-[12px] font-bold leading-tight">{wd.area?.name ?? wd.jobs[0]?.customer?.name ?? "One-off"}</span>
+                {wd.status === "IN_PROGRESS" && <Clock size={11} className="mt-0.5 flex-shrink-0 opacity-80" />}
+              </div>
+              {wd.partOfId && (
+                <span className="ml-3 w-fit rounded bg-white/25 px-1 text-[9px] font-bold uppercase tracking-wide" title="Part of this area's run, split onto another day">Split part</span>
+              )}
+              <div className="flex flex-wrap items-center gap-x-1.5 pl-3 text-[11px] font-semibold leading-snug">
+                <span className="whitespace-nowrap">{done > 0 ? `${done}/${total}` : total} job{total !== 1 ? "s" : ""}</span>
+                <span className="whitespace-nowrap">£{value.toFixed(0)}</span>
+                {oneOff > 0 && <span className="whitespace-nowrap"><Zap size={9} className="inline" />{oneOff}</span>}
               </div>
               {wd.assignedUser && (
-                <div className="pl-3.5">
-                  <WorkerPill name={wd.assignedUser.name ?? wd.assignedUser.email ?? "Worker"} />
+                <div className="flex min-w-0 items-center gap-1 pl-3 text-[10px] font-semibold leading-snug">
+                  <UserRound size={9} className="flex-shrink-0" />
+                  <span className="truncate">{(wd.assignedUser.name ?? wd.assignedUser.email ?? "Worker").split(" ")[0]}</span>
                 </div>
               )}
-              {/* Row 2: job count + value */}
-              <div className="flex items-center gap-1.5 pl-3.5 opacity-90">
-                <span>{total} job{total !== 1 ? "s" : ""}</span>
-                <span className="opacity-60">·</span>
-                <span>£{value.toFixed(2)}</span>
-                {done > 0 && (
-                  <><span className="opacity-60">·</span><span>{done}/{total} done</span></>
-                )}
-                {oneOff > 0 && (
-                  <><span className="opacity-60">·</span><span><Zap size={8} className="inline" />{oneOff}</span></>
-                )}
-              </div>
-              {/* Row 3: last completed date (only for planned future days) */}
               {wd.status === "PLANNED" && wd.area?.lastCompletedDate && (
-                <div className="flex items-center gap-1 pl-3.5 opacity-70 text-[10px]">
-                  <CheckCircle2 size={8} className="flex-shrink-0" />
-                  <span>Last: {toUTCMidnight(wd.area.lastCompletedDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+                <div className="pl-3 text-[10px] leading-snug opacity-75 whitespace-nowrap">
+                  Last {toUTCMidnight(wd.area.lastCompletedDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                 </div>
               )}
             </button>
@@ -870,7 +867,7 @@ function CalendarCell({
             {!wd.notes && (
               <button
                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); onNotesClick(wd); }}
-                className="flex items-center gap-1 mt-0.5 px-2 py-0.5 w-full rounded-md text-[10px] text-slate-400 hover:text-amber-700 hover:bg-amber-50 transition-colors"
+                className="hidden group-hover:flex items-center gap-1 mt-0.5 px-2 py-0.5 w-full rounded-md text-[10px] text-slate-400 hover:text-amber-700 hover:bg-amber-50 transition-colors"
               >
                 <StickyNote size={9} />
                 <span>Add note…</span>
@@ -1028,7 +1025,7 @@ function MonthCalendarCell({
               {workDay.status === "IN_PROGRESS" && (
                 <div className="absolute inset-0 rounded-lg ring-2 ring-white/70 ring-inset animate-pulse pointer-events-none z-10" />
               )}
-              <span className="truncate font-bold">{workDay.area?.name ?? workDay.jobs[0]?.customer?.name ?? "Work day"}</span>
+              <span className="truncate font-bold">{workDay.area?.name ?? workDay.jobs[0]?.customer?.name ?? "Work day"}{workDay.partOfId ? " (split)" : ""}</span>
               <span className="truncate opacity-90">{workDay.jobs.length} job{workDay.jobs.length !== 1 ? "s" : ""}</span>
               {workDay.assignedUser && (
                 <WorkerPill name={workDay.assignedUser.name ?? workDay.assignedUser.email ?? "Worker"} />
@@ -1661,6 +1658,10 @@ function DayDetailModal({
   const [priceText, setPriceText] = useState("");
   const [showAddJob, setShowAddJob] = useState(false);
   const [removingId, setRemovingId] = useState<number | null>(null);
+  // Trash on a job asks: move it to another day, or just take it off this time.
+  const [takeOffId, setTakeOffId] = useState<number | null>(null);
+  const [takeOffDate, setTakeOffDate] = useState("");
+  const [takeOffError, setTakeOffError] = useState<string | null>(null);
   const [payingJobId, setPayingJobId] = useState<number | null>(null);
   const [ddPayJobIds, setDdPayJobIds] = useState<Set<number>>(new Set());
   const [ddPayMethod, setDdPayMethod] = useState<"CASH" | "BACS" | "CARD">("CASH");
@@ -1890,9 +1891,31 @@ function DayDetailModal({
 
   const handleRemoveJob = (jobId: number) => {
     setRemovingId(jobId);
+    setTakeOffError(null);
     startSaving(async () => {
-      await removeJobFromDay(jobId);
-      setLocalJobs((prev) => prev.filter((j) => j.id !== jobId));
+      try {
+        await removeJobFromDay(jobId);
+        setLocalJobs((prev) => prev.filter((j) => j.id !== jobId));
+        setTakeOffId(null);
+      } catch (issue) {
+        setTakeOffError(issue instanceof Error ? issue.message : "Could not remove that job.");
+      }
+      setRemovingId(null);
+      router.refresh();
+    });
+  };
+
+  const handleMoveJob = (jobId: number, dateISO: string) => {
+    setRemovingId(jobId);
+    setTakeOffError(null);
+    startSaving(async () => {
+      try {
+        await moveJobsToDate([jobId], dateISO);
+        setLocalJobs((prev) => prev.filter((j) => j.id !== jobId));
+        setTakeOffId(null);
+      } catch (issue) {
+        setTakeOffError(issue instanceof Error ? issue.message : "Could not move that job.");
+      }
       setRemovingId(null);
       router.refresh();
     });
@@ -2238,16 +2261,36 @@ function DayDetailModal({
                     </button>
                     {!isDone && (
                       <button
-                        onClick={() => handleRemoveJob(job.id)}
+                        onClick={() => { setTakeOffId(takeOffId === job.id ? null : job.id); setTakeOffDate(""); setTakeOffError(null); setEditingPriceId(null); setEditingNoteId(null); }}
                         disabled={isSaving && removingId === job.id}
                         className="p-1 rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
-                        title="Remove from this day"
+                        title="Take off this day (move or remove)"
                       >
                         <Trash2 size={13} />
                       </button>
                     )}
                   </div>
                 </div>
+
+                {takeOffId === job.id && (
+                  <div className="mt-1 space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2 ml-9">
+                    <p className="text-xs font-semibold text-slate-700">Take {job.customer?.name ?? "this job"} off this day</p>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <input type="date" value={takeOffDate} onChange={(e) => setTakeOffDate(e.target.value)}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs" aria-label="Move to date" />
+                      <button type="button" disabled={!takeOffDate || isSaving} onClick={() => handleMoveJob(job.id, takeOffDate)}
+                        className="rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50">
+                        Move to that day
+                      </button>
+                      <button type="button" disabled={isSaving} onClick={() => handleRemoveJob(job.id)}
+                        className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-600 disabled:opacity-50">
+                        Just remove
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-500">Moving keeps them in the area (the run is split and the area stays together). Removing leaves them due; add them back from their customer page.</p>
+                    {takeOffError && <p className="text-[11px] text-red-600">{takeOffError}</p>}
+                  </div>
+                )}
 
                 {editingPriceId === job.id && (
                   <div className="flex items-center gap-2 pt-1 pl-9">
@@ -3042,6 +3085,66 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
   const handleDragOver = useCallback((date: Date) => setDragOverDate(isoDate(date)), []);
   const handleDragLeave = useCallback(() => setDragOverDate(null), []);
 
+  // While dragging, hovering near the top or bottom edge of the calendar scrolls it, so a
+  // day lower down (or higher up) can be reached on smaller screens.
+  const calendarScrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!dragState) return;
+    let pointerY: number | null = null;
+    let frame = 0;
+    const onDragOver = (e: DragEvent) => { pointerY = e.clientY; };
+    const tick = () => {
+      if (pointerY !== null) {
+        // Scroll the calendar box if it scrolls itself, otherwise the whole page.
+        const el = calendarScrollRef.current;
+        const boxScrolls = !!el && el.scrollHeight > el.clientHeight + 4;
+        const top = boxScrolls ? Math.max(0, el!.getBoundingClientRect().top) : 0;
+        const bottom = boxScrolls ? Math.min(window.innerHeight, el!.getBoundingClientRect().bottom) : window.innerHeight;
+        const zone = Math.min(120, (bottom - top) / 4);
+        let step = 0;
+        if (pointerY < top + zone) step = -Math.ceil(((top + zone - pointerY) / zone) * 18);
+        else if (pointerY > bottom - zone) step = Math.ceil(((pointerY - (bottom - zone)) / zone) * 18);
+        step = Math.max(-24, Math.min(24, step));
+        if (step) {
+          if (boxScrolls) el!.scrollTop += step;
+          else (document.scrollingElement ?? document.documentElement).scrollTop += step;
+        }
+      }
+      frame = window.requestAnimationFrame(tick);
+    };
+    // Drag cancelled or dropped anywhere: stop scrolling and forget the drag.
+    const onEnd = () => { pointerY = null; window.setTimeout(() => setDragState(null), 0); };
+    document.addEventListener("dragover", onDragOver);
+    document.addEventListener("dragend", onEnd);
+    frame = window.requestAnimationFrame(tick);
+    return () => {
+      document.removeEventListener("dragover", onDragOver);
+      document.removeEventListener("dragend", onEnd);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [dragState]);
+
+  const flashWarning = useCallback((message: string) => {
+    setDuplicateWarning(message);
+    setTimeout(() => setDuplicateWarning(null), 7000);
+  }, []);
+
+  /** Take an area off a day. Never crashes the page; says what was kept and why. */
+  const removeWorkDay = useCallback((wd: WorkDay) => {
+    startTransition(async () => {
+      try {
+        const r = await deleteWorkDay(wd.id);
+        const kept: string[] = [];
+        if (r.keptDone) kept.push(`${r.keptDone} done job${r.keptDone === 1 ? "" : "s"}`);
+        if (r.keptPaid) kept.push(`${r.keptPaid} job${r.keptPaid === 1 ? "" : "s"} already paid for`);
+        if (!r.removed && kept.length) flashWarning(`Kept ${kept.join(" and ")} on that day so no history or payments are lost.`);
+      } catch (issue) {
+        flashWarning(issue instanceof Error ? issue.message : "Could not remove that day. Please refresh and try again.");
+      }
+      router.refresh();
+    });
+  }, [flashWarning, router, startTransition]);
+
   const handleDrop = useCallback((targetDate: Date) => {
     setDragOverDate(null);
     if (!canManageSchedule) return;
@@ -3092,7 +3195,11 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
       const sourceISO = isoDate(toUTCMidnight(workDay.date));
       if (targetISO === sourceISO) return;
       startTransition(async () => {
-        await rescheduleWorkDay(workDay.id, targetISO, "one-off");
+        try {
+          await rescheduleWorkDay(workDay.id, targetISO, "one-off");
+        } catch (issue) {
+          flashWarning(issue instanceof Error ? issue.message : "Could not move that day.");
+        }
         router.refresh();
       });
     } else if (dragState.type === "job") {
@@ -3101,12 +3208,16 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
       const sourceISO = isoDate(toUTCMidnight(job.workDay.date));
       if (targetISO === sourceISO) return;
       startTransition(async () => {
-        await rescheduleJobToDate(job.id, isoDate(targetDate));
+        try {
+          await rescheduleJobToDate(job.id, isoDate(targetDate));
+        } catch (issue) {
+          flashWarning(issue instanceof Error ? issue.message : "Could not move that job.");
+        }
         router.refresh();
       });
     }
     setDragState(null);
-  }, [canManageSchedule, dragState, router, startTransition]);
+  }, [canManageSchedule, dragState, router, startTransition, flashWarning]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden relative">
@@ -3120,7 +3231,11 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
             <button
               onClick={() => {
                 startTransition(async () => {
-                  await clearFutureSchedule();
+                  try {
+                    await clearFutureSchedule();
+                  } catch (issue) {
+                    flashWarning(issue instanceof Error ? issue.message : "Could not clear the schedule.");
+                  }
                   setClearConfirmOpen(false);
                   router.refresh();
                 });
@@ -3471,7 +3586,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
               })}
             </div>
 
-            <div className="flex-1 overflow-y-auto relative"
+            <div ref={calendarScrollRef} className="flex-1 overflow-y-auto relative"
               onDragOver={(e) => {
                 if (!dragState || !canManageSchedule) return;
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -3534,12 +3649,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                         if (wd.status === "COMPLETE") setCompletedExpandedDay(wd);
                         else setExpandedDay(wd);
                       }}
-                      onRemove={(wd) => {
-                        startTransition(async () => {
-                          await deleteWorkDay(wd.id);
-                          router.refresh();
-                        });
-                      }}
+                      onRemove={removeWorkDay}
                     />
                   );
                 })}
@@ -3547,7 +3657,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
             </div>
           </>
         ) : (
-          <div className="flex-1 overflow-y-auto p-2">
+          <div ref={calendarScrollRef} className="flex-1 overflow-y-auto p-2">
             <div className="grid grid-cols-7 gap-1.5">
               {DAY_LABELS.map((label) => (
                 <div key={label} className="px-2 py-1 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -3577,12 +3687,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                       if (wd.status === "COMPLETE") setCompletedExpandedDay(wd);
                       else setExpandedDay(wd);
                     }}
-                    onRemove={(wd) => {
-                      startTransition(async () => {
-                        await deleteWorkDay(wd.id);
-                        router.refresh();
-                      });
-                    }}
+                    onRemove={removeWorkDay}
                   />
                 );
               })}

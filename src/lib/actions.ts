@@ -53,6 +53,132 @@ async function requireTenantArea(tenantId: number, areaId: number) {
   return area;
 }
 
+/**
+ * Delete jobs that haven't been done, without breaking payment records.
+ * Allocations from voided payments are cleared first; a job that still has
+ * real money allocated to it is kept (deleting it would lose the payment).
+ * Returns the ids that were kept.
+ */
+async function deleteUnpaidJobs(tenantId: number, jobIds: number[]): Promise<number[]> {
+  if (jobIds.length === 0) return [];
+  await prisma.paymentAllocation.deleteMany({
+    where: { tenantId, jobId: { in: jobIds }, payment: { voidedAt: { not: null } } },
+  });
+  const paid = await prisma.paymentAllocation.findMany({
+    where: { tenantId, jobId: { in: jobIds } },
+    select: { jobId: true },
+  });
+  const keep = new Set(paid.map((p) => p.jobId));
+  const toDelete = jobIds.filter((id) => !keep.has(id));
+  if (toDelete.length) await prisma.job.deleteMany({ where: { tenantId, id: { in: toDelete } } });
+  return [...keep];
+}
+
+/**
+ * A split area run is one "main" day plus "part" days (partOfId = main id).
+ * Returns the run's pieces so completion can wait for all of them.
+ */
+async function runPieces(tenantId: number, day: { id: number; partOfId: number | null; areaId: number | null }) {
+  const rootId = day.partOfId ?? day.id;
+  if (!day.areaId) return { rootId, pieces: [] as Array<{ id: number; date: Date; status: string }>, split: false };
+  const pieces = await prisma.workDay.findMany({
+    where: { tenantId, OR: [{ id: rootId }, { partOfId: rootId }] },
+    select: { id: true, date: true, status: true },
+    orderBy: { date: "asc" },
+  });
+  return { rootId, pieces, split: pieces.length > 1 };
+}
+
+/** Before a day is deleted, hand its "main day" role to its earliest part (if it has parts). */
+async function promoteRunParts(tenantId: number, dayId: number) {
+  const parts = await prisma.workDay.findMany({ where: { tenantId, partOfId: dayId }, orderBy: { date: "asc" }, select: { id: true } });
+  if (parts.length === 0) return;
+  const [first, ...rest] = parts;
+  await prisma.workDay.update({ where: { id: first.id }, data: { partOfId: null } });
+  if (rest.length) await prisma.workDay.updateMany({ where: { id: { in: rest.map((p) => p.id) } }, data: { partOfId: first.id } });
+}
+
+/** Delete a not-yet-done day that has no jobs left. */
+async function removeDayIfEmpty(tenantId: number, dayId: number) {
+  const wd = await prisma.workDay.findFirst({ where: { id: dayId, tenantId }, include: { _count: { select: { jobs: true } } } });
+  if (!wd || wd._count.jobs > 0 || wd.status === "COMPLETE") return;
+  await promoteRunParts(tenantId, wd.id);
+  await prisma.workDay.delete({ where: { id: wd.id } });
+}
+
+/**
+ * Move jobs to another date, keeping each job in its own area. An area job goes onto that
+ * area's day on the new date (made as a "part" of the same run if there isn't one), so the
+ * area stays one run: its next visit is booked once every part is done.
+ */
+async function moveJobsToDateFor(
+  actor: Awaited<ReturnType<typeof requirePerm>>,
+  jobIds: number[],
+  dateISO: string,
+) {
+  const tenantId = actor.tenantId;
+  const d = isoToUTC(dateISO);
+  const jobs = await prisma.job.findMany({
+    where: { tenantId, id: { in: jobIds }, status: { not: "COMPLETE" }, ...visibleJobWhere(actor) },
+    include: { workDay: { include: { area: { select: { name: true } } } } },
+    orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+  });
+  const targets = new Map<string, { id: number; assignedUserId: string | null }>();
+  const sources = new Set<number>();
+  let moved = 0;
+  for (const job of jobs) {
+    const src = job.workDay;
+    if (src.date.getTime() === d.getTime()) continue;
+    const key = src.areaId ? `area-${src.areaId}` : "standalone";
+    let target = targets.get(key);
+    if (!target) {
+      if (src.areaId) {
+        const existing = await prisma.workDay.findFirst({ where: { tenantId, date: d, areaId: src.areaId }, select: { id: true, status: true, assignedUserId: true } });
+        if (existing?.status === "COMPLETE") {
+          throw new Error(`${src.area?.name ?? "That area"} is already completed on that date. Pick another date.`);
+        }
+        target = existing ?? await prisma.workDay.create({
+          data: {
+            tenantId,
+            date: d,
+            areaId: src.areaId,
+            partOfId: src.status === "COMPLETE" ? null : (src.partOfId ?? src.id),
+            assignedUserId: src.assignedUserId ?? undefined,
+          },
+          select: { id: true, assignedUserId: true },
+        });
+      } else {
+        target = await prisma.workDay.create({ data: { tenantId, date: d, assignedUserId: src.assignedUserId ?? undefined }, select: { id: true, assignedUserId: true } });
+      }
+      targets.set(key, target);
+    }
+    const keepWorker = job.assignedUserId ?? src.assignedUserId ?? null;
+    await prisma.job.update({
+      where: { id: job.id },
+      data: {
+        workDayId: target.id,
+        status: "PENDING",
+        assignedUserId: keepWorker && keepWorker !== target.assignedUserId ? keepWorker : null,
+      },
+    });
+    sources.add(src.id);
+    moved += 1;
+  }
+  for (const sourceId of sources) await removeDayIfEmpty(tenantId, sourceId);
+  return { moved, dayIds: [...targets.values()].map((t) => t.id) };
+}
+
+/** Move chosen jobs (e.g. part of an area) to another date. See moveJobsToDateFor. */
+export async function moveJobsToDate(jobIds: number[], dateISO: string) {
+  const actor = await requirePerm("schedule");
+  if (!Array.isArray(jobIds) || jobIds.length === 0 || !dateISO) return { moved: 0, dayIds: [] as number[] };
+  const result = await moveJobsToDateFor(actor, jobIds, dateISO);
+  revalidatePath("/scheduler");
+  revalidatePath("/days");
+  revalidatePath("/");
+  return result;
+}
+
 async function requireTenantJob(tenantId: number, jobId: number) {
   const actor = await getActor();
   const job = await prisma.job.findFirst({ where: { id: jobId, tenantId, ...visibleJobWhere(actor) } });
@@ -263,6 +389,23 @@ function nextRunAfter(
   return addUtcDays(fromDate, (area.frequencyWeeks ?? 4) * 7);
 }
 
+/** Customers actually cleaned on a day: last cleaned that day, next due one area-cycle later. */
+async function markCustomersCleaned(tenantId: number, workDayId: number, cleanedOn: Date, frequencyWeeks: number) {
+  const cleanedJobs = await prisma.job.findMany({
+    where: { tenantId, workDayId, status: "COMPLETE" },
+    select: { customerId: true },
+  });
+  for (const cleaned of cleanedJobs) {
+    await prisma.customer.update({
+      where: { id: cleaned.customerId },
+      data: {
+        lastCompletedDate: cleanedOn,
+        nextDueDate: addUtcDays(cleanedOn, (frequencyWeeks || 4) * 7),
+      },
+    });
+  }
+}
+
 async function syncAreaScheduleAfterCompletion(
   tenantId: number,
   workDay: {
@@ -271,7 +414,8 @@ async function syncAreaScheduleAfterCompletion(
     assignedUserId: string | null;
     area: { id: number; name: string; frequencyWeeks: number; scheduleType: string; monthlyDay: number | null } | null;
   },
-  fallbackCompletedDate: Date
+  fallbackCompletedDate: Date,
+  splitRun?: { runDate: Date; runDayIds: number[] }
 ) {
   if (!workDay.area || !workDay.areaId) return null;
 
@@ -285,7 +429,7 @@ async function syncAreaScheduleAfterCompletion(
     orderBy: { date: "desc" },
     select: { date: true },
   });
-  const lastCompleted = latestCompleted?.date ?? fallbackCompletedDate;
+  const lastCompleted = splitRun?.runDate ?? latestCompleted?.date ?? fallbackCompletedDate;
   const nextDue = nextRunAfter(workDay.area, lastCompleted);
 
   await prisma.area.update({
@@ -296,19 +440,11 @@ async function syncAreaScheduleAfterCompletion(
   // Only customers actually cleaned on this day count as cleaned. Skipped / not-done
   // customers keep their own due date. Frequency belongs to the area (a different
   // frequency means a different area, e.g. "Cuckney 8 weekly").
-  const cleanedJobs = await prisma.job.findMany({
-    where: { tenantId, workDayId: workDay.id, status: "COMPLETE" },
-    select: { customerId: true },
-  });
-  for (const cleaned of cleanedJobs) {
-    await prisma.customer.update({
-      where: { id: cleaned.customerId },
-      data: {
-        lastCompletedDate: fallbackCompletedDate,
-        nextDueDate: addUtcDays(fallbackCompletedDate, (workDay.area.frequencyWeeks || 4) * 7),
-      },
-    });
-  }
+  await markCustomersCleaned(tenantId, workDay.id, fallbackCompletedDate, workDay.area.frequencyWeeks);
+  // Everyone cleaned on any part of a split run stays together on the next run.
+  const runCustomerIds = splitRun
+    ? (await prisma.job.findMany({ where: { tenantId, workDayId: { in: splitRun.runDayIds }, status: "COMPLETE" }, select: { customerId: true } })).map((j) => j.customerId)
+    : [];
 
   const targetNextWorkDay = await prisma.workDay.upsert({
     where: { tenantId_date_areaId: { tenantId, date: nextDue, areaId: workDay.area.id } },
@@ -336,8 +472,9 @@ async function syncAreaScheduleAfterCompletion(
   if (sourceNextWorkDay && sourceNextWorkDay.id !== targetNextWorkDay.id) {
     for (const sourceJob of sourceNextWorkDay.jobs) {
       if (targetCustomerIds.has(sourceJob.customerId)) {
-        await prisma.job.delete({ where: { id: sourceJob.id } });
-        continue;
+        const kept = await deleteUnpaidJobs(tenantId, [sourceJob.id]);
+        if (kept.length === 0) continue;
+        // Paid already: keep it by moving it onto the target day like any other job.
       }
       await prisma.job.update({
         where: { id: sourceJob.id },
@@ -359,7 +496,11 @@ async function syncAreaScheduleAfterCompletion(
       tenantId,
       areaId: workDay.area.id,
       active: true,
-      OR: [{ nextDueDate: null }, { nextDueDate: { lte: addUtcDays(nextDue, DUE_SLACK_DAYS) } }],
+      OR: [
+        { nextDueDate: null },
+        { nextDueDate: { lte: addUtcDays(nextDue, DUE_SLACK_DAYS) } },
+        ...(runCustomerIds.length ? [{ id: { in: runCustomerIds } }] : []),
+      ],
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
@@ -1302,9 +1443,7 @@ async function removeCustomerFromPreviousAreaScheduledDays(
   const staleJobIds = staleJobs.map((job) => job.id);
   const affectedDayIds = [...new Set(staleJobs.map((job) => job.workDayId))];
 
-  await prisma.job.deleteMany({
-    where: { tenantId, id: { in: staleJobIds } },
-  });
+  await deleteUnpaidJobs(tenantId, staleJobIds);
 
   for (const dayId of affectedDayIds) {
     revalidatePath(`/days/${dayId}`);
@@ -1826,6 +1965,51 @@ export async function addJobToDay(workDayId: number, customerId: number) {
   return job;
 }
 
+/**
+ * Put a customer on their area's day for a date (e.g. after taking them off a day).
+ * Uses the area's day on that date if there is one; otherwise makes one, as a part of the
+ * area's next open run so the area still books its next visit as one.
+ */
+export async function addCustomerToDate(customerId: number, dateISO: string) {
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
+  const customer = await requireTenantCustomer(tenantId, customerId);
+  const d = isoToUTC(dateISO);
+  let day = await prisma.workDay.findFirst({ where: { tenantId, date: d, areaId: customer.areaId }, select: { id: true, status: true } });
+  if (day?.status === "COMPLETE") throw new Error("That area is already completed on that date. Pick another date.");
+  if (!day) {
+    const openRun = await prisma.workDay.findFirst({
+      where: { tenantId, areaId: customer.areaId, status: { not: "COMPLETE" }, partOfId: null },
+      orderBy: { date: "asc" },
+      select: { id: true },
+    });
+    day = await prisma.workDay.create({
+      data: { tenantId, date: d, areaId: customer.areaId, partOfId: openRun?.id ?? null },
+      select: { id: true, status: true },
+    });
+  }
+  const already = await prisma.job.findFirst({ where: { tenantId, workDayId: day.id, customerId, isOneOff: false, status: { not: "COMPLETE" } }, select: { id: true } });
+  if (!already) {
+    await prisma.job.create({
+      data: {
+        tenantId,
+        workDayId: day.id,
+        customerId,
+        price: customer.price,
+        name: customer.jobName || "Window Cleaning",
+        sortOrder: customer.sortOrder,
+        status: "PENDING",
+        assignedUserId: actor.isWorker ? actor.userId : null,
+      },
+    });
+  }
+  revalidatePath(`/customers/${customerId}`);
+  revalidatePath(`/days/${day.id}`);
+  revalidatePath("/scheduler");
+  revalidatePath("/days");
+  return { workDayId: day.id };
+}
+
 export async function addOneOffJobToDay(
   workDayId: number,
   customerId: number,
@@ -2250,7 +2434,8 @@ export async function removeJobFromDay(jobId: number) {
   const tenantId = actor.tenantId;
   const job = await requireTenantJob(tenantId, jobId);
   if (job.status === "COMPLETE") throw new Error("Cannot remove a completed job");
-  await prisma.job.delete({ where: { id: job.id } });
+  const kept = await deleteUnpaidJobs(tenantId, [job.id]);
+  if (kept.length) throw new Error("This job has already been paid for. Undo the payment first, or move the job to another day instead.");
   // Tidy up empty standalone (area-less) one-off days so they don't linger on the calendar.
   const remaining = await prisma.job.count({ where: { tenantId, workDayId: job.workDayId } });
   if (remaining === 0) {
@@ -2291,9 +2476,11 @@ export async function clearFutureSchedule() {
   const ids = futureDays.map((d) => d.id);
   if (ids.length === 0) return 0;
 
-  // Delete jobs first (no cascade defined in schema)
-  await prisma.job.deleteMany({ where: { tenantId, workDayId: { in: ids } } });
-  await prisma.workDay.deleteMany({ where: { tenantId, id: { in: ids } } });
+  // Delete jobs first (no cascade defined in schema). Jobs already paid for stay, with their day.
+  const jobs = await prisma.job.findMany({ where: { tenantId, workDayId: { in: ids } }, select: { id: true, workDayId: true } });
+  const kept = new Set(await deleteUnpaidJobs(tenantId, jobs.map((j) => j.id)));
+  const keepDays = new Set(jobs.filter((j) => kept.has(j.id)).map((j) => j.workDayId));
+  await prisma.workDay.deleteMany({ where: { tenantId, id: { in: ids.filter((id) => !keepDays.has(id)) } } });
 
   revalidatePath("/scheduler");
   revalidatePath("/days");
@@ -2301,28 +2488,31 @@ export async function clearFutureSchedule() {
   return ids.length;
 }
 
-export async function deleteWorkDay(workDayId: number) {
+export async function deleteWorkDay(workDayId: number): Promise<{ removed: boolean; keptPaid: number; keptDone: number }> {
   const actor = await requirePerm("scheduler");
   const tenantId = actor.tenantId;
   const wd = await prisma.workDay.findFirst({
     where: { id: workDayId, tenantId },
     include: { jobs: { select: { id: true, status: true } } },
   });
-  if (!wd) throw new Error("Work day not found");
+  // Already gone (double click, or removed on another screen): nothing to do.
+  if (!wd) return { removed: true, keptPaid: 0, keptDone: 0 };
 
-  // Delete only non-completed jobs
-  await prisma.job.deleteMany({
-    where: { tenantId, workDayId: wd.id, status: { notIn: ["COMPLETE"] } },
-  });
+  // Delete jobs not yet done. Completed jobs and jobs already paid for stay, so history and money are never lost.
+  const notDone = wd.jobs.filter((j) => j.status !== "COMPLETE").map((j) => j.id);
+  const keptPaid = await deleteUnpaidJobs(tenantId, notDone);
+  const keptDone = wd.jobs.filter((j) => j.status === "COMPLETE").length;
 
-  // Only delete the day itself if no completed jobs remain (preserve history otherwise)
-  const remainingCompleted = wd.jobs.filter((j) => j.status === "COMPLETE").length;
-  if (remainingCompleted === 0) {
+  let removed = false;
+  if (keptDone === 0 && keptPaid.length === 0) {
+    await promoteRunParts(tenantId, wd.id);
     await prisma.workDay.delete({ where: { id: wd.id } });
+    removed = true;
   }
 
   revalidatePath("/scheduler");
   revalidatePath("/days");
+  return { removed, keptPaid: keptPaid.length, keptDone };
 }
 
 /**
@@ -2649,14 +2839,25 @@ export async function rescheduleWorkDay(
     if (workDay.areaId) {
       const collision = await prisma.workDay.findFirst({ where: { tenantId, date: d, areaId: workDay.areaId, id: { not: workDayId } },
       });
-      if (collision) throw new Error("There is already a work day for that area on that date.");
+      if (collision) {
+        if (collision.status === "COMPLETE" || workDay.status === "COMPLETE") {
+          throw new Error("There is already a work day for that area on that date.");
+        }
+        // Same area already on that date: put this day's jobs onto it (joins a split run back together).
+        const jobIds = (await prisma.job.findMany({ where: { tenantId, workDayId, status: { not: "COMPLETE" } }, select: { id: true } })).map((j) => j.id);
+        await moveJobsToDateFor(actor, jobIds, newDateISO);
+        revalidatePath("/days");
+        revalidatePath("/scheduler");
+        revalidatePath("/");
+        return collision.id;
+      }
     }
     await prisma.workDay.update({ where: { id: workDay.id }, data: { date: d } });
     // If this is the area's next open run, the area is now due on the new date
     // (otherwise it shows as "overdue" against the old date).
     if (workDay.area && !workDay.area.isSystemArea && workDay.status !== "COMPLETE") {
       const nextOpen = await prisma.workDay.findFirst({
-        where: { tenantId, areaId: workDay.area.id, status: { not: "COMPLETE" } },
+        where: { tenantId, areaId: workDay.area.id, status: { not: "COMPLETE" }, partOfId: null },
         orderBy: { date: "asc" },
         select: { date: true },
       });
@@ -2769,32 +2970,16 @@ export async function assignJobs(jobIds: number[], userId: string | null, dateIS
   if (!Array.isArray(jobIds) || jobIds.length === 0) return;
 
   const assignee = userId ? await resolveAssignedWorkerId(tenantId, userId, { allowOwner: true }) : null;
+  // A new date moves the jobs first, keeping each in its own area (a split of the run).
+  if (dateISO) await moveJobsToDateFor(actor, jobIds, dateISO);
   const jobs = await prisma.job.findMany({
     where: { tenantId, id: { in: jobIds }, status: { not: "COMPLETE" } },
     include: { workDay: { select: { id: true, date: true, assignedUserId: true } } },
   });
   if (jobs.length === 0) return;
-
-  let targetDay: { id: number; assignedUserId: string | null } | null = null;
-  if (dateISO) {
-    const date = isoToUTC(dateISO);
-    const dayOwner = assignee && assignee !== actor.userId ? assignee : null;
-    targetDay = await prisma.workDay.findFirst({
-      where: { tenantId, date, assignedUserId: dayOwner, status: { not: "COMPLETE" } },
-      orderBy: { id: "asc" },
-      select: { id: true, assignedUserId: true },
-    });
-    if (!targetDay) {
-      targetDay = await prisma.workDay.create({
-        data: { tenantId, date, assignedUserId: dayOwner ?? undefined },
-        select: { id: true, assignedUserId: true },
-      });
-    }
-  }
-
   const touchedDays = new Set<number>();
   for (const job of jobs) {
-    const dayWorker = targetDay ? targetDay.assignedUserId : job.workDay.assignedUserId;
+    const dayWorker = job.workDay.assignedUserId;
     // Owner on an unassigned day, or the day's own worker, = just follow the day.
     const followsDay = assignee === null
       || assignee === dayWorker
@@ -2804,12 +2989,10 @@ export async function assignJobs(jobIds: number[], userId: string | null, dateIS
       data: {
         assignedUserId: followsDay ? null : assignee,
         status: "PENDING",
-        ...(targetDay ? { workDayId: targetDay.id } : {}),
       },
     });
     touchedDays.add(job.workDayId);
   }
-  if (targetDay) touchedDays.add(targetDay.id);
 
   for (const dayId of touchedDays) revalidatePath(`/days/${dayId}`);
   revalidatePath("/days");
@@ -2984,7 +3167,19 @@ export async function completeDay(
   // nextRunAfter preserves day-of-week for weekly schedules (addWeeks keeps weekday).
   let nextRunResult: { nextDue: Date; nextWorkDayId: number | null; areaName: string } | null = null;
 
-  nextRunResult = await syncAreaScheduleAfterCompletion(tenantId, workDay, finalDate);
+  // A split run (main day + parts on other dates) books the next visit only when every
+  // part is done, counted from the main day, and keeps the whole area together.
+  const run = await runPieces(tenantId, workDay);
+  const openParts = run.pieces.filter((piece) => piece.id !== workDay.id && piece.status !== "COMPLETE");
+  if (openParts.length > 0) {
+    await markCustomersCleaned(tenantId, workDay.id, finalDate, workDay.area?.frequencyWeeks ?? 4);
+  } else {
+    const root = run.pieces.find((piece) => piece.id === run.rootId);
+    nextRunResult = await syncAreaScheduleAfterCompletion(
+      tenantId, workDay, finalDate,
+      run.split ? { runDate: root?.date ?? finalDate, runDayIds: run.pieces.map((piece) => piece.id) } : undefined,
+    );
+  }
 
   // "Windows cleaned, here's how to pay" texts (if turned on). Runs now, so anyone
   // who paid on the doorstep today is already marked paid and gets skipped.
@@ -3025,8 +3220,9 @@ export async function reopenDay(workDayId: number) {
       select: { id: true },
     });
     if (upcoming) {
-      await prisma.job.deleteMany({ where: { tenantId, workDayId: upcoming.id } });
-      await prisma.workDay.delete({ where: { id: upcoming.id } });
+      const upcomingJobs = await prisma.job.findMany({ where: { tenantId, workDayId: upcoming.id }, select: { id: true } });
+      const kept = await deleteUnpaidJobs(tenantId, upcomingJobs.map((j) => j.id));
+      if (kept.length === 0) await prisma.workDay.delete({ where: { id: upcoming.id } });
     }
 
     // Point the area (and its customers) back at this run as the next due work.
@@ -3132,7 +3328,18 @@ export async function updateCompletedWorkDayDate(workDayId: number, isoDate: str
     data: { completedAt: newDate },
   });
 
-  await syncAreaScheduleAfterCompletion(tenantId, workDay, newDate);
+  const run = await runPieces(tenantId, workDay);
+  const refreshed = run.pieces.map((piece) => (piece.id === workDay.id ? { ...piece, date: newDate } : piece));
+  if (refreshed.some((piece) => piece.status !== "COMPLETE")) {
+    // Part of a split run that isn't finished: just this day's customers.
+    await markCustomersCleaned(tenantId, workDay.id, newDate, workDay.area?.frequencyWeeks ?? 4);
+  } else {
+    const root = refreshed.find((piece) => piece.id === run.rootId);
+    await syncAreaScheduleAfterCompletion(
+      tenantId, workDay, newDate,
+      run.split ? { runDate: root?.date ?? newDate, runDayIds: refreshed.map((piece) => piece.id) } : undefined,
+    );
+  }
 
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/days");
@@ -5064,57 +5271,7 @@ export async function getPendingUnfinishedJobs() {
  * using the same area as the job's current work day.
  */
 export async function rescheduleJobToDate(jobId: number, dateISO: string) {
-  const actor = await requirePerm("schedule");
-  const tenantId = actor.tenantId;
-  const d = isoToUTC(dateISO);
-
-  const job = await prisma.job.findFirst({
-    where: { id: jobId, tenantId, ...visibleJobWhere(actor) },
-    include: { workDay: true },
-  });
-  if (!job) throw new Error("Job not found");
-
-  const areaId = job.workDay.areaId;
-  const sourceWorkDayId = job.workDayId;
-  let targetWorkDay: { id: number };
-
-  if (areaId) {
-    // Reuse an existing work day for this area+date, or create one
-    targetWorkDay = await prisma.workDay.upsert({
-      where: { tenantId_date_areaId: { tenantId, date: d, areaId } },
-      update: {},
-      create: { tenantId, date: d, areaId },
-    });
-  } else {
-    // Standalone (one-off) day — always give the job its own fresh standalone day so
-    // one-off jobs stay separate in the scheduler instead of merging onto the same date.
-    targetWorkDay = await prisma.workDay.create({ data: { tenantId, date: d } });
-  }
-
-  const keepWorker = job.assignedUserId ?? job.workDay.assignedUserId ?? null;
-  const target = await prisma.workDay.findUnique({ where: { id: targetWorkDay.id }, select: { assignedUserId: true } });
-  await prisma.job.update({
-    where: { id: jobId },
-    data: {
-      workDayId: targetWorkDay.id,
-      assignedUserId: keepWorker && keepWorker !== target?.assignedUserId ? keepWorker : null,
-    },
-  });
-
-  // Remove the source standalone day if moving the job left it empty.
-  if (sourceWorkDayId !== targetWorkDay.id) {
-    const remaining = await prisma.job.count({ where: { tenantId, workDayId: sourceWorkDayId } });
-    if (remaining === 0) {
-      const wd = await prisma.workDay.findFirst({ where: { id: sourceWorkDayId, tenantId } });
-      if (wd && wd.areaId === null && wd.status !== "COMPLETE") {
-        await prisma.workDay.delete({ where: { id: wd.id } });
-      }
-    }
-  }
-
-  revalidatePath("/scheduler");
-  revalidatePath("/days");
-  revalidatePath("/");
+  await moveJobsToDate([jobId], dateISO);
 }
 
 // ─── Update job completedAt date ─────────────────────────────────────────────

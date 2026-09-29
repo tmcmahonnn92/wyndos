@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { SharePdfButton } from "@/components/share-pdf-button";
 import { CloudRain, Printer, UserRound, Undo2, Users, X } from "lucide-react";
-import { assignJobs, assignWorkDayWorker, rescheduleWorkDay, takeBackWork } from "@/lib/actions";
+import { assignJobs, assignWorkDayWorker, moveJobsToDate, rescheduleWorkDay, takeBackWork } from "@/lib/actions";
 
 export type TeamMember = { id: string; name: string; role: string; isMe: boolean };
 
@@ -162,7 +162,7 @@ export function DayTeamBar({
             onClick={() => setPanel(panel === "assign" ? "none" : "assign")}
             className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
           >
-            <Users size={13} /> Assign jobs
+            <Users size={13} /> Assign / move jobs
           </button>
           {dayAssignedUserId && (
             <button
@@ -210,7 +210,7 @@ export function DayTeamBar({
       {panel === "assign" && (
         <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-3">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-blue-900">Tick jobs, then choose who does them</p>
+            <p className="text-xs font-semibold text-blue-900">Tick jobs, then give them to someone or move them to another day</p>
             <button type="button" onClick={() => setPanel("none")} aria-label="Close" className="text-blue-700">
               <X size={14} />
             </button>
@@ -234,12 +234,12 @@ export function DayTeamBar({
               </label>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="flex gap-2">
             <select
               aria-label="Give selected jobs to"
               value={assignTo}
               onChange={(event) => setAssignTo(event.target.value)}
-              className="rounded-lg border border-blue-200 bg-white px-2 py-2 text-sm"
+              className="min-w-0 flex-1 rounded-lg border border-blue-200 bg-white px-2 py-2 text-sm"
             >
               <option value="">Choose person…</option>
               {me && <option value={me.id}>{me.name} (you)</option>}
@@ -247,35 +247,45 @@ export function DayTeamBar({
                 <option key={worker.id} value={worker.id}>{worker.name}</option>
               ))}
             </select>
-            <input
-              type="date"
-              aria-label="Move to date (optional)"
-              value={assignDate}
-              onChange={(event) => setAssignDate(event.target.value)}
-              className="rounded-lg border border-blue-200 bg-white px-2 py-2 text-sm"
-            />
-          </div>
-          <p className="text-[11px] text-blue-800">Leave the date empty to keep the jobs on this day.</p>
-          <div className="flex gap-2">
             <button
               type="button"
               disabled={isPending || selected.size === 0 || !assignTo}
-              onClick={() => run(() => assignJobs([...selected], assignTo, assignDate || undefined))}
-              className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              onClick={() => run(() => assignJobs([...selected], assignTo))}
+              className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               Assign {selected.size || ""}
             </button>
-            {dayAssignedUserId && (
-              <button
-                type="button"
-                disabled={isPending || selected.size === 0}
-                onClick={() => run(() => takeBackWork(dayId, [...selected], assignDate || undefined))}
-                className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-semibold text-blue-800 disabled:opacity-50"
-              >
-                Take back selected
-              </button>
-            )}
           </div>
+          <div className="flex gap-2">
+            <input
+              type="date"
+              aria-label="Move selected jobs to date"
+              value={assignDate}
+              onChange={(event) => setAssignDate(event.target.value)}
+              className="min-w-0 flex-1 rounded-lg border border-blue-200 bg-white px-2 py-2 text-sm"
+            />
+            <button
+              type="button"
+              disabled={isPending || selected.size === 0 || !assignDate}
+              onClick={() => run(() => moveJobsToDate([...selected], assignDate))}
+              className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-semibold text-blue-800 disabled:opacity-50"
+            >
+              Move {selected.size || ""} to this day
+            </button>
+          </div>
+          <p className="text-[11px] text-blue-800">
+            Moved jobs stay in this area as a split: the area&apos;s next visit is booked once both parts are done, and everyone stays together.
+          </p>
+          {dayAssignedUserId && (
+            <button
+              type="button"
+              disabled={isPending || selected.size === 0}
+              onClick={() => run(() => takeBackWork(dayId, [...selected]))}
+              className="w-full rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-semibold text-blue-800 disabled:opacity-50"
+            >
+              Take back selected
+            </button>
+          )}
         </div>
       )}
 

@@ -5,7 +5,7 @@ import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Edit2, CalendarDays, PoundSterling, CheckCircle2, SkipForward, FileText, Download, Mail, MapPin, Tag as TagIcon, MessageSquare, ArrowLeftRight, Pencil, Trash2, Zap, UserCheck } from "lucide-react";
-import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, recordPayment, setCustomerTags, updateJobPrice, updatePaymentMeta, voidPayment, createOneOffJob } from "@/lib/actions";
+import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, recordPayment, setCustomerTags, updateJobPrice, updatePaymentMeta, voidPayment, createOneOffJob, addCustomerToDate } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,6 +58,13 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
   return balanceMap;
 }
 export function CustomerDetail({ customer, areas, balance, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", payerOptions = [] }: Props) {
+  const [bookOpen, setBookOpen] = useState(false);
+  const [bookDate, setBookDate] = useState("");
+  const [bookError, setBookError] = useState<string | null>(null);
+  // Their next booked visit (not done yet), if they're on a day at all.
+  const bookedJob = [...customer.jobs]
+    .filter((job) => job.status === "PENDING" && job.workDay && job.workDay.status !== "COMPLETE")
+    .sort((a, b) => new Date(a.workDay.date).getTime() - new Date(b.workDay.date).getTime())[0] ?? null;
   const JOB_HISTORY_PREVIEW_COUNT = 6;
   const [editOpen, setEditOpen] = useState(false);
   const [changeAreaOpen, setChangeAreaOpen] = useState(false);
@@ -453,7 +460,44 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                 </p>
               )}
             </div>
+            <div className="text-right">
+              {bookedJob ? (
+                <Link href={`/days/${bookedJob.workDayId}`} className="block text-xs text-blue-600 hover:underline">
+                  Booked {fmtDate(bookedJob.workDay.date)} →
+                </Link>
+              ) : (
+                <p className="text-xs font-semibold text-amber-700">Not on any day</p>
+              )}
+              {!bookOpen && (
+                <button type="button" onClick={() => { setBookOpen(true); setBookError(null); }} className="mt-1 text-xs font-semibold text-blue-600 hover:underline">
+                  {bookedJob ? "Also add to a day" : "Add to a day"}
+                </button>
+              )}
+            </div>
           </CardContent>
+          {bookOpen && (
+            <div className="space-y-2 border-t border-slate-100 px-4 py-3">
+              <p className="text-xs text-slate-500">Puts {customer.name} on {customer.area.name}&apos;s day for that date (made if there isn&apos;t one).</p>
+              <div className="flex gap-2">
+                <input type="date" value={bookDate} onChange={(e) => setBookDate(e.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                <Button size="sm" disabled={!bookDate || isPending} onClick={() => {
+                  setBookError(null);
+                  startTransition(async () => {
+                    try {
+                      const r = await addCustomerToDate(customer.id, bookDate);
+                      setBookOpen(false);
+                      router.push(`/days/${r.workDayId}`);
+                    } catch (issue) {
+                      setBookError(issue instanceof Error ? issue.message : "Could not add to that day.");
+                    }
+                  });
+                }}>Add</Button>
+                <Button size="sm" variant="outline" onClick={() => setBookOpen(false)}>Cancel</Button>
+              </div>
+              {bookError && <p className="text-xs text-red-600">{bookError}</p>}
+            </div>
+          )}
         </Card>
         )}
 
