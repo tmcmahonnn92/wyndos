@@ -33,6 +33,7 @@ export default async function DayPage({ params }: Props) {
   const isOwner = user.role === "OWNER" || user.role === "SUPER_ADMIN";
   const team = isOwner ? await getAssignableTeam() : null;
   const canReschedule = isOwner || (user.permissions ?? []).includes("scheduler");
+  const canText = isOwner || (user.permissions ?? []).includes("messaging");
 
   return (
     <DayView
@@ -42,6 +43,7 @@ export default async function DayPage({ params }: Props) {
       hidePrices={hidePrices}
       team={team}
       canReschedule={canReschedule}
+      canText={canText}
       otherAreasOnDate={otherAreasOnDate}
     />
   );

@@ -16,12 +16,13 @@ export const PERMISSIONS = {
   PAYMENTS:    "payments",    // view & log customer payments
   SETTINGS:    "settings",    // access business settings
   VIEW_PRICES: "viewprices",  // see job/customer prices
+  MESSAGING:   "messaging",   // send texts: day reminders and bulk messages
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
 
 export const ALL_PERMISSIONS: Permission[] = [
-  "dashboard", "schedule", "scheduler", "routeoptimiser", "customers", "areas", "payments", "settings", "viewprices",
+  "dashboard", "schedule", "scheduler", "routeoptimiser", "customers", "areas", "payments", "settings", "viewprices", "messaging",
 ];
 
 /**
@@ -45,7 +46,7 @@ export const ROLE_PRESETS: Array<{ key: string; label: string; description: stri
     key: "office",
     label: "Office / admin",
     description: "Everything except business settings.",
-    permissions: ["dashboard", "schedule", "scheduler", "routeoptimiser", "customers", "areas", "payments", "viewprices"],
+    permissions: ["dashboard", "schedule", "scheduler", "routeoptimiser", "customers", "areas", "payments", "viewprices", "messaging"],
   },
 ];
 
@@ -62,6 +63,7 @@ export const PERMISSION_LABELS: Record<Permission, { label: string; description:
   payments:   { label: "Payments",     description: "View & log customer payments"         },
   settings:   { label: "Settings",     description: "Access business settings"             },
   viewprices: { label: "View Prices",  description: "See job and customer prices"          },
+  messaging:  { label: "Texts",        description: "Send day reminders and bulk texts"    },
 };
 
 /** Parse the stored JSON permissions string back into a Permission array. */

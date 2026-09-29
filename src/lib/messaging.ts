@@ -6,6 +6,7 @@
 
 import { prisma } from "@/lib/db";
 import { getActiveTenantId } from "@/lib/tenant-context";
+import { decryptSettingsSecrets } from "@/lib/secrets";
 
 // ── Placeholder interpolation ─────────────────────────────────────────────────
 
@@ -13,6 +14,8 @@ export type MessageVars = {
   customerName?: string;
   customerFirstName?: string;
   customerAddress?: string;
+  bankDetails?: string;
+  paymentReference?: string;
   areaName?: string;
   jobDate?: string;
   jobPrice?: string;
@@ -38,7 +41,23 @@ export function interpolateTemplate(template: string, vars: MessageVars): string
  */
 export async function sendMessage({ to, message }: { to: string; message: string }) {
   const tenantId = await getActiveTenantId();
-  const settings = await prisma.tenantSettings.findFirst({ where: { tenantId } });
+  const raw = await prisma.tenantSettings.findFirst({ where: { tenantId } });
+  return sendWithSettings(raw ? decryptSettingsSecrets(raw) : null, { to, message });
+}
+
+type ProviderSettings = {
+  messagingProvider: string;
+  voodooApiKey: string;
+  voodooSender: string;
+  twilioAccountSid: string;
+  twilioAuthToken: string;
+  twilioFromNumber: string;
+  metaPhoneNumberId: string;
+  metaAccessToken: string;
+};
+
+/** Send one message with already-loaded (decrypted) settings. Throws on error. */
+export async function sendWithSettings(settings: ProviderSettings | null, { to, message }: { to: string; message: string }) {
   const provider = settings?.messagingProvider ?? "voodoosms";
 
   if (provider === "none" || !settings) {

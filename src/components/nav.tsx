@@ -23,6 +23,7 @@ import {
   ArrowLeftRight,
   Plus,
   X,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,7 @@ const navItems = [
   { href: "/quotes",    label: "Quotes",    icon: ClipboardList,  desktopOnly: false, permission: "customers"  },
   { href: "/areas",     label: "Areas",     icon: Layers,         desktopOnly: false, permission: "areas"      },
   { href: "/payments",  label: "Payments",  icon: CreditCard,     desktopOnly: false, permission: "payments"   },
+  { href: "/messages",  label: "Texts",     icon: MessageSquare,  desktopOnly: false, permission: "messaging"  },
   { href: "/accounting",label: "Accounting",icon: Receipt,        desktopOnly: false, permission: "payments"   },
   { href: "/settings",  label: "Settings",  icon: Settings,       desktopOnly: false, permission: "settings"   },
 ];
@@ -186,11 +188,14 @@ export function Nav({
   const mobileMoreItems = shownNavItems.filter((item) => !mobilePrimaryHrefSet.has(item.href));
   const leftMobileItems = mobilePrimaryItems.slice(0, 2);
   const rightMobileItems = mobilePrimaryItems.slice(2);
+  // Only offer what this person is allowed to do (a worker without "customers"
+  // would otherwise land on a page that bounces them away).
+  const can = (...needed: string[]) => !isWorker || needed.every((p) => permissions.includes(p));
   const mobileQuickActions = [
-    { href: "/customers?action=new-customer", label: "New Customer", icon: UserPlus },
-    { href: "/days?action=new-one-off", label: "One-off Job", icon: Zap },
-    { href: "/quotes?action=book", label: "Book Quote", icon: ClipboardList },
-  ];
+    { href: "/customers?action=new-customer", label: "New Customer", icon: UserPlus, ok: can("customers") },
+    { href: "/days?action=new-one-off", label: "One-off Job", icon: Zap, ok: can("schedule", "scheduler") },
+    { href: "/quotes?action=book", label: "Book Quote", icon: ClipboardList, ok: can("customers", "scheduler") },
+  ].filter((action) => action.ok);
 
   return (
     <>
@@ -301,6 +306,9 @@ export function Nav({
                 <X size={14} />
               </button>
             </div>
+            {mobileQuickActions.length === 0 && (
+              <p className="px-1 pb-1 text-xs text-[#94a3b8]">Nothing to add with your account. Ask the owner if you need to.</p>
+            )}
             <div className="grid grid-cols-1 gap-2">
               {mobileQuickActions.map(({ href, label, icon: Icon }) => (
                 <Link

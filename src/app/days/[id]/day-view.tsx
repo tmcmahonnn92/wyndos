@@ -23,6 +23,7 @@ import {
   CalendarDays,
   RotateCcw,
   CloudRain,
+  MessageSquare,
   ChevronDown,
   Printer,
   StickyNote,
@@ -64,6 +65,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { DayTeamBar, type TeamMember } from "./day-team-bar";
+import { TextRemindersModal } from "./text-reminders-modal";
 import { QuoteActions, quoteCardClass, quoteSummary } from "./quote-actions";
 import { getQueue, onQueueChange, runOrQueue } from "@/lib/offline-queue";
 import { expectsPaymentAtDoor, normalisePreference, preferenceLabel } from "@/lib/payment-preference";
@@ -116,6 +118,8 @@ interface Props {
   canReschedule?: boolean;
   /** On a single area day: how many other areas share the date (links to the whole day). */
   otherAreasOnDate?: number;
+  /** May send texts (owner, or a worker with the Texts permission). */
+  canText?: boolean;
 }
 
 type PendingResolution = {
@@ -139,6 +143,7 @@ export function DayView({
   team = null,
   canReschedule = false,
   otherAreasOnDate = 0,
+  canText = false,
 }: Props) {
   const todayDateValue = new Date().toISOString().slice(0, 10);
   const scheduledDateValue = dateISO;
@@ -152,6 +157,7 @@ export function DayView({
   const [addJobDayId, setAddJobDayId] = useState<number | null>(null);
   const [addJobPickerOpen, setAddJobPickerOpen] = useState(false);
   const [areaPickerOpen, setAreaPickerOpen] = useState(false);
+  const [textsOpen, setTextsOpen] = useState(false);
   const [nextRuns, setNextRuns] = useState<Array<{ nextDue: Date | string; nextWorkDayId: number | null; areaName: string }>>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [openJobInPayMode, setOpenJobInPayMode] = useState(false);
@@ -728,6 +734,17 @@ export function DayView({
           </div>
         )}
 
+        {canText && openDays.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setTextsOpen(true)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-700"
+          >
+            <MessageSquare size={14} />
+            Text reminders to {multi ? "this day's" : "this area's"} customers
+          </button>
+        )}
+
         {multi && canReschedule && openDays.length > 0 && (
           <button
             type="button"
@@ -967,6 +984,15 @@ export function DayView({
           </div>
         )}
       </Modal>
+
+      {canText && (
+        <TextRemindersModal
+          open={textsOpen}
+          onClose={() => setTextsOpen(false)}
+          workDayIds={openDays.map((d) => d.id)}
+          canSaveDefault={team !== null}
+        />
+      )}
 
       {/* ── One area: which? ─────────────────────────────── */}
       <Modal open={areaPickerOpen} onClose={() => setAreaPickerOpen(false)} title="Show which area?">

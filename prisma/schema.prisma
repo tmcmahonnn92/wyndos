@@ -36,6 +36,7 @@ model Tenant {
   invites   Invite[]
   settings  TenantSettings?
   supportAccessLogs SupportAccessLog[]
+  messageLogs MessageLog[]
 }
 
 /// Per-tenant app configuration (SMTP, SMS, invoice, templates).
@@ -84,11 +85,19 @@ model TenantSettings {
   tmplCleaningReminder  String @default("Hi {{customerFirstName}}, just a reminder your window cleaning is scheduled for {{jobDate}}. Thanks, {{businessName}}")
   tmplJobComplete       String @default("Hi {{customerFirstName}}, your window cleaning has been completed today. Thanks for your custom! {{businessName}}")
   tmplPaymentReminder1  String @default("Hi {{customerFirstName}}, just a friendly reminder you have an outstanding balance of {{amountDue}} for window cleaning. Please arrange payment at your convenience. Thanks, {{businessName}}")
-  tmplPaymentReminder2  String @default("Hi {{customerFirstName}}, this is a second reminder ï¿½ your window cleaning balance of {{amountDue}} is overdue. Please arrange payment as soon as possible. Thanks, {{businessName}}")
+  tmplPaymentReminder2  String @default("Hi {{customerFirstName}}, this is a second reminder - your window cleaning balance of {{amountDue}} is overdue. Please arrange payment as soon as possible. Thanks, {{businessName}}")
   tmplPaymentReminder3  String @default("Hi {{customerFirstName}}, this is a final reminder regarding your outstanding balance of {{amountDue}}. Please contact us immediately. {{businessName}}")
   tmplPaymentReceived   String @default("Hi {{customerFirstName}}, we have received your payment of {{amountDue}}. Thank you! {{businessName}}")
   tmplJobAndPayment     String @default("Hi {{customerFirstName}}, your window cleaning is complete and you have an outstanding balance of {{amountDue}}. Please arrange payment at your convenience. Thanks, {{businessName}}")
   tmplInvoiceNote       String @default("")
+  tmplCleanedBank       String @default("Hi {{customerFirstName}}, your windows at {{customerAddress}} have been cleaned today. {{amountDue}} is due. To pay by bank: {{bankDetails}}. Please use {{paymentReference}} as the reference. Thanks, {{businessName}}")
+
+  // Automatic texts. Test mode logs every text instead of sending it.
+  textsTestMode            Boolean @default(true)
+  textCleanedEnabled       Boolean @default(false)
+  textSkipCleanedIfPaid    Boolean @default(true)
+  textPaymentReminderDays  Int     @default(0)
+  textPaymentReminder2Days Int     @default(0)
 }
 
 /// Pending invite for a worker to join a tenant's account.
@@ -534,3 +543,25 @@ enum PaymentMethod {
   CARD
 }
 
+
+/// Every text the app sends (or, in test mode, would have sent).
+model MessageLog {
+  id           Int      @id @default(autoincrement())
+  tenantId     Int
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId   Int?
+  jobId        Int?
+  workDayId    Int?
+  /// DAY_REMINDER, CLEANED, PAYMENT_REMINDER_1, PAYMENT_REMINDER_2, BULK
+  kind         String
+  toNumber     String
+  body         String
+  /// TEST (not sent), SENT, FAILED
+  status       String
+  error        String   @default("")
+  sentByUserId String?
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, kind, customerId])
+}

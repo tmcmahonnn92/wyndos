@@ -22,6 +22,8 @@ export default auth((req) => {
 
   if (pathname.startsWith("/api/auth")) return NextResponse.next();
   if (pathname === "/api/health") return NextResponse.next();
+  // Cron endpoints check their own CRON_SECRET bearer token.
+  if (pathname.startsWith("/api/cron/")) return NextResponse.next();
 
   if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return NextResponse.next();

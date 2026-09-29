@@ -20,6 +20,7 @@ import {
   type Actor,
 } from "@/lib/guards";
 import { decryptSettingsSecrets, encryptSecret } from "@/lib/secrets";
+import { queueCleanedTexts } from "@/lib/texts";
 import {
   EMPTY_ADDRESS,
   addressPartsOf,
@@ -2937,6 +2938,15 @@ export async function completeDay(
 
   nextRunResult = await syncAreaScheduleAfterCompletion(tenantId, workDay, finalDate);
 
+  // "Windows cleaned, here's how to pay" texts (if turned on). Runs now, so anyone
+  // who paid on the doorstep today is already marked paid and gets skipped.
+  // A texting problem must never stop a day being completed.
+  try {
+    await queueCleanedTexts(tenantId, workDayId, actor.userId);
+  } catch (issue) {
+    console.error("[texts] cleaned texts failed", issue);
+  }
+
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/days");
   revalidatePath("/scheduler");
@@ -4568,6 +4578,13 @@ export async function getBusinessSettingsForClient() {
     tmplPaymentReceived: settings.tmplPaymentReceived,
     tmplJobAndPayment: settings.tmplJobAndPayment,
     tmplInvoiceNote: settings.tmplInvoiceNote,
+    tmplCleanedBank: settings.tmplCleanedBank,
+    textsTestMode: settings.textsTestMode,
+    textCleanedEnabled: settings.textCleanedEnabled,
+    textSkipCleanedIfPaid: settings.textSkipCleanedIfPaid,
+    textPaymentReminderDays: settings.textPaymentReminderDays,
+    textPaymentReminder2Days: settings.textPaymentReminder2Days,
+    textsServerLive: process.env.MESSAGING_LIVE === "true",
     canManageProviderSettings,
   };
 }
@@ -4611,6 +4628,13 @@ export async function updateBusinessSettings(data: {
   tmplPaymentReceived?: string;
   tmplJobAndPayment?: string;
   tmplInvoiceNote?: string;
+  tmplCleanedBank?: string;
+  // Automatic texts
+  textsTestMode?: boolean;
+  textCleanedEnabled?: boolean;
+  textSkipCleanedIfPaid?: boolean;
+  textPaymentReminderDays?: number;
+  textPaymentReminder2Days?: number;
 }) {
   const actor = await requireOwner();
   const tenantId = actor.tenantId;

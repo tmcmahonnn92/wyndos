@@ -9,6 +9,7 @@ import {
   Users, UserX, Link2, RefreshCw,
 } from "lucide-react";
 import { updateBusinessSettings, createTag, deleteTag } from "@/lib/actions";
+import { runPaymentRemindersNow } from "@/lib/text-actions";
 import { createInvite, listTeamMembers, listPendingInvites, revokeInvite, removeTeamMember, updateWorkerPermissions, changePassword } from "@/lib/auth-actions";
 import { ROLE_PRESETS, ALL_PERMISSIONS, PERMISSION_LABELS, DEFAULT_WORKER_PERMISSIONS, type Permission } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,9 @@ interface Settings {
   tmplPaymentReminder1: string; tmplPaymentReminder2: string;
   tmplPaymentReminder3: string; tmplPaymentReceived: string;
   tmplJobAndPayment: string; tmplInvoiceNote: string;
+  tmplCleanedBank: string;
+  textsTestMode: boolean; textCleanedEnabled: boolean; textSkipCleanedIfPaid: boolean;
+  textPaymentReminderDays: number; textPaymentReminder2Days: number; textsServerLive: boolean;
   canManageProviderSettings: boolean;
 }
 
@@ -50,7 +54,7 @@ type PendingInvite = { id: number; email: string; expiresAt: Date; createdAt: Da
 
 const TABS = ["general", "email", "messaging", "templates", "broadcast", "tags", "team", "security"] as const;
 type Tab = (typeof TABS)[number];
-const ROLLOUT_DISABLED_TABS: Tab[] = ["email", "messaging", "templates", "broadcast"];
+const ROLLOUT_DISABLED_TABS: Tab[] = ["email"];
 const RESTRICTED_TABS: Tab[] = ["team"];
 
 const TAB_META: Record<Tab, { label: string; icon: React.ReactNode }> = {
@@ -95,15 +99,20 @@ const PLACEHOLDER_CHIPS = [
   { label: "Biz name",       value: "{{businessName}}"      },
   { label: "Biz phone",      value: "{{businessPhone}}"     },
   { label: "Next due date",  value: "{{nextDueDate}}"       },
+  { label: "Address",        value: "{{customerAddress}}"   },
+  { label: "Bank details",   value: "{{bankDetails}}"       },
+  { label: "Pay reference",  value: "{{paymentReference}}"  },
 ];
 
 type TmplKey =
   | "tmplCleaningReminder" | "tmplJobComplete"
   | "tmplPaymentReminder1" | "tmplPaymentReminder2" | "tmplPaymentReminder3"
-  | "tmplPaymentReceived"  | "tmplJobAndPayment"     | "tmplInvoiceNote";
+  | "tmplPaymentReceived"  | "tmplJobAndPayment"     | "tmplInvoiceNote"
+  | "tmplCleanedBank";
 
 const TEMPLATE_DEFS: { key: TmplKey; label: string; desc: string }[] = [
-  { key: "tmplCleaningReminder",  label: "Cleaning Reminder",             desc: "Sent before a scheduled clean" },
+  { key: "tmplCleaningReminder",  label: "Day Reminder",                  desc: "Default text for day reminders (you can edit it each time you send)" },
+  { key: "tmplCleanedBank",       label: "Cleaned — how to pay",          desc: "Sent when an area is completed. Bank details come from Settings → Business; the reference is the first line of the address" },
   { key: "tmplJobComplete",       label: "Job Completion Notice",         desc: "Sent right after completing a clean" },
   { key: "tmplPaymentReminder1",  label: "Payment Reminder — 1st",        desc: "Friendly first payment chaser" },
   { key: "tmplPaymentReminder2",  label: "Payment Reminder — 2nd",        desc: "Second chaser, more urgent" },
@@ -198,7 +207,18 @@ export function SettingsClient({
     tmplPaymentReceived:  settings.tmplPaymentReceived  || "",
     tmplJobAndPayment:    settings.tmplJobAndPayment    || "",
     tmplInvoiceNote:      settings.tmplInvoiceNote      || "",
+    tmplCleanedBank:      settings.tmplCleanedBank      || "",
   });
+
+  // Automatic texts
+  const [autoTexts, setAutoTexts] = useState({
+    textsTestMode: settings.textsTestMode ?? true,
+    textCleanedEnabled: settings.textCleanedEnabled ?? false,
+    textSkipCleanedIfPaid: settings.textSkipCleanedIfPaid ?? true,
+    textPaymentReminderDays: settings.textPaymentReminderDays ?? 0,
+    textPaymentReminder2Days: settings.textPaymentReminder2Days ?? 0,
+  });
+  const [reminderRun, setReminderRun] = useState<string | null>(null);
 
   const templateRefs = useRef<Partial<Record<TmplKey, HTMLTextAreaElement | null>>>({});
 
@@ -382,6 +402,7 @@ export function SettingsClient({
             metaPhoneNumberId: messaging.metaPhoneNumberId,
             metaWabaId: messaging.metaWabaId,
             ...templates,
+            ...autoTexts,
           });
 
           if (smtp.smtpPass.trim()) payload.smtpPass = smtp.smtpPass.trim();
@@ -465,7 +486,10 @@ export function SettingsClient({
       )}
 
       <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 rounded-lg">
-        Email delivery, SMS reminders, and broadcast messaging are disabled during the current production-readiness pass.
+        {settings.textsServerLive && !autoTexts.textsTestMode
+          ? "Texts are LIVE: customers will receive them."
+          : "Texts are in test mode: nothing is sent to customers. Every text is written to the message log (Texts page) so you can check it."}
+        {" "}Email delivery is still switched off.
       </div>
 
       {/* Header */}
@@ -646,6 +670,74 @@ export function SettingsClient({
       {/* ── MESSAGING ─────────────────────────────────────────────────────── */}
       {tab === "messaging" && (
         <div className="space-y-4">
+          <Card>
+            <CardHeader><CardTitle><Send size={16} className="inline mr-2 text-blue-600" />Automatic texts</CardTitle></CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <label className="flex items-start gap-3">
+                <input type="checkbox" className="mt-1" checked={autoTexts.textsTestMode}
+                  onChange={(e) => setAutoTexts((a) => ({ ...a, textsTestMode: e.target.checked }))} />
+                <span>
+                  <span className="font-semibold text-slate-800">Test mode</span>
+                  <span className="block text-xs text-slate-500">
+                    Nothing is sent: texts only go in the log.
+                    {!settings.textsServerLive && " (The server also has live texts switched off, so nothing can be sent yet either way.)"}
+                  </span>
+                </span>
+              </label>
+
+              <div className="border-t border-slate-100 pt-3 space-y-2">
+                <label className="flex items-start gap-3">
+                  <input type="checkbox" className="mt-1" checked={autoTexts.textCleanedEnabled}
+                    onChange={(e) => setAutoTexts((a) => ({ ...a, textCleanedEnabled: e.target.checked }))} />
+                  <span>
+                    <span className="font-semibold text-slate-800">&ldquo;Windows cleaned, here&apos;s how to pay&rdquo;</span>
+                    <span className="block text-xs text-slate-500">Sent when you complete an area. Uses the <em>Cleaned — how to pay</em> template. Direct Debit customers are never sent it.</span>
+                  </span>
+                </label>
+                <label className={cn("ml-7 flex items-start gap-3", !autoTexts.textCleanedEnabled && "opacity-50")}>
+                  <input type="checkbox" className="mt-1" disabled={!autoTexts.textCleanedEnabled} checked={autoTexts.textSkipCleanedIfPaid}
+                    onChange={(e) => setAutoTexts((a) => ({ ...a, textSkipCleanedIfPaid: e.target.checked }))} />
+                  <span>
+                    <span className="font-semibold text-slate-800">Don&apos;t text people who paid on the day</span>
+                    <span className="block text-xs text-slate-500">If the visit was marked paid before the area was completed, no text.</span>
+                  </span>
+                </label>
+              </div>
+
+              <div className="border-t border-slate-100 pt-3 space-y-2">
+                <p className="font-semibold text-slate-800">Payment reminders</p>
+                <p className="text-xs text-slate-500">Counted from the oldest unpaid clean. 0 = off. Each reminder goes once per unpaid clean. Direct Debit customers are never chased.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={lbl}>1st reminder after (days)</label>
+                    <input type="number" min={0} className={inp} value={autoTexts.textPaymentReminderDays}
+                      onChange={(e) => setAutoTexts((a) => ({ ...a, textPaymentReminderDays: Math.max(0, Number(e.target.value) || 0) }))} />
+                  </div>
+                  <div>
+                    <label className={lbl}>2nd reminder after (days)</label>
+                    <input type="number" min={0} className={inp} value={autoTexts.textPaymentReminder2Days}
+                      onChange={(e) => setAutoTexts((a) => ({ ...a, textPaymentReminder2Days: Math.max(0, Number(e.target.value) || 0) }))} />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" disabled={isPending}
+                    onClick={() => startTransition(async () => {
+                      try {
+                        const r = await runPaymentRemindersNow();
+                        setReminderRun(r.skipped === "off"
+                          ? "Payment reminders are off (both set to 0). Save first if you just changed them."
+                          : `${r.logged} reminder${r.logged === 1 ? "" : "s"} ${r.test ? "logged (test mode, not sent)" : "sent"}.`);
+                      } catch (e) { setReminderRun(String(e)); }
+                    })}>
+                    Run reminders now
+                  </Button>
+                  <a href="/messages?tab=log" className="text-xs font-medium text-blue-600 hover:underline">Open the text log →</a>
+                </div>
+                {reminderRun && <p className="text-xs text-slate-600">{reminderRun}</p>}
+                <p className="text-[11px] text-slate-400">Once live, they run automatically every day.</p>
+              </div>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader><CardTitle><MessageSquare size={16} className="inline mr-2 text-blue-600" />Messaging Provider</CardTitle></CardHeader>
             <CardContent className="space-y-3">
@@ -944,76 +1036,12 @@ export function SettingsClient({
       {/* ── BROADCAST ─────────────────────────────────────────────────────── */}
       {tab === "broadcast" && (
         <Card>
-          <CardHeader><CardTitle><Send size={16} className="inline mr-2 text-blue-600" />Broadcast Message</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-
-            {/* Customer picker */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className={lbl}>Select recipients</label>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setBcSelected(new Set(filteredCustomers.map((c) => c.id)))} className="text-xs text-blue-600 hover:underline font-medium">Select all ({filteredCustomers.length})</button>
-                  <span className="text-slate-300">·</span>
-                  <button type="button" onClick={() => setBcSelected(new Set())} className="text-xs text-slate-500 hover:underline">Clear</button>
-                </div>
-              </div>
-              <input type="text" placeholder="Search by name, address or area…" value={bcSearch} onChange={(e) => setBcSearch(e.target.value)} className={cn(inp, "mb-2")} />
-              <div className="space-y-0.5 max-h-52 overflow-y-auto border border-slate-200 rounded-lg p-1.5">
-                {filteredCustomers.length === 0 && <p className="text-sm text-slate-400 text-center py-3">No customers match.</p>}
-                {filteredCustomers.map((c) => (
-                  <label key={c.id} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer">
-                    <input type="checkbox" checked={bcSelected.has(c.id)}
-                      onChange={(e) => setBcSelected((prev) => { const next = new Set(prev); e.target.checked ? next.add(c.id) : next.delete(c.id); return next; })}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm font-medium text-slate-800">{c.name}</span>
-                      <span className="text-xs text-slate-400 ml-2">{c.area?.name ?? "No area"}</span>
-                      {!c.phone && <span className="text-[10px] ml-2 text-amber-600 font-semibold">No phone</span>}
-                    </div>
-                  </label>
-                ))}
-              </div>
-              {bcSelected.size > 0 && <p className="text-xs text-blue-700 font-medium mt-1">{bcSelected.size} customer{bcSelected.size !== 1 ? "s" : ""} selected</p>}
-            </div>
-
-            {/* Compose */}
-            <div>
-              <label className={lbl}>Message</label>
-              <textarea ref={bcMsgRef} rows={5} className={cn(inp, "resize-none text-sm leading-relaxed")} value={bcMessage}
-                onChange={(e) => setBcMessage(e.target.value)} placeholder="Type your message… use placeholder chips to personalise it." />
-              <PlaceholderChips onInsert={(ph) => insertInto(bcMsgRef.current, bcMessage, ph, setBcMessage)} />
-            </div>
-
-            {/* Preview */}
-            {previewMsg && bcSelected.size > 0 && bcMessage.trim() && (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 space-y-1">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Preview — {previewCust?.name}</p>
-                <p className="text-sm text-slate-700 leading-relaxed">{previewMsg}</p>
-              </div>
-            )}
-
-            {/* Send */}
-            <Button onClick={handleBroadcast} disabled={bcSending || bcSelected.size === 0 || !bcMessage.trim()} className="w-full bg-blue-600 hover:bg-blue-700">
-              {bcSending ? <><Loader2 size={14} className="mr-2 animate-spin" />Sending…</> : <><Send size={14} className="mr-2" />Send to {bcSelected.size || "—"} customer{bcSelected.size !== 1 ? "s" : ""}</>}
-            </Button>
-
-            {/* Results */}
-            {bcResults && (
-              <div className="space-y-1.5">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Results</p>
-                <div className="space-y-1 max-h-48 overflow-y-auto">
-                  {bcResults.map((r, i) => (
-                    <div key={i} className={cn("flex items-center gap-2 px-3 py-2 rounded-lg text-sm",
-                      r.success ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200")}>
-                      {r.success ? <CheckCircle2 size={14} className="text-green-600 flex-shrink-0" /> : <AlertCircle size={14} className="text-red-500 flex-shrink-0" />}
-                      <span className={cn("font-medium", r.success ? "text-green-800" : "text-red-700")}>{r.name}</span>
-                      {r.error && <span className="text-xs text-red-600 truncate">— {r.error}</span>}
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-slate-400">{bcResults.filter((r) => r.success).length} sent · {bcResults.filter((r) => !r.success).length} failed</p>
-              </div>
-            )}
+          <CardHeader><CardTitle><Send size={16} className="inline mr-2 text-blue-600" />Bulk texts</CardTitle></CardHeader>
+          <CardContent className="space-y-3 text-sm text-slate-600">
+            <p>Send one message to many customers, picked by area, tag or who owes money, with placeholders filled in for each person.</p>
+            <a href="/messages" className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+              <Send size={14} /> Open Texts
+            </a>
           </CardContent>
         </Card>
       )}
