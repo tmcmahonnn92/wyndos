@@ -4,8 +4,8 @@ import { QuotesClient } from "./quotes-client";
 
 export const dynamic = "force-dynamic";
 
-export default async function QuotesPage({ searchParams }: { searchParams: Promise<{ action?: string }> }) {
+export default async function QuotesPage() {
   await requirePermission("customers");
-  const [quotes, params] = await Promise.all([getQuotes(), searchParams]);
-  return <QuotesClient quotes={JSON.parse(JSON.stringify(quotes))} openBooking={params.action === "book"} />;
+  const quotes = await getQuotes();
+  return <QuotesClient quotes={JSON.parse(JSON.stringify(quotes))} />;
 }

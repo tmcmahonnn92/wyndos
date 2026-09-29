@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useActionParam } from "@/lib/use-action-param";
 import { Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OneOffJobModal } from "./one-off-job-modal";
@@ -12,17 +12,10 @@ interface Area {
 
 interface Props {
   areas: Area[];
-  initialOneOffOpen?: boolean;
 }
 
-export function ScheduleHeader({ areas: _areas, initialOneOffOpen = false }: Props) {
-  const [oneOffOpen, setOneOffOpen] = useState(initialOneOffOpen);
-
-  useEffect(() => {
-    if (initialOneOffOpen) {
-      setOneOffOpen(true);
-    }
-  }, [initialOneOffOpen]);
+export function ScheduleHeader({ areas: _areas }: Props) {
+  const { open: oneOffOpen, setOpen: setOneOffOpen, close: closeOneOff } = useActionParam("new-one-off");
 
   return (
     <div className="flex items-center justify-between">
@@ -34,7 +27,7 @@ export function ScheduleHeader({ areas: _areas, initialOneOffOpen = false }: Pro
         </Button>
       </div>
 
-      <OneOffJobModal open={oneOffOpen} onClose={() => setOneOffOpen(false)} />
+      <OneOffJobModal open={oneOffOpen} onClose={closeOneOff} />
     </div>
   );
 }

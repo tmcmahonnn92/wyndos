@@ -9,6 +9,7 @@ import { reopenQuote } from "@/lib/actions";
 import { QuoteActions, quoteSummary } from "@/app/days/[id]/quote-actions";
 import { OneOffJobModal } from "@/app/days/one-off-job-modal";
 import { cn } from "@/lib/utils";
+import { useActionParam } from "@/lib/use-action-param";
 
 type Quote = Awaited<ReturnType<typeof getQuotes>>[number];
 
@@ -28,9 +29,9 @@ function fmtDay(value: string | Date) {
   return `${DAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
-export function QuotesClient({ quotes, openBooking = false }: { quotes: Quote[]; openBooking?: boolean }) {
+export function QuotesClient({ quotes }: { quotes: Quote[] }) {
   const router = useRouter();
-  const [bookOpen, setBookOpen] = useState(openBooking);
+  const { open: bookOpen, setOpen: setBookOpen, close: closeBooking } = useActionParam("book");
   const [tab, setTab] = useState<(typeof SECTIONS)[number]["key"]>("QUOTED");
   const [isPending, startTransition] = useTransition();
 
@@ -131,7 +132,7 @@ export function QuotesClient({ quotes, openBooking = false }: { quotes: Quote[];
         </ul>
       )}
 
-      <OneOffJobModal open={bookOpen} initialMode="quote" onClose={() => { setBookOpen(false); router.refresh(); }} />
+      <OneOffJobModal open={bookOpen} initialMode="quote" onClose={() => { closeBooking(); router.refresh(); }} />
     </div>
   );
 }

@@ -23,7 +23,7 @@ export default async function DaysPage({
 
   return (
     <div className="px-4 py-5 max-w-2xl mx-auto space-y-5">
-      <ScheduleHeader areas={areas} initialOneOffOpen={params.action === "new-one-off"} />
+      <ScheduleHeader areas={areas} />
       <SchedulePageClient
         days={days}
         areas={areas}

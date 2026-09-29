@@ -7,6 +7,7 @@ import { Plus } from "lucide-react";
 import { createCustomer } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { useActionParam } from "@/lib/use-action-param";
 import { AddressFields } from "@/components/address-fields";
 import { EMPTY_ADDRESS, type AddressParts } from "@/lib/address";
 
@@ -17,8 +18,8 @@ interface Area {
   nextDueDate: Date | string | null;
 }
 
-export function AddCustomerModal({ areas, initialOpen = false }: { areas: Area[]; initialOpen?: boolean }) {
-  const [open, setOpen] = useState(initialOpen);
+export function AddCustomerModal({ areas }: { areas: Area[] }) {
+  const { open, setOpen, close } = useActionParam("new-customer");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -57,7 +58,7 @@ export function AddCustomerModal({ areas, initialOpen = false }: { areas: Area[]
       });
       setAddressParts(EMPTY_ADDRESS);
       setForm({ name: "", areaId: "", price: "", phone: "", email: "", jobName: "Window Cleaning", advanceNotice: false, preferredPaymentMethod: "", notes: "" });
-      setOpen(false);
+      close();
       router.refresh();
     });
   };
@@ -69,7 +70,7 @@ export function AddCustomerModal({ areas, initialOpen = false }: { areas: Area[]
         Add Customer
       </Button>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Add Customer">
+      <Modal open={open} onClose={close} title="Add Customer">
         <div className="space-y-3">
           {/* Name */}
           <div>
@@ -211,7 +212,7 @@ export function AddCustomerModal({ areas, initialOpen = false }: { areas: Area[]
             >
               {isPending ? "Adding..." : "Add Customer"}
             </Button>
-            <Button variant="outline" onClick={() => setOpen(false)} className="flex-1">
+            <Button variant="outline" onClick={close} className="flex-1">
               Cancel
             </Button>
           </div>

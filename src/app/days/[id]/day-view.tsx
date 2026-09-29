@@ -155,7 +155,6 @@ export function DayView({
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [openJobInPayMode, setOpenJobInPayMode] = useState(false);
   const [notesJob, setNotesJob] = useState<Job | null>(null);
-  const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [routeOrder, setRouteOrder] = useState<number[] | null>(null);
   const [notesEditingDayId, setNotesEditingDayId] = useState<number | null>(null);
   const [dayNotesText, setDayNotesText] = useState("");
@@ -694,9 +693,6 @@ export function DayView({
                 <Printer size={16} />
               </Link>
             )}
-            <Button variant="outline" onClick={() => setRouteModalOpen(true)} size="lg" className="flex-shrink-0" aria-label="Route">
-              <Navigation2 size={16} />
-            </Button>
             {!allComplete && (
               <Button variant="outline" onClick={openAddJob} size="lg" className="flex-shrink-0">
                 <Plus size={16} />
@@ -919,12 +915,6 @@ export function DayView({
 
       <CustomerNotesModal job={notesJob} onClose={() => setNotesJob(null)} hidePrices={hidePrices} />
 
-      <RouteOptimiserModal
-        jobs={sortedJobs}
-        open={routeModalOpen}
-        onClose={() => setRouteModalOpen(false)}
-        onApply={(ids) => { setRouteOrder(ids); setRouteModalOpen(false); }}
-      />
 
       {/* ── Rained off: move area day(s) to another date ───────────── */}
       <Modal open={rainOff !== null} onClose={() => setRainOff(null)} title="Move to another date">

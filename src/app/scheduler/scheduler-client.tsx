@@ -2707,7 +2707,8 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
   const router = useRouter();
   const [, startTransition] = useTransition();
   const canManageSchedule = viewerRole !== "WORKER";
-  const canUseRouteOptimiser = viewerRole !== "WORKER" || viewerPermissions.includes("routeoptimiser");
+  // Route optimiser hidden for now (turn back on by restoring the permission check).
+  const canUseRouteOptimiser = false as boolean; // was: viewerRole !== "WORKER" || viewerPermissions.includes("routeoptimiser")
 
   const [calendarView, setCalendarView] = useState<"week" | "month">("month");
   const [weekStart, setWeekStart] = useState<Date>(() => getMondayOfWeek(new Date()));
