@@ -32,6 +32,8 @@ export function PhoneSendQueue({ items, onFinished }: { items: PhoneText[]; onFi
   const [phone, setPhone] = useState(true);
   const awaitingReturn = useRef(false);
   const leftPage = useRef(false);
+  // Which customer was opened in Messages, so coming back moves on exactly one.
+  const openedAt = useRef(0);
 
   useEffect(() => { setPhone(isPhone()); }, []);
 
@@ -55,8 +57,13 @@ export function PhoneSendQueue({ items, onFinished }: { items: PhoneText[]; onFi
   // Leaving for the Messages app hides this page; coming back shows it again -> next customer.
   useEffect(() => {
     const away = () => { if (awaitingReturn.current) leftPage.current = true; };
+    // Phones fire several "you're back" events (focus, visibility, pageshow): act on the first only.
     const back = () => {
-      if (awaitingReturn.current && leftPage.current) window.setTimeout(advance, 400);
+      if (!awaitingReturn.current || !leftPage.current) return;
+      awaitingReturn.current = false;
+      leftPage.current = false;
+      const next = openedAt.current + 1;
+      window.setTimeout(() => setIndex((i) => (i === next - 1 ? Math.min(next, items.length) : i)), 400);
     };
     const onVisibility = () => (document.visibilityState === "hidden" ? away() : back());
     document.addEventListener("visibilitychange", onVisibility);
@@ -71,12 +78,13 @@ export function PhoneSendQueue({ items, onFinished }: { items: PhoneText[]; onFi
       window.removeEventListener("pagehide", away);
       window.removeEventListener("pageshow", back);
     };
-  }, [advance]);
+  }, [items.length]);
 
   const onOpen = () => {
     if (!current) return;
     awaitingReturn.current = true;
     leftPage.current = false;
+    openedAt.current = index;
     setOpenedIds((prev) => new Set(prev).add(current.id));
     // Saved as "opened on phone"; if this fails it just stays in the to-send list.
     markPhoneTextOpened(current.id, bodies[current.id]).catch(() => {});
