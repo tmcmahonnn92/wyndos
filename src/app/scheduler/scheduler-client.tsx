@@ -65,6 +65,7 @@ import {
 } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { DayTeamBar, type TeamMember } from "@/app/days/[id]/day-team-bar";
 import { cn } from "@/lib/utils";
 import { EditAreaButton } from "@/app/days/edit-area-button";
 import { OneOffJobModal } from "@/app/days/one-off-job-modal";
@@ -96,6 +97,8 @@ type Job = {
   sortOrder: number | null;
   isOneOff: boolean;
   allocations?: { amount: number }[];
+  assignedUserId?: string | null;
+  assignedUser?: { id: string; name: string | null; email: string | null } | null;
   customer: {
     id: number;
     name: string;
@@ -1636,12 +1639,14 @@ function DayDetailModal({
   workDay,
   onClose,
   workers,
+  team,
   canAssignWorkers,
   canUseRouteOptimiser,
 }: {
   workDay: WorkDay | null;
   onClose: () => void;
   workers: WorkerOption[];
+  team: TeamMember[] | null;
   canAssignWorkers: boolean;
   canUseRouteOptimiser: boolean;
 }) {
@@ -1733,11 +1738,12 @@ function DayDetailModal({
     setAssignedWorkerId(workDay.assignedUser?.id ?? "");
   }
 
-  // Enrich localJobs with full payment data as soon as workDay changes
+  // Enrich localJobs with full payment data as soon as workDay changes,
+  // and again after the page refreshes (e.g. jobs assigned to a worker).
   useEffect(() => {
     if (!workDay) return;
     refreshFromServer(workDay.id);
-  }, [workDay?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workDay]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const persistManualOrder = useCallback((nextJobs: FullJob[]) => {
     if (!workDay) return;
@@ -1977,7 +1983,9 @@ function DayDetailModal({
             <p className="mt-2 text-[11px] leading-snug text-slate-500">
               {hasOptimizedRouteSnapshot
                 ? "Drag or move jobs to save a manual order. Switch back to the saved optimised route whenever needed."
-                : "Manual order is active. Run Route Optimiser once to save an optimised route you can toggle back to."}
+                : canUseRouteOptimiser
+                  ? "Manual order is active. Run Route Optimiser once to save an optimised route you can toggle back to."
+                  : "Drag jobs to change the order."}
             </p>
           </div>
           {canUseRouteOptimiser && localJobs.length > 1 && (
@@ -1993,7 +2001,22 @@ function DayDetailModal({
           <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{routeActionError}</p>
         )}
 
-        {canAssignWorkers && (
+        {canAssignWorkers && team && (
+          <DayTeamBar
+            dayId={workDay.id}
+            dayStatus={workDay.status}
+            dayAssignedUserId={workDay.assignedUser?.id ?? null}
+            jobs={localJobs.map((job) => ({
+              id: job.id,
+              status: job.status,
+              assignedUserId: job.assignedUserId ?? null,
+              customer: { name: job.customer?.name ?? "" },
+            }))}
+            team={team}
+          />
+        )}
+
+        {canAssignWorkers && !team && (
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
               Assigned worker
@@ -2110,6 +2133,9 @@ function DayDetailModal({
                           <Zap size={9} className="flex-shrink-0" />
                           {job.customer?.area?.name ? job.customer.area.name : "one-off"}
                         </span>
+                      )}
+                      {job.assignedUser && (
+                        <WorkerPill name={job.assignedUser.name ?? job.assignedUser.email ?? "Worker"} />
                       )}
                     </div>
                     <p className="text-xs font-medium text-blue-700 truncate mt-0.5">{getJobTitle(job)}</p>
@@ -2696,11 +2722,13 @@ function DayDetailModal({
 
 // ── Main Scheduler Client ─────────────────────────────────────────────────────
 
-export function SchedulerClient({ areas, workDays, holidays: initialHolidays, workers, viewerRole, viewerPermissions }: {
+export function SchedulerClient({ areas, workDays, holidays: initialHolidays, workers, team = null, viewerRole, viewerPermissions }: {
   areas: Area[];
   workDays: WorkDay[];
   holidays: Holiday[];
   workers: WorkerOption[];
+  /** Owner's team for per-job assigning (same tools as the day view). */
+  team?: TeamMember[] | null;
   viewerRole: "SUPER_ADMIN" | "OWNER" | "WORKER";
   viewerPermissions: string[];
 }) {
@@ -3627,8 +3655,9 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
         onClose={() => setNotesDay(null)}
       />
       <DayDetailModal
-        workDay={expandedDay}
+        workDay={expandedDay ? workDays.find((day) => day.id === expandedDay.id) ?? expandedDay : null}
         workers={workers}
+        team={team}
         canAssignWorkers={canManageSchedule}
         canUseRouteOptimiser={canUseRouteOptimiser}
         onClose={() => setExpandedDay(null)}

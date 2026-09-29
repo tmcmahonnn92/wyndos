@@ -151,6 +151,7 @@ export function DayView({
   const [completeScope, setCompleteScope] = useState<number[] | null>(null);
   const [addJobDayId, setAddJobDayId] = useState<number | null>(null);
   const [addJobPickerOpen, setAddJobPickerOpen] = useState(false);
+  const [areaPickerOpen, setAreaPickerOpen] = useState(false);
   const [nextRuns, setNextRuns] = useState<Array<{ nextDue: Date | string; nextWorkDayId: number | null; areaName: string }>>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [openJobInPayMode, setOpenJobInPayMode] = useState(false);
@@ -631,14 +632,39 @@ export function DayView({
       <div className="px-4 py-4 space-y-4">
         {actionError && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</div>}
 
-        {single && otherAreasOnDate > 0 && (
-          <Link
-            href={`/days/date/${dateISO}`}
-            className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-semibold text-blue-800"
-          >
-            <span>{otherAreasOnDate} other area{otherAreasOnDate === 1 ? "" : "s"} on this date</span>
-            <span>See the whole day →</span>
-          </Link>
+        {/* This area / whole day switch (only when the date has more than one area) */}
+        {((single && otherAreasOnDate > 0) || multi) && (
+          <div role="radiogroup" aria-label="Show" className="flex rounded-xl border border-slate-200 bg-white p-0.5 text-xs font-semibold">
+            {single ? (
+              <span role="radio" aria-checked="true" className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-center text-white">
+                {areaLabel(single)} only
+              </span>
+            ) : (
+              <button
+                type="button"
+                role="radio"
+                aria-checked="false"
+                onClick={() => (days.length === 1 ? router.push(`/days/${days[0].id}`) : setAreaPickerOpen(true))}
+                className="flex-1 rounded-lg px-3 py-2 text-center text-slate-600 hover:bg-slate-50"
+              >
+                One area
+              </button>
+            )}
+            {single ? (
+              <Link
+                href={`/days/date/${dateISO}`}
+                role="radio"
+                aria-checked="false"
+                className="flex-1 rounded-lg px-3 py-2 text-center text-slate-600 hover:bg-slate-50"
+              >
+                Whole day ({otherAreasOnDate + 1} areas)
+              </Link>
+            ) : (
+              <span role="radio" aria-checked="true" className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-center text-white">
+                Whole day ({days.length} areas)
+              </span>
+            )}
+          </div>
         )}
 
         {nextRuns.length > 0 && (
@@ -940,6 +966,22 @@ export function DayView({
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* ── One area: which? ─────────────────────────────── */}
+      <Modal open={areaPickerOpen} onClose={() => setAreaPickerOpen(false)} title="Show which area?">
+        <div className="space-y-2">
+          {days.map((day) => (
+            <Link
+              key={day.id}
+              href={`/days/${day.id}`}
+              className="flex w-full items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-left text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            >
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: day.area?.color ?? "#94a3b8" }} />
+              {areaLabel(day)}
+            </Link>
+          ))}
+        </div>
       </Modal>
 
       {/* ── Add job: which area? ─────────────────────────────── */}

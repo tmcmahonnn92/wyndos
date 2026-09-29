@@ -1,4 +1,4 @@
-import { getAreaSchedules, getWorkDays, getHolidays, getSchedulerTodoSummary } from "@/lib/actions";
+import { getAreaSchedules, getAssignableTeam, getWorkDays, getHolidays, getSchedulerTodoSummary } from "@/lib/actions";
 import { listTeamMembers } from "@/lib/auth-actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { SchedulerClient } from "./scheduler-client";
@@ -16,6 +16,8 @@ export default async function SchedulerPage() {
     listTeamMembers().catch(() => []),
     getSchedulerTodoSummary(),
   ]);
+  const isOwner = viewer.role === "OWNER" || viewer.role === "SUPER_ADMIN";
+  const assignableTeam = isOwner ? await getAssignableTeam().catch(() => null) : null;
   const workers = team
     .filter((member) => member.role === "WORKER")
     .map((member) => ({ id: member.id, name: member.name, email: member.email }));
@@ -41,6 +43,7 @@ export default async function SchedulerPage() {
             workDays={schedulerWorkDays}
             holidays={holidays}
             workers={workers}
+            team={assignableTeam}
             viewerRole={viewer.role}
             viewerPermissions={viewer.permissions}
           />
