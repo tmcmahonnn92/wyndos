@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Syne, DM_Sans, DM_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { cookies } from "next/headers";
 import "./globals.css";
 import { auth } from "@/auth";
@@ -11,23 +11,27 @@ import { resolveActiveMembership, resolveActivePermissions } from "@/lib/members
 import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
 import { OfflineStatus } from "@/components/offline-status";
 
-const syne = Syne({
-  subsets: ["latin"],
-  weight: ["700", "800"],
+// Fonts are bundled in the repo (src/app/fonts) so builds never depend on reaching Google Fonts.
+const syne = localFont({
+  src: [
+    { path: "./fonts/syne-latin-700-normal.woff2", weight: "700", style: "normal" },
+    { path: "./fonts/syne-latin-800-normal.woff2", weight: "800", style: "normal" },
+  ],
   variable: "--font-syne",
   display: "swap",
 });
 
-const dmSans = DM_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500"],
+const dmSans = localFont({
+  src: [
+    { path: "./fonts/dm-sans-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/dm-sans-latin-500-normal.woff2", weight: "500", style: "normal" },
+  ],
   variable: "--font-dm-sans",
   display: "swap",
 });
 
-const dmMono = DM_Mono({
-  subsets: ["latin"],
-  weight: ["400"],
+const dmMono = localFont({
+  src: [{ path: "./fonts/dm-mono-latin-400-normal.woff2", weight: "400", style: "normal" }],
   variable: "--font-dm-mono",
   display: "swap",
 });
