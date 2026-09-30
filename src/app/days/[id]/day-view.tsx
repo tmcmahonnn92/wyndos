@@ -124,6 +124,8 @@ interface Props {
   otherAreasOnDate?: number;
   /** May send texts (owner, or a worker with the Texts permission). */
   canText?: boolean;
+  /** Split runs: other parts of each day's run that aren't done yet. */
+  runSiblings?: Record<number, Array<{ id: number; date: string; status: string }>>;
 }
 
 type PendingResolution = {
@@ -148,6 +150,7 @@ export function DayView({
   canReschedule = false,
   otherAreasOnDate = 0,
   canText = false,
+  runSiblings = {},
 }: Props) {
   const todayDateValue = new Date().toISOString().slice(0, 10);
   const scheduledDateValue = dateISO;
@@ -782,6 +785,30 @@ export function DayView({
             )}
           </div>
         )}
+
+        {days.filter((d) => (runSiblings[d.id] ?? []).length > 0 && d.status !== "COMPLETE").map((d) => {
+          const open = runSiblings[d.id].filter((o) => o.status !== "COMPLETE");
+          const fmt = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+          return (
+            <div key={`split-${d.id}`} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+              <p className="font-semibold">{areaLabel(d)} is split over more than one day</p>
+              {open.length > 0 ? (
+                <p className="mt-0.5">
+                  Also still to do:{" "}
+                  {open.map((other, i) => (
+                    <span key={other.id}>
+                      {i > 0 && ", "}
+                      <Link href={`/days/${other.id}`} className="font-semibold underline">{fmt(other.date)}</Link>
+                    </span>
+                  ))}
+                  . The next visit is booked once every part is done.
+                </p>
+              ) : (
+                <p className="mt-0.5">The other part is done. Completing this one books the area&apos;s next visit.</p>
+              )}
+            </div>
+          );
+        })}
 
         {canText && outboxCount > 0 && (
           <div className="flex items-center justify-between gap-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5">

@@ -49,7 +49,7 @@ export default async function SchedulerPage() {
             viewerPermissions={viewer.permissions}
           />
         </div>
-        <TodoDrawer count={todoSummary.overdueAreas.count + todoSummary.holidayConflicts.count}>
+        <TodoDrawer count={todoSummary.overdueAreas.count + todoSummary.holidayConflicts.count + todoSummary.unfinishedRuns.count}>
           <SchedulerTodoPanel summary={todoSummary} />
         </TodoDrawer>
       </div>

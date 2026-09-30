@@ -260,7 +260,7 @@ export async function runPaymentRemindersNow() {
 export async function getMessageLog(limit = 200) {
   const actor = await requirePerm("messaging");
   const logs = await prisma.messageLog.findMany({
-    where: { tenantId: actor.tenantId },
+    where: { tenantId: actor.tenantId, clearedAt: null },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
@@ -273,6 +273,28 @@ export async function getMessageLog(limit = 200) {
   return logs.map((l) => ({ ...l, customerName: l.customerId ? names.get(l.customerId) ?? "" : "" }));
 }
 
+/**
+ * Clear texts from the log: the chosen ones, or everything matching a filter.
+ * They're hidden, not deleted, so reminders and "cleaned" texts are never sent twice.
+ * Clearing a text still waiting on the phone takes it out of the phone queue too.
+ */
+export async function clearMessageLogs(input: { ids?: number[]; kind?: string; status?: string; all?: boolean }) {
+  const actor = await requirePerm("messaging");
+  if (!input.all && !(input.ids && input.ids.length)) return { cleared: 0 };
+  const result = await prisma.messageLog.updateMany({
+    where: {
+      tenantId: actor.tenantId,
+      clearedAt: null,
+      ...(input.all ? {} : { id: { in: input.ids } }),
+      ...(input.all && input.kind ? { kind: input.kind } : {}),
+      ...(input.all && input.status ? { status: input.status } : {}),
+    },
+    data: { clearedAt: new Date() },
+  });
+  revalidatePath("/messages");
+  return { cleared: result.count };
+}
+
 // ── Sending from the user's own phone ─────────────────────────────────────────
 
 /** Texts waiting to be sent from a phone (all, or just for some area days / some ids). */
@@ -282,6 +304,7 @@ export async function getPhoneOutbox(filter: { workDayIds?: number[]; ids?: numb
     where: {
       tenantId: actor.tenantId,
       status: "TO_SEND",
+      clearedAt: null,
       ...(filter.ids ? { id: { in: filter.ids } } : {}),
       ...(filter.workDayIds ? { workDayId: { in: filter.workDayIds } } : {}),
     },
@@ -305,7 +328,7 @@ export async function getPhoneOutbox(filter: { workDayIds?: number[]; ids?: numb
 
 export async function getPhoneOutboxCount() {
   const actor = await requirePerm("messaging");
-  return prisma.messageLog.count({ where: { tenantId: actor.tenantId, status: "TO_SEND" } });
+  return prisma.messageLog.count({ where: { tenantId: actor.tenantId, status: "TO_SEND", clearedAt: null } });
 }
 
 /** The text was opened in the phone's Messages app (we can't see the tap on Send itself). */
