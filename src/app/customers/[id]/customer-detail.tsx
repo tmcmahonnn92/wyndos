@@ -22,6 +22,17 @@ type Customer = NonNullable<Awaited<ReturnType<typeof getCustomer>>> & {
 type Area = Awaited<ReturnType<typeof getAreas>>[0];
 type TagRow = { id: number; name: string; color: string };
 
+const TEXT_KIND_LABELS: Record<string, string> = {
+  DAY_REMINDER: "Day reminder",
+  CLEANED: "Cleaned / how to pay",
+  PAYMENT_REMINDER_1: "Payment reminder 1",
+  PAYMENT_REMINDER_2: "Payment reminder 2",
+  BULK: "Bulk text",
+};
+const TEXT_STATUS_LABELS: Record<string, string> = {
+  TEST: "Test – not sent", SENT: "Sent", FAILED: "Failed", TO_SEND: "Waiting on phone", PHONE: "Opened on phone",
+};
+
 interface Props {
   customer: Customer;
   areas: Area[];
@@ -30,6 +41,8 @@ interface Props {
   hidePrices?: boolean;
   goCardlessReferencePrefix?: string;
   payerOptions?: Array<{ id: number; name: string }>;
+  /** Texts sent to this customer, newest first. */
+  texts?: Array<{ id: number; kind: string; status: string; body: string; createdAt: string; error: string }>;
 }
 
 type JobBalance = {
@@ -57,7 +70,8 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", payerOptions = [] }: Props) {
+export function CustomerDetail({ customer, areas, balance, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", payerOptions = [], texts = [] }: Props) {
+  const [showAllTexts, setShowAllTexts] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [bookDate, setBookDate] = useState("");
   const [bookError, setBookError] = useState<string | null>(null);
@@ -609,6 +623,41 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
             SMS
           </Button>
         </div>
+
+        {/* Texts sent to them */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>Texts</CardTitle>
+              {texts.length > 3 && (
+                <button onClick={() => setShowAllTexts((v) => !v)} className="text-xs font-semibold text-blue-600 hover:underline">
+                  {showAllTexts ? "Show fewer" : `Show all ${texts.length}`}
+                </button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {texts.length === 0 ? (
+              <p className="px-4 pb-4 text-sm text-slate-500">No texts sent yet.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {(showAllTexts ? texts : texts.slice(0, 3)).map((t) => (
+                  <li key={t.id} className="px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="font-semibold text-slate-700">{TEXT_KIND_LABELS[t.kind] ?? t.kind}</span>
+                      <span className={cn("rounded-full px-2 py-0.5 font-semibold",
+                        t.status === "SENT" ? "bg-green-100 text-green-800" : t.status === "FAILED" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800")}>
+                        {TEXT_STATUS_LABELS[t.status] ?? t.status}
+                      </span>
+                      <span className="ml-auto text-slate-400">{fmtDate(t.createdAt)}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600 line-clamp-2">{t.body}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Job history */}
         <Card>

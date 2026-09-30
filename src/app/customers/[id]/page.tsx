@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getCustomer, getAreas, getBusinessSettings, getCustomerBalance, getCustomerPickList, getTags } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { CustomerDetail } from "./customer-detail";
+import { getCustomerTexts } from "@/lib/text-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -20,12 +21,13 @@ export default async function CustomerPage({ params }: Props) {
   const customer = await getCustomer(customerId);
   if (!customer) notFound();
 
-  const [areas, balance, allTags, settings, pickList] = await Promise.all([
+  const [areas, balance, allTags, settings, pickList, texts] = await Promise.all([
     getAreas(),
     getCustomerBalance(customerId),
     getTags(),
     getBusinessSettings(),
     getCustomerPickList(),
+    getCustomerTexts(customerId).catch(() => []),
   ]);
   const payerOptions = pickList.filter((entry) => entry.id !== customerId && !entry.paidByCustomerId);
 
@@ -39,6 +41,7 @@ export default async function CustomerPage({ params }: Props) {
         hidePrices={hidePrices}
         goCardlessReferencePrefix={settings.goCardlessReferencePrefix || "WD"}
         payerOptions={payerOptions.map(({ id, name }) => ({ id, name }))}
+        texts={texts.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() }))}
       />
     </Suspense>
   );

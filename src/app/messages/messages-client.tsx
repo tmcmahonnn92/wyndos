@@ -32,6 +32,7 @@ type Recipient = {
   tags: Array<{ id: number; name: string }>;
   unpaidCleans: number;
   reminderDue: { stage: number; age: number } | null;
+  lastText: { kind: string; at: string; status: string } | null;
   nextClean: { date: string; label: string; worker: string } | null;
 };
 
@@ -69,6 +70,12 @@ const KIND_LABELS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = { TEST: "TEST – not sent", TO_SEND: "Waiting (phone)", PHONE: "Opened on phone" };
 
 const pad = (n: number) => String(n).padStart(2, "0");
+/** "today", "yesterday", "3 days ago" */
+function ago(iso: string) {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+}
+
 function when(iso: string) {
   const d = new Date(iso);
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -301,7 +308,15 @@ export function MessagesClient({
                       else next.delete(r.id);
                       return next;
                     })} />
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-800">{r.name}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-slate-800">{r.name}</span>
+                    {r.lastText && (
+                      <span className={cn("block truncate text-[11px]",
+                        Date.now() - new Date(r.lastText.at).getTime() < 7 * 86_400_000 ? "font-semibold text-green-700" : "text-slate-400")}>
+                        Last text: {KIND_LABELS[r.lastText.kind] ?? r.lastText.kind} · {r.lastText.status === "TO_SEND" ? "waiting on phone" : ago(r.lastText.at)}
+                      </span>
+                    )}
+                  </span>
                   {r.owed > 0.005 && <span className="text-[11px] font-semibold text-red-600">owes £{r.owed.toFixed(2)}</span>}
                   {r.reminderDue && <span className="rounded bg-red-100 px-1 text-[10px] font-bold text-red-700">reminder {r.reminderDue.stage} due · {r.reminderDue.age}d</span>}
                   {view === "soon" && r.nextClean && <span className="text-[11px] font-semibold text-blue-700">{r.nextClean.label}</span>}

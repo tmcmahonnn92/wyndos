@@ -56,7 +56,8 @@ export function TextRemindersModal({
         setTemplate(setup.dayReminderTemplate);
         setTemplates(setup.templates);
         setRecipients(list);
-        setPicked(new Set(list.filter((r) => r.to).map((r) => r.customerId)));
+        // Anyone already reminded for this day starts unticked, so nobody gets it twice.
+        setPicked(new Set(list.filter((r) => r.to && !r.reminded).map((r) => r.customerId)));
       })
       .catch((issue) => !cancelled && setError(issue instanceof Error ? issue.message : "Could not load customers."))
       .finally(() => !cancelled && setLoading(false));
@@ -65,6 +66,12 @@ export function TextRemindersModal({
 
   const chosen = recipients.filter((r) => r.to && picked.has(r.customerId));
   const noMobile = recipients.filter((r) => !r.to).length;
+  const alreadyTexted = recipients.filter((r) => r.reminded).length;
+  const remindedLabel = (r: Recipient) => {
+    if (!r.reminded) return null;
+    if (r.reminded.waiting) return "Waiting on phone";
+    return `Texted ${new Date(r.reminded.at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`;
+  };
   const sample = chosen[0];
   const preview = sample ? fillTemplate(template, sample.vars as Record<string, string>) : "";
 
@@ -147,9 +154,12 @@ export function TextRemindersModal({
             <div>
               <div className="mb-1 flex items-center justify-between text-xs">
                 <span className="font-medium text-slate-600">
-                  {chosen.length} of {recipients.length} chosen{noMobile > 0 && ` · ${noMobile} no mobile`}
+                  {chosen.length} of {recipients.length} chosen{noMobile > 0 && ` · ${noMobile} no mobile`}{alreadyTexted > 0 && ` · ${alreadyTexted} already texted`}
                 </span>
                 <span className="flex gap-3">
+                  {alreadyTexted > 0 && (
+                    <button type="button" className="font-semibold text-blue-600" onClick={() => setPicked(new Set(recipients.filter((r) => r.to && !r.reminded).map((r) => r.customerId)))}>Not texted yet</button>
+                  )}
                   <button type="button" className="font-semibold text-blue-600" onClick={() => setPicked(new Set(recipients.filter((r) => r.to).map((r) => r.customerId)))}>All</button>
                   <button type="button" className="text-slate-500" onClick={() => setPicked(new Set())}>None</button>
                 </span>
@@ -169,6 +179,9 @@ export function TextRemindersModal({
                       })}
                     />
                     <span className="min-w-0 flex-1 truncate">{r.name}</span>
+                    {remindedLabel(r) && (
+                      <span className="flex-shrink-0 rounded-full bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold text-green-700 ring-1 ring-green-200">{remindedLabel(r)}</span>
+                    )}
                     <span className="text-[11px] text-slate-400">{r.to ? r.phone : "no mobile"}</span>
                   </label>
                 ))}
