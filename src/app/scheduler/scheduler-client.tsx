@@ -1965,6 +1965,8 @@ function DayDetailModal({
           </p>
         </div>
 
+        {/* Route order controls only matter with the route optimiser, which is switched off for now. */}
+        {canUseRouteOptimiser && (
         <div className="flex gap-2">
           <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
             <div className="flex items-center justify-between gap-2">
@@ -2022,6 +2024,7 @@ function DayDetailModal({
             </button>
           )}
         </div>
+        )}
 
         {routeActionError && (
           <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{routeActionError}</p>
@@ -3468,12 +3471,12 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                 </button>
               </div>
             )}
-            {/* Wrapping grid — max 2 rows visible before scroll */}
+            {/* Wrapping grid — up to 3 rows visible before scroll */}
             <div
               ref={areasScrollRef}
               onScroll={handleAreasScroll}
               className="areas-scroll flex flex-wrap gap-2 px-3 pt-1 pb-2.5 overflow-y-auto"
-              style={{ maxHeight: "152px" }}
+              style={{ maxHeight: "232px" }}
             >
               {sortedAreas.length === 0 ? (
                 <div className="text-xs text-slate-400 py-1">
@@ -3566,10 +3569,12 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                 const isToday = iso === todayISO();
                 const cellWDs = workDaysByDate.get(iso) ?? [];
                 const { customerCount, totalValue } = getCalendarDayTotals(cellWDs);
+                const Header = cellWDs.length > 0 ? Link : "div";
                 return (
-                  <div key={i} className={cn(
-                    "px-1 py-2 text-center border-r border-slate-100 last:border-r-0",
-                    isToday ? "bg-blue-50" : ""
+                  <Header key={i} href={`/days/date/${iso}`} title={cellWDs.length > 0 ? "Open the whole day" : undefined} className={cn(
+                    "block px-1 py-2 text-center border-r border-slate-100 last:border-r-0",
+                    isToday ? "bg-blue-50" : "",
+                    cellWDs.length > 0 && "hover:bg-slate-50"
                   )}>
                     <p className={cn("text-[10px] font-semibold uppercase tracking-wide",
                       isToday ? "text-blue-600" : "text-slate-500")}>{DAY_LABELS[i]}</p>
@@ -3581,7 +3586,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                         <span className="inline-flex items-center gap-0.5"><PoundSterling size={9} />{totalValue.toFixed(0)}</span>
                       </div>
                     )}
-                  </div>
+                  </Header>
                 );
               })}
             </div>

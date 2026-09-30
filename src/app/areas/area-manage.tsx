@@ -40,6 +40,7 @@ type Area = {
   frequencyWeeks: number;
   monthlyDay: number | null;
   nextDueDate: Date | string | null;
+  dueWindowDays?: number | null;
   estimatedValue: number;
   _count: { customers: number };
   customers: AreaCustomer[];
@@ -74,6 +75,8 @@ interface AreaFormState {
   frequencyWeeks: string;
   monthlyDay: string;
   nextDueDate: string;
+  /** "" = use the business setting. */
+  dueWindowDays: string;
 }
 
 function defaultForm(area?: Area): AreaFormState {
@@ -84,6 +87,7 @@ function defaultForm(area?: Area): AreaFormState {
     frequencyWeeks: String(area?.frequencyWeeks ?? 4),
     monthlyDay: String(area?.monthlyDay ?? 1),
     nextDueDate: area?.nextDueDate ? new Date(area.nextDueDate).toISOString().slice(0, 10) : "",
+    dueWindowDays: area?.dueWindowDays != null ? String(area.dueWindowDays) : "",
   };
 }
 
@@ -334,6 +338,25 @@ function EditAreaModal({ open, onClose, area, onSaveSettings, isSettingsPending 
             </p>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Keep together: include customers due up to</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                max={90}
+                value={form.dueWindowDays}
+                onChange={(e) => setField("dueWindowDays", e.target.value)}
+                placeholder="Business setting"
+                className="w-40 border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <span className="text-sm text-slate-600">days after the run</span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Leave blank to use Settings → Business. Anyone due later than this waits for the next run.
+            </p>
+          </div>
+
           <div className="flex gap-2">
             <Button
               onClick={() => onSaveSettings(form)}
@@ -564,7 +587,7 @@ interface AddAreaModalProps {
 function AddAreaModal({ open, onClose, onSave, isPending }: AddAreaModalProps) {
   const blank: AreaFormState = {
     name: "", color: "#3B82F6", scheduleType: "WEEKLY",
-    frequencyWeeks: "4", monthlyDay: "1", nextDueDate: "",
+    frequencyWeeks: "4", monthlyDay: "1", nextDueDate: "", dueWindowDays: "",
   };
   const [form, setForm] = useState<AreaFormState>(blank);
 
@@ -754,6 +777,7 @@ export function AreaManage({ areas }: { areas: Area[] }) {
         frequencyWeeks: form.scheduleType === "WEEKLY" ? (Number(form.frequencyWeeks) || 4) : 4,
         monthlyDay: form.scheduleType === "MONTHLY" ? (Number(form.monthlyDay) || 1) : null,
         nextDueDate: form.nextDueDate ? new Date(form.nextDueDate) : null,
+        dueWindowDays: form.dueWindowDays.trim() === "" ? null : Math.max(0, Math.min(90, Number(form.dueWindowDays) || 0)),
       });
       setEditTarget(null);
       router.refresh();
