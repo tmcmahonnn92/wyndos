@@ -302,6 +302,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
   const [importResult, setImportResult] = useState<{
     created: number;
     updated: number;
+    skippedExisting: number;
     areasCreated: string[];
     historyCreated: number;
     errors: Array<{ row: number; message: string }>;
@@ -309,7 +310,9 @@ export function ImportClient({ areas }: { areas: Area[] }) {
   } | null>(null);
   const [createMissingAreas, setCreateMissingAreas] = useState(false);
   const [newAreaConfigs, setNewAreaConfigs] = useState<Record<string, NewAreaConfig>>({});
-  const [updateExisting, setUpdateExisting] = useState(false);
+  // What to do with rows for customers already in Wyndos (re-running an import).
+  const [existingMode, setExistingMode] = useState<"skip" | "fill" | "overwrite">("skip");
+  const updateExisting = existingMode !== "skip";
   const [matchField, setMatchField] = useState<"name" | "nameAddress">("name");
   const [isPending, startTransition] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -619,7 +622,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         })),
         {
           createMissingAreas: forceName || createMissingAreas || valid.some((r) => r.areaIsNew),
-          updateExisting,
+          existingMode,
           matchField,
         }
       );
@@ -646,6 +649,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
       setImportResult({
         created: result.created,
         updated: result.updated,
+        skippedExisting: result.skipped,
         areasCreated: result.areasCreated,
         historyCreated,
         errors: [
@@ -851,42 +855,56 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                 </p>
               </div>
             </label>
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={updateExisting}
-                onChange={(e) => setUpdateExisting(e.target.checked)}
-                className="mt-0.5 accent-blue-600"
-              />
-              <div>
-                <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-                  <RefreshCw size={13} className="text-blue-500" />
-                  Update existing customers
-                </span>
+            <div className="flex items-start gap-3">
+              <RefreshCw size={15} className="mt-0.5 flex-shrink-0 text-blue-500" />
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-semibold text-slate-700">Customers already in Wyndos</span>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  If a customer already exists with the same name (or name + address), their details will be overwritten.
-                  Otherwise a new record is created.
+                  Running the import again? Choose what happens to rows that match someone you already have.
+                  New customers in the file are always added.
                 </p>
-                {updateExisting && (
-                  <div className="flex gap-2 mt-2">
-                    {(["name", "nameAddress"] as const).map((v) => (
-                      <button
-                        key={v}
-                        onClick={() => setMatchField(v)}
-                        className={cn(
-                          "px-3 py-1 text-xs font-semibold rounded-lg border transition-colors",
-                          matchField === v
-                            ? "border-blue-600 bg-blue-600 text-white"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-blue-300"
-                        )}
-                      >
-                        {v === "name" ? "Match by name" : "Match by name + address"}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                  {([
+                    { v: "skip", title: "Leave them alone", desc: "Only add customers who aren't in yet." },
+                    { v: "fill", title: "Fill in missing details", desc: "Adds phone, email, postcode etc. only where blank. Area, price, dates and the schedule don't change." },
+                    { v: "overwrite", title: "Overwrite their details", desc: "Replaces details from the file, including area and price. Can change their booked days." },
+                  ] as const).map((o) => (
+                    <button
+                      key={o.v}
+                      type="button"
+                      onClick={() => setExistingMode(o.v)}
+                      className={cn(
+                        "rounded-xl border px-3 py-2 text-left transition-colors",
+                        existingMode === o.v ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600" : "border-slate-200 bg-white hover:border-blue-300"
+                      )}
+                    >
+                      <span className={cn("block text-xs font-bold", o.v === "overwrite" ? "text-amber-700" : "text-slate-800")}>
+                        {o.title}{o.v === "fill" ? " (safe)" : ""}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">{o.desc}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <span className="text-xs text-slate-500">Match by</span>
+                  {(["name", "nameAddress"] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setMatchField(v)}
+                      className={cn(
+                        "px-3 py-1 text-xs font-semibold rounded-lg border transition-colors",
+                        matchField === v
+                          ? "border-blue-600 bg-blue-600 text-white"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-blue-300"
+                      )}
+                    >
+                      {v === "name" ? "Name" : "Name + address"}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </label>
+            </div>
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -1190,7 +1208,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
               )}
               {updateExisting && (
                 <span className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-                  <RefreshCw size={14} /> matching customers will be updated
+                  <RefreshCw size={14} /> {existingMode === "fill" ? "customers already in Wyndos get missing details filled in" : "customers already in Wyndos will be overwritten"}
                 </span>
               )}
               {errorCount > 0 && (
@@ -1601,6 +1619,12 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                 <p className="text-sm text-slate-600">
                   <span className="text-2xl font-bold text-blue-700">{importResult.updated}</span>{" "}
                   customer{importResult.updated !== 1 ? "s" : ""} updated
+                </p>
+              )}
+              {importResult.skippedExisting > 0 && (
+                <p className="text-sm text-slate-600">
+                  <span className="text-2xl font-bold text-slate-500">{importResult.skippedExisting}</span>{" "}
+                  already in Wyndos, left as they were
                 </p>
               )}
               {importResult.areasCreated.length > 0 && (
