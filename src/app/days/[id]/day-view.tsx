@@ -73,7 +73,8 @@ import { QuoteActions, quoteCardClass, quoteSummary } from "./quote-actions";
 import { getQueue, onQueueChange, runOrQueue } from "@/lib/offline-queue";
 import { expectsPaymentAtDoor, normalisePreference, preferenceLabel } from "@/lib/payment-preference";
 import { fmtDate, fmtShortDate, fmtCurrency, cn } from "@/lib/utils";
-import { addressPartsOf, collectKnownTowns, compareByStreet, withTownFallback } from "@/lib/address";
+import { addressPartsOf, collectKnownTowns, compareByStreet, composeAddress, withTownFallback } from "@/lib/address";
+import { MapsRouteModal, type RouteStop } from "@/components/maps-route-modal";
 
 type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
 type FutureDay = Awaited<ReturnType<typeof getWorkDays>>[0];
@@ -161,6 +162,7 @@ export function DayView({
   const [addJobPickerOpen, setAddJobPickerOpen] = useState(false);
   const [areaPickerOpen, setAreaPickerOpen] = useState(false);
   const [textsOpen, setTextsOpen] = useState(false);
+  const [routeOpen, setRouteOpen] = useState(false);
   const [nextRuns, setNextRuns] = useState<Array<{ nextDue: Date | string; nextWorkDayId: number | null; areaName: string }>>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [openJobInPayMode, setOpenJobInPayMode] = useState(false);
@@ -290,6 +292,17 @@ export function DayView({
   })();
 
   const pendingJobs = sortedJobs.filter((j) => j.status === "PENDING");
+  // Houses still to do, in list order, for the Google Maps route.
+  const routeStops: RouteStop[] = pendingJobs.map((job) => {
+    const parts = streetKey.get(job.id) ?? addressPartsOf(job.customer);
+    return {
+      address: composeAddress(parts) || job.customer.address,
+      street: parts.street.trim(),
+      town: parts.town.trim(),
+      postcode: parts.postcode.trim(),
+      label: job.customer.name,
+    };
+  });
   const doneJobs = sortedJobs.filter((j) => j.status === "COMPLETE");
   const otherJobs = sortedJobs.filter((j) => j.status !== "PENDING" && j.status !== "COMPLETE");
 
@@ -750,6 +763,17 @@ export function DayView({
                 <Printer size={16} />
               </Link>
             )}
+            {pendingJobs.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setRouteOpen(true)}
+                aria-label="Route in Google Maps"
+                title="Route in Google Maps"
+                className="flex flex-shrink-0 items-center rounded-xl border border-slate-200 bg-white px-3 text-slate-700 hover:bg-slate-50"
+              >
+                <Navigation2 size={16} />
+              </button>
+            )}
             {!allComplete && (
               <Button variant="outline" onClick={openAddJob} size="lg" className="flex-shrink-0">
                 <Plus size={16} />
@@ -1029,6 +1053,7 @@ export function DayView({
           filter={{ workDayIds: dayIds }}
         />
       )}
+      <MapsRouteModal open={routeOpen} onClose={() => setRouteOpen(false)} stops={routeStops} />
       {canText && (
         <TextRemindersModal
           open={textsOpen}
