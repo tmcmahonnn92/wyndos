@@ -101,6 +101,7 @@ const PLACEHOLDER_CHIPS = [
   { label: "Amount due",     value: "{{amountDue}}"         },
   { label: "Biz name",       value: "{{businessName}}"      },
   { label: "Biz phone",      value: "{{businessPhone}}"     },
+  { label: "Cleaner",        value: "{{workerName}}"        },
   { label: "Next due date",  value: "{{nextDueDate}}"       },
   { label: "Address",        value: "{{customerAddress}}"   },
   { label: "Bank details",   value: "{{bankDetails}}"       },

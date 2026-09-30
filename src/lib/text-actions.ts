@@ -17,6 +17,7 @@ import {
   textDate,
   ukMobile,
   varsFor,
+  workerFirstName,
   type OutgoingText,
 } from "@/lib/texts";
 
@@ -31,6 +32,7 @@ export async function getTextSetup() {
     provider: settings?.messagingProvider ?? "voodoosms",
     dayReminderTemplate: settings?.tmplCleaningReminder ?? "",
     businessName: settings?.businessName ?? "",
+    ownerFirstName: workerFirstName(null, settings ?? {}),
     sendMethod: sendMethodOf(settings),
     voodooConfigured: Boolean(settings?.voodooApiKey),
     // The saved wording from Settings → Templates, to start any text from.
@@ -60,12 +62,14 @@ export async function getDayReminderRecipients(workDayIds: number[]) {
       id: true,
       date: true,
       area: { select: { name: true } },
+      assignedUser: { select: { name: true, email: true } },
       jobs: {
         where: { status: "PENDING", ...visibleJobWhere(actor) },
         orderBy: { sortOrder: "asc" },
         select: {
           id: true,
           price: true,
+          assignedUser: { select: { name: true, email: true } },
           customer: { select: { id: true, name: true, address: true, phone: true, area: { select: { name: true } } } },
         },
       },
@@ -91,6 +95,7 @@ export async function getDayReminderRecipients(workDayIds: number[]) {
           ? varsFor({ ...job.customer, price: job.price }, settings, {
               jobDate: textDate(day.date),
               amountDue: money(balance.get(job.customer.id) ?? 0),
+              workerName: workerFirstName(job.assignedUser ?? day.assignedUser, settings),
             })
           : {},
       });
@@ -180,7 +185,11 @@ export async function getBulkRecipients() {
     unpaidCleans: (unpaidJobs.get(c.id) ?? []).length,
     reminderDue: reminderStage(c.id),
     nextClean: nextBooked.get(c.id)
-      ? { date: nextBooked.get(c.id)!.date.toISOString().slice(0, 10), label: textDate(nextBooked.get(c.id)!.date) }
+      ? {
+          date: nextBooked.get(c.id)!.date.toISOString().slice(0, 10),
+          label: textDate(nextBooked.get(c.id)!.date),
+          worker: workerFirstName(nextBooked.get(c.id)!.worker, settings ?? {}),
+        }
       : null,
   }));
 }
@@ -190,11 +199,19 @@ async function nextBookedCleans(tenantId: number, customerIds: number[]) {
   const today = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
   const jobs = await prisma.job.findMany({
     where: { tenantId, customerId: { in: customerIds }, status: "PENDING", isQuote: false, workDay: { date: { gte: today } } },
-    select: { customerId: true, workDay: { select: { id: true, date: true } } },
+    select: {
+      customerId: true,
+      assignedUser: { select: { name: true, email: true } },
+      workDay: { select: { id: true, date: true, assignedUser: { select: { name: true, email: true } } } },
+    },
     orderBy: { workDay: { date: "asc" } },
   });
-  const next = new Map<number, { date: Date; workDayId: number }>();
-  for (const job of jobs) if (!next.has(job.customerId)) next.set(job.customerId, { date: job.workDay.date, workDayId: job.workDay.id });
+  const next = new Map<number, { date: Date; workDayId: number; worker: { name: string | null; email: string } | null }>();
+  for (const job of jobs) {
+    if (!next.has(job.customerId)) {
+      next.set(job.customerId, { date: job.workDay.date, workDayId: job.workDay.id, worker: job.assignedUser ?? job.workDay.assignedUser ?? null });
+    }
+  }
   return next;
 }
 
@@ -223,6 +240,7 @@ export async function sendBulkTexts(input: { customerIds: number[]; template: st
         amountDue: money(balance.get(c.id) ?? 0),
         nextDueDate: c.nextDueDate ? textDate(c.nextDueDate) : "",
         jobDate: nextBooked.get(c.id) ? textDate(nextBooked.get(c.id)!.date) : "",
+        workerName: workerFirstName(nextBooked.get(c.id)?.worker, settings),
       })),
     });
   }

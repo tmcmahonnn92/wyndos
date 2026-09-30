@@ -57,12 +57,22 @@ type CustomerForText = {
   area?: { name: string } | null;
 };
 
+/** First name of a team member for texts ("Jake"), falling back to the owner / business. */
+export function workerFirstName(
+  user: { name?: string | null; email?: string | null } | null | undefined,
+  settings: { ownerName?: string | null; businessName?: string | null },
+) {
+  const name = user?.name?.trim() || user?.email?.split("@")[0]?.trim() || settings.ownerName?.trim() || "";
+  return name ? name.split(/\s+/)[0] : settings.businessName?.trim() || "";
+}
+
 export function varsFor(
   customer: CustomerForText,
-  settings: Pick<TextSettings, "businessName" | "phone" | "bankDetails">,
+  settings: Pick<TextSettings, "businessName" | "phone" | "bankDetails"> & { ownerName?: string | null },
   extra: Partial<MessageVars> = {},
 ): MessageVars {
   return {
+    workerName: workerFirstName(null, settings),
     customerName: customer.name,
     customerFirstName: greetingName(customer.name, customer.address),
     customerAddress: customer.address,
@@ -179,6 +189,9 @@ export async function queueCleanedTexts(tenantId: number, workDayId: number, sen
     select: {
       id: true,
       price: true,
+      completedBy: { select: { name: true, email: true } },
+      assignedUser: { select: { name: true, email: true } },
+      workDay: { select: { assignedUser: { select: { name: true, email: true } } } },
       allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
       customer: {
         select: { id: true, name: true, address: true, phone: true, preferredPaymentMethod: true, paidByCustomerId: true, area: { select: { name: true } } },
@@ -208,7 +221,11 @@ export async function queueCleanedTexts(tenantId: number, workDayId: number, sen
       jobId: job.id,
       workDayId,
       to,
-      body: renderText(settings.tmplCleanedBank, varsFor(c, settings, { amountDue: money(owed), jobPrice: money(job.price) })),
+      body: renderText(settings.tmplCleanedBank, varsFor(c, settings, {
+        amountDue: money(owed),
+        jobPrice: money(job.price),
+        workerName: workerFirstName(job.completedBy ?? job.assignedUser ?? job.workDay.assignedUser, settings),
+      })),
     });
   }
   return deliverTexts(tenantId, settings, "CLEANED", texts, sentByUserId);
