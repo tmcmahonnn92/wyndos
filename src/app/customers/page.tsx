@@ -1,5 +1,5 @@
 ﻿import Link from "next/link";
-import { ChevronRight, Plus, Search, TableProperties, Upload, MapPin } from "lucide-react";
+import { TableProperties, Upload, MapPin } from "lucide-react";
 import { getCustomers, getAreas, getTags } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,42 +55,32 @@ export default async function CustomersPage({ searchParams }: Props) {
 
   return (
     <div className="px-4 py-5 max-w-6xl mx-auto space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-bold text-slate-800">Customers</h1>
-          <p className="text-sm text-slate-500 mt-1">Compact list view for quick scanning across all areas.</p>
+          <AddCustomerModal areas={areas} />
         </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/customers/import"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors"
-          >
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
+          <Link href="/customers/import" className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors">
             <Upload size={14} />
             Import
           </Link>
-          <Link
-            href="/customers/bulk-edit"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors"
-          >
+          <Link href="/customers/bulk-edit" className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors">
             <TableProperties size={14} />
             Bulk Edit
           </Link>
-          <Link
-            href="/customers/addresses"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors"
-          >
+          <Link href="/customers/addresses" className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors">
             <MapPin size={14} />
             Tidy addresses
           </Link>
-          <AddCustomerModal areas={areas} />
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Visible customers" value={String(customers.length)} detail={`${activeCustomers.length} active`} />
-        <SummaryCard label="Overdue" value={String(overdueCustomers)} detail="Past next-due date" tone={overdueCustomers > 0 ? "danger" : "default"} />
-        <SummaryCard label="Inactive" value={String(inactiveCustomers)} detail="Hidden from scheduling" />
-        <SummaryCard label="Outstanding debt" value={hidePrices ? "Hidden" : fmtCurrency(totalDebt)} detail={hidePrices ? "Worker prices hidden" : "Across visible customers"} tone={totalDebt > 0 ? "warning" : "default"} />
+      <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+        <SummaryCard label="Customers" value={String(customers.length)} detail={`${activeCustomers.length} active`} />
+        <SummaryCard label="Overdue" value={String(overdueCustomers)} detail="Past due date" tone={overdueCustomers > 0 ? "danger" : "default"} />
+        <SummaryCard label="Inactive" value={String(inactiveCustomers)} detail="Not scheduled" />
+        <SummaryCard label="Owed" value={hidePrices ? "Hidden" : fmtCurrency(totalDebt)} detail={hidePrices ? "Prices hidden" : "By these customers"} tone={totalDebt > 0 ? "warning" : "default"} />
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -139,15 +129,15 @@ function SummaryCard({
   return (
     <div
       className={cn(
-        "rounded-2xl border bg-white px-4 py-3 shadow-sm",
+        "rounded-xl border bg-white px-3 py-2 shadow-sm",
         tone === "warning" && "border-amber-200 bg-amber-50/60",
         tone === "danger" && "border-red-200 bg-red-50/60",
         tone === "default" && "border-slate-200"
       )}
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{detail}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-xl font-bold text-slate-900">{value}</p>
+      <p className="text-[11px] text-slate-500">{detail}</p>
     </div>
   );
 }
@@ -170,87 +160,46 @@ function CustomerRow({
   const areaColor = customer.area?.color || (customer.area?.isSystemArea ? "#A855F7" : "#3B82F6");
 
   return (
-    <li className={cn(isInactive && "bg-red-50")}>
-      <div className="flex items-center gap-3 px-4 py-3">
-        <Link
-          href={`/customers/${customer.id}`}
-          className={cn(
-            "flex-1 min-w-0 rounded-2xl px-1 py-1 hover:bg-slate-50 transition-colors",
-            isInactive && "hover:bg-red-100/60"
+    <li className={cn("flex items-center gap-3 px-4 py-3", isInactive && "bg-red-50")}>
+      <Link
+        href={`/customers/${customer.id}`}
+        className={cn("min-w-0 flex-1 rounded-lg transition-colors hover:bg-slate-50", isInactive && "hover:bg-red-100/60")}
+      >
+        <div className="flex items-baseline justify-between gap-3">
+          <p className={cn("min-w-0 truncate text-[15px] font-semibold", isInactive ? "text-red-700 line-through opacity-70" : "text-slate-800")}>
+            {customer.name}
+          </p>
+          {!hidePrices && (
+            <p className={cn("flex-shrink-0 text-sm font-bold tabular-nums", isInactive ? "text-red-400" : "text-slate-800")}>
+              {fmtCurrency(customer.price)}
+            </p>
           )}
-        >
-          <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_150px_160px] md:items-center">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className={cn("text-sm font-semibold truncate", isInactive ? "text-red-700 line-through opacity-70" : "text-slate-800")}>
-                  {customer.name}
-                </p>
-                <span
-                  className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold"
-                  style={{ borderColor: `${areaColor}55`, color: areaColor, backgroundColor: `${areaColor}12` }}
-                >
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: areaColor }} />
-                  {areaName}
-                </span>
-                {isInactive && (
-                  <span className="flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200">
-                    Inactive
-                  </span>
-                )}
-              </div>
-              <p className={cn("text-xs mt-1 truncate", isInactive ? "text-red-400" : "text-slate-500")}>
-                {customer.address}
-              </p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-                {!isInactive && (
-                  <span className={cn(
-                    "rounded-full px-2 py-0.5 font-medium",
-                    isOverdue ? "bg-red-50 text-red-600 border border-red-200" : "bg-slate-100 text-slate-600 border border-slate-200"
-                  )}>
-                    Due {fmtDate(customer.nextDueDate)}
-                  </span>
-                )}
-                {!isInactive && customer.lastCompletedDate && (
-                  <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-slate-500">
-                    Last cleaned {fmtDate(customer.lastCompletedDate)}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 md:justify-end">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-right min-w-[108px]">
-                <p className="text-[10px] uppercase tracking-wide text-slate-400">Frequency</p>
-                <p className={cn("text-sm font-semibold", isInactive ? "text-red-400" : "text-slate-700")}>
-                  every {customer.frequencyWeeks}w
-                </p>
-              </div>
-              {!hidePrices && (
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-right min-w-[108px]">
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Price</p>
-                  <p className={cn("text-sm font-bold", isInactive ? "text-red-400" : "text-slate-800")}>
-                    {fmtCurrency(customer.price)}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between gap-2 md:justify-end">
-              {!hidePrices && (
-                <div className="rounded-xl border px-3 py-2 text-right flex-1">
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Debt</p>
-                  <p className={cn("text-sm font-bold", outstandingDebt > 0 ? "text-red-600" : "text-slate-400")}>
-                    {outstandingDebt > 0 ? fmtCurrency(outstandingDebt) : "Clear"}
-                  </p>
-                </div>
-              )}
-              <div className="flex-shrink-0">
-                <CustomerActiveToggle customerId={customer.id} active={customer.active} />
-              </div>
-            </div>
-          </div>
-          <ChevronRight size={15} className={cn("ml-2 flex-shrink-0", isInactive ? "text-red-300" : "text-slate-300")} />
-        </Link>
+        </div>
+        {customer.address && customer.address !== customer.name && (
+          <p className={cn("truncate text-xs", isInactive ? "text-red-400" : "text-slate-500")}>{customer.address}</p>
+        )}
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <span className="inline-flex items-center gap-1 font-medium text-slate-600">
+            <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: areaColor }} />
+            {areaName}
+          </span>
+          {isInactive ? (
+            <span className="font-semibold text-red-600">Inactive</span>
+          ) : (
+            <span className={cn(isOverdue ? "font-semibold text-red-600" : "text-slate-500")}>
+              Due {fmtDate(customer.nextDueDate)}
+            </span>
+          )}
+          <span className="text-slate-400">every {customer.frequencyWeeks}w</span>
+          {!hidePrices && outstandingDebt > 0 && (
+            <span className="rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-600 ring-1 ring-red-200">
+              Owes {fmtCurrency(outstandingDebt)}
+            </span>
+          )}
+        </div>
+      </Link>
+      <div className="flex-shrink-0">
+        <CustomerActiveToggle customerId={customer.id} active={customer.active} />
       </div>
     </li>
   );

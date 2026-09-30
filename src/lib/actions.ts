@@ -4003,7 +4003,7 @@ export async function getPaymentsPage() {
         allocations: { include: { job: { include: { workDay: true } } } },
       },
       orderBy: { paidAt: "desc" },
-      take: 50,
+      take: 500, // the page shows the latest 50; search looks further back
     }),
     prisma.customer.findMany({
       where: { tenantId },
