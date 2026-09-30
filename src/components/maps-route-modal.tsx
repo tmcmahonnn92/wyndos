@@ -32,6 +32,7 @@ function mapsLink(stops: string[], origin: string | null) {
  */
 export function MapsRouteModal({ open, onClose, stops }: { open: boolean; onClose: () => void; stops: RouteStop[] }) {
   const [perStreet, setPerStreet] = useState(false);
+  const [fromFirst, setFromFirst] = useState(false);
 
   const points = useMemo(() => {
     if (!perStreet) return stops.map((s) => ({ address: s.address, label: s.label, count: 1 }));
@@ -52,13 +53,22 @@ export function MapsRouteModal({ open, onClose, stops }: { open: boolean; onClos
 
   const parts = useMemo(() => {
     const out: Array<{ href: string; from: string; to: string; count: number }> = [];
-    for (let i = 0; i < points.length; i += STOPS_PER_LINK) {
-      const chunk = points.slice(i, i + STOPS_PER_LINK);
-      const origin = i === 0 ? null : points[i - 1].address; // carry on from the last stop of the previous part
-      out.push({ href: mapsLink(chunk.map((p) => p.address), origin), from: chunk[0].label, to: chunk[chunk.length - 1].label, count: chunk.length });
+    // Start from where you are, or from the first house (it then isn't a stop itself).
+    const start = fromFirst && points.length > 1 ? points[0] : null;
+    const route = start ? points.slice(1) : points;
+    for (let i = 0; i < route.length; i += STOPS_PER_LINK) {
+      const chunk = route.slice(i, i + STOPS_PER_LINK);
+      // Each later part carries on from the last stop of the previous part.
+      const origin = i === 0 ? (start?.address ?? null) : route[i - 1].address;
+      out.push({
+        href: mapsLink(chunk.map((p) => p.address), origin),
+        from: i === 0 && start ? start.label : chunk[0].label,
+        to: chunk[chunk.length - 1].label,
+        count: chunk.length + (i === 0 && start ? 1 : 0),
+      });
     }
     return out;
-  }, [points]);
+  }, [points, fromFirst]);
 
   return (
     <Modal open={open} onClose={onClose} title="Route in Google Maps">
@@ -74,12 +84,23 @@ export function MapsRouteModal({ open, onClose, stops }: { open: boolean; onClos
           </button>
         </div>
 
+        <div role="radiogroup" aria-label="Start from" className="grid grid-cols-2 rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm font-semibold">
+          <button type="button" role="radio" aria-checked={!fromFirst} onClick={() => setFromFirst(false)}
+            className={`rounded-lg py-2 ${!fromFirst ? "bg-slate-900 text-white" : "text-slate-600"}`}>
+            From where I am
+          </button>
+          <button type="button" role="radio" aria-checked={fromFirst} onClick={() => setFromFirst(true)}
+            className={`rounded-lg py-2 ${fromFirst ? "bg-slate-900 text-white" : "text-slate-600"}`}>
+            From the first stop
+          </button>
+        </div>
+
         {points.length === 0 ? (
           <p className="py-4 text-center text-sm text-slate-500">Nothing left to do on this day.</p>
         ) : (
           <>
             <p className="text-xs text-slate-500">
-              {points.length} stop{points.length === 1 ? "" : "s"} in the order on your list, starting from where you are.
+              {points.length} stop{points.length === 1 ? "" : "s"} in the order on your list, starting {fromFirst ? `at ${points[0].label}` : "from where you are"}.
               {parts.length > 1 && ` Google Maps takes ${STOPS_PER_LINK} stops at a time, so it's in ${parts.length} parts: open the next part when you finish one.`}
             </p>
             <div className="space-y-2">

@@ -18,6 +18,15 @@ export function SchedulerTodoPanel({ summary }: { summary: SchedulerTodoSummary 
       detail: "No overdue areas right now.",
     },
     {
+      title: "Runs Waiting",
+      icon: AlertCircle,
+      count: summary.unfinishedRuns.count,
+      accent: "text-amber-600",
+      href: null,
+      links: summary.unfinishedRuns.items.map((day) => ({ href: `/days/${day.id}`, label: `${day.name} · ${fmtDate(day.date)} · ${day.reason}` })),
+      detail: "Every run's parts are done. Next visits are booked.",
+    },
+    {
       title: "Holiday Conflicts",
       icon: CalendarDays,
       count: summary.holidayConflicts.count,

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getAssignableTeam, getWorkDay, getWorkDays } from "@/lib/actions";
+import { getAssignableTeam, getRunSiblings, getWorkDay, getWorkDays } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { DayView } from "./day-view";
 
@@ -34,6 +34,7 @@ export default async function DayPage({ params }: Props) {
   const team = isOwner ? await getAssignableTeam() : null;
   const canReschedule = isOwner || (user.permissions ?? []).includes("scheduler");
   const canText = isOwner || (user.permissions ?? []).includes("messaging");
+  const runSiblings = await getRunSiblings([day].map((d) => d.id)).catch(() => ({}));
 
   return (
     <DayView
@@ -44,6 +45,7 @@ export default async function DayPage({ params }: Props) {
       team={team}
       canReschedule={canReschedule}
       canText={canText}
+      runSiblings={runSiblings}
       otherAreasOnDate={otherAreasOnDate}
     />
   );
