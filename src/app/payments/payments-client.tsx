@@ -282,16 +282,33 @@ function InvoiceResult({ result, onClose }: { result: { ok: boolean; msg: string
   );
 }
 
+/** Search by name, address or amount ("14", "£14.00", "14.5"). */
+export function matchesPaymentSearch(query: string, texts: string[], amounts: number[]) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (texts.some((t) => t.toLowerCase().includes(q))) return true;
+  const num = q.replace(/[£,\s]/g, "");
+  if (/^\d+(\.\d{0,2})?$/.test(num)) {
+    return amounts.some((a) => {
+      const fixed = a.toFixed(2);
+      return fixed === Number(num).toFixed(2) || fixed.startsWith(num) || String(a).startsWith(num);
+    });
+  }
+  return false;
+}
+
 export function DebtorsPanel({
   debtors,
   areas,
   businessName,
   smsTemplates,
+  query = "",
 }: {
   debtors: Debtor[];
   areas: AreaFilter[];
   businessName: string;
   smsTemplates?: string[];
+  query?: string;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -305,8 +322,9 @@ export function DebtorsPanel({
   const smsRemindersEnabled = false;
 
   const filteredDebtors = useMemo(
-    () => selectedAreaId ? debtors.filter((debtor) => debtor.areaId === selectedAreaId) : debtors,
-    [debtors, selectedAreaId]
+    () => (selectedAreaId ? debtors.filter((debtor) => debtor.areaId === selectedAreaId) : debtors)
+      .filter((debtor) => matchesPaymentSearch(query, [debtor.name, debtor.address, debtor.areaName ?? ""], [Number(debtor.debt)])),
+    [debtors, selectedAreaId, query]
   );
 
   const totalDebt = filteredDebtors.reduce((sum, customer) => sum + Number(customer.debt), 0);

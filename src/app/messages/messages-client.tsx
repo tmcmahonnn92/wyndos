@@ -32,7 +32,7 @@ type Recipient = {
   tags: Array<{ id: number; name: string }>;
   unpaidCleans: number;
   reminderDue: { stage: number; age: number } | null;
-  nextClean: { date: string; label: string } | null;
+  nextClean: { date: string; label: string; worker: string } | null;
 };
 
 type View = "all" | "unpaid" | "reminder" | "soon";
@@ -82,7 +82,7 @@ export function MessagesClient({
   outboxCount,
 }: {
   initialTab: "send" | "log";
-  setup: { live: boolean; businessName: string; sendMethod: "PHONE" | "VOODOO"; templates: Array<{ key: string; label: string; body: string }> };
+  setup: { live: boolean; businessName: string; ownerFirstName: string; sendMethod: "PHONE" | "VOODOO"; templates: Array<{ key: string; label: string; body: string }> };
   recipients: Recipient[];
   log: LogEntry[];
   outboxCount: number;
@@ -148,6 +148,7 @@ export function MessagesClient({
         jobPrice: `£${sample.price.toFixed(2)}`,
         amountDue: `£${sample.owed.toFixed(2)}`,
         jobDate: sample.nextClean?.label ?? "",
+        workerName: sample.nextClean?.worker ?? setup.ownerFirstName,
         bankDetails: "(your bank details)",
         nextDueDate: sample.nextDue,
         businessName: setup.businessName,

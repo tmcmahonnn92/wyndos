@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, CheckCircle2, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DayPopout } from "./day-popout";
@@ -214,6 +216,19 @@ interface CalendarViewProps {
 }
 
 export function CalendarView({ days, holidays = [], hidePrices = false }: CalendarViewProps) {
+  const router = useRouter();
+  /** The whole day (every area and job on that date). */
+  const wholeDayHref = (iso: string) => `/days/date/${iso}`;
+  /** Tapping the empty part of a day box opens that whole day, if anything is booked. */
+  const openWholeDay = (iso: string, count: number) => (e: React.MouseEvent) => {
+    if (count > 0 && e.target === e.currentTarget) router.push(wholeDayHref(iso));
+  };
+  const AllJobsLink = ({ iso, count }: { iso: string; count: number }) =>
+    count > 0 ? (
+      <Link href={wholeDayHref(iso)} className="mt-auto block rounded-md px-1 py-1 text-center text-[11px] font-semibold text-blue-600 hover:bg-blue-50">
+        All jobs →
+      </Link>
+    ) : null;
   const [viewMode, setViewMode] = useState<ViewMode>(
     () => typeof window !== "undefined" && window.innerWidth < 768 ? "3day" : "month"
   );
@@ -328,9 +343,12 @@ export function CalendarView({ days, holidays = [], hidePrices = false }: Calend
                 {onHoliday && (
                   <div className="absolute inset-0 bg-slate-300/40 pointer-events-none z-10" />
                 )}
-                {/* Date number */}
+                {/* Date number: opens the whole day when anything is booked */}
                 <div className="flex items-center gap-1 mb-0.5">
-                  <span
+                  <Link
+                    href={wholeDayHref(iso)}
+                    onClick={(e) => { if (cellDays.length === 0) e.preventDefault(); }}
+                    aria-label={cellDays.length > 0 ? "Open the whole day" : undefined}
                     className={cn(
                       "w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold leading-none",
                       isToday
@@ -343,7 +361,7 @@ export function CalendarView({ days, holidays = [], hidePrices = false }: Calend
                     )}
                   >
                     {d.getDate()}
-                  </span>
+                  </Link>
                   {hasOverdue && (
                     <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
                   )}
@@ -379,12 +397,17 @@ export function CalendarView({ days, holidays = [], hidePrices = false }: Calend
           {dateColumns.map((d) => {
             const iso = isoDate(d);
             const isToday = iso === todayISO;
+            const count = (daysByDate.get(iso) ?? []).length;
+            const HeaderTag = count > 0 ? Link : "div";
             return (
-              <div
+              <HeaderTag
                 key={iso}
+                href={wholeDayHref(iso)}
+                title={count > 0 ? "Open the whole day" : undefined}
                 className={cn(
-                  "text-center py-3 px-1 border-r border-slate-100 last:border-r-0",
-                  isToday ? "bg-blue-50" : ""
+                  "block text-center py-3 px-1 border-r border-slate-100 last:border-r-0",
+                  isToday ? "bg-blue-50" : "",
+                  count > 0 && "cursor-pointer hover:bg-slate-50"
                 )}
               >
                 <div
@@ -403,7 +426,7 @@ export function CalendarView({ days, holidays = [], hidePrices = false }: Calend
                 >
                   {d.getDate()}
                 </div>
-              </div>
+              </HeaderTag>
             );
           })}
         </div>
@@ -425,10 +448,12 @@ export function CalendarView({ days, holidays = [], hidePrices = false }: Calend
             return (
               <div
                 key={iso}
+                onClick={openWholeDay(iso, cellDays.length)}
                 className={cn(
                   "relative border-r border-slate-100 last:border-r-0 p-2 flex flex-col gap-1.5 min-h-[120px]",
                   isToday && "bg-blue-50/50",
-                  hasOverdue && "border-l-2 border-l-red-400"
+                  hasOverdue && "border-l-2 border-l-red-400",
+                  cellDays.length > 0 && "cursor-pointer"
                 )}
               >
                 {onHoliday && (
@@ -437,6 +462,7 @@ export function CalendarView({ days, holidays = [], hidePrices = false }: Calend
                 {cellDays.map((cd) => (
                   <DayChip key={cd.id} day={cd} onClick={setSelectedDayId} />
                 ))}
+                <AllJobsLink iso={iso} count={cellDays.length} />
               </div>
             );
           })}
@@ -454,12 +480,17 @@ export function CalendarView({ days, holidays = [], hidePrices = false }: Calend
           {dateColumns.map((d) => {
             const iso = isoDate(d);
             const isToday = iso === todayISO;
+            const count = (daysByDate.get(iso) ?? []).length;
+            const HeaderTag = count > 0 ? Link : "div";
             return (
-              <div
+              <HeaderTag
                 key={iso}
+                href={wholeDayHref(iso)}
+                title={count > 0 ? "Open the whole day" : undefined}
                 className={cn(
-                  "text-center py-3 px-2 border-r border-slate-100 last:border-r-0",
-                  isToday && "bg-blue-50"
+                  "block text-center py-3 px-2 border-r border-slate-100 last:border-r-0",
+                  isToday && "bg-blue-50",
+                  count > 0 && "cursor-pointer hover:bg-slate-50"
                 )}
               >
                 <div
@@ -481,7 +512,7 @@ export function CalendarView({ days, holidays = [], hidePrices = false }: Calend
                 <div className="text-[10px] text-slate-400 mt-0.5">
                   {d.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}
                 </div>
-              </div>
+              </HeaderTag>
             );
           })}
         </div>
@@ -497,10 +528,12 @@ export function CalendarView({ days, holidays = [], hidePrices = false }: Calend
             return (
               <div
                 key={iso}
+                onClick={openWholeDay(iso, cellDays.length)}
                 className={cn(
                   "relative border-r border-slate-100 last:border-r-0 p-3 flex flex-col gap-2 min-h-[200px]",
                   isToday && "bg-blue-50/50",
-                  hasOverdue && "border-l-2 border-l-red-400"
+                  hasOverdue && "border-l-2 border-l-red-400",
+                  cellDays.length > 0 && "cursor-pointer"
                 )}
               >
                 {onHoliday && (
@@ -519,6 +552,7 @@ export function CalendarView({ days, holidays = [], hidePrices = false }: Calend
                     onClick={setSelectedDayId}
                   />
                 ))}
+                <AllJobsLink iso={iso} count={cellDays.length} />
               </div>
             );
           })}

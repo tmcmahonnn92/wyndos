@@ -100,6 +100,9 @@ model TenantSettings {
   textSkipCleanedIfPaid    Boolean @default(true)
   textPaymentReminderDays  Int     @default(0)
   textPaymentReminder2Days Int     @default(0)
+  /// A run includes customers due up to this many days after its date (so the area stays
+  /// together). Null = half the area's frequency, e.g. 14 days for 4-weekly.
+  runDueWindowDays         Int?
 }
 
 /// Pending invite for a worker to join a tenant's account.
@@ -254,6 +257,8 @@ model Area {
   nextDueDate       DateTime?
   lastCompletedDate DateTime?
   isSystemArea      Boolean    @default(false)
+  /// This area's own "include customers due up to N days after the run". Null = business setting.
+  dueWindowDays     Int?
   customers         Customer[]
   workDays          WorkDay[]
   createdAt         DateTime   @default(now())

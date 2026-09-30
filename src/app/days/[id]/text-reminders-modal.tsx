@@ -125,7 +125,7 @@ export function TextRemindersModal({
               />
               <PlaceholderButtons
                 onInsert={(v) => insertAtCursor(textRef.current, template, v, setTemplate)}
-                only={["{{customerFirstName}}", "{{jobDate}}", "{{jobPrice}}", "{{amountDue}}", "{{customerAddress}}", "{{bankDetails}}", "{{paymentReference}}", "{{businessName}}", "{{businessPhone}}"]}
+                only={["{{customerFirstName}}", "{{jobDate}}", "{{workerName}}", "{{jobPrice}}", "{{amountDue}}", "{{customerAddress}}", "{{bankDetails}}", "{{paymentReference}}", "{{businessName}}", "{{businessPhone}}"]}
               />
               {canSaveDefault && (
                 <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">

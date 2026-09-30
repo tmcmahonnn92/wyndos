@@ -13,6 +13,8 @@ import {
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { getDashboardData } from "@/lib/actions";
+import { getDashboardInsights } from "@/lib/insights";
+import { DashboardInsights } from "./dashboard-insights";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { fmtDate, fmtCurrency } from "@/lib/utils";
@@ -52,6 +54,8 @@ export default async function DashboardPage() {
     recentPayments,
     customersWithDebt,
   } = await getDashboardData();
+  // Business numbers: owner, or anyone with the Accounting permission.
+  const insights = hidePrices ? null : await getDashboardInsights().catch(() => null);
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const isoOf = (d: { date: Date | string }) => new Date(d.date).toISOString().slice(0, 10);
@@ -260,6 +264,8 @@ export default async function DashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      {insights && <DashboardInsights data={insights} />}
 
       {/* Customers with debt */}
       {!hidePrices && customersWithDebt.length > 0 && (

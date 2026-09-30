@@ -38,6 +38,7 @@ interface Settings {
   textSendMethod: string;
   textsTestMode: boolean; textCleanedEnabled: boolean; textSkipCleanedIfPaid: boolean;
   textPaymentReminderDays: number; textPaymentReminder2Days: number; textsServerLive: boolean;
+  runDueWindowDays: number | null;
   canManageProviderSettings: boolean;
 }
 
@@ -100,6 +101,7 @@ const PLACEHOLDER_CHIPS = [
   { label: "Amount due",     value: "{{amountDue}}"         },
   { label: "Biz name",       value: "{{businessName}}"      },
   { label: "Biz phone",      value: "{{businessPhone}}"     },
+  { label: "Cleaner",        value: "{{workerName}}"        },
   { label: "Next due date",  value: "{{nextDueDate}}"       },
   { label: "Address",        value: "{{customerAddress}}"   },
   { label: "Bank details",   value: "{{bankDetails}}"       },
@@ -173,6 +175,7 @@ export function SettingsClient({
     phone: settings.phone, email: settings.email, address: settings.address,
     bankDetails: settings.bankDetails, vatNumber: settings.vatNumber,
     invoicePrefix: settings.invoicePrefix,
+    runDueWindowDays: settings.runDueWindowDays == null ? "" : String(settings.runDueWindowDays),
   });
 
   const [smtp, setSmtp] = useState({
@@ -393,7 +396,12 @@ export function SettingsClient({
     setSaveError(null);
     startTransition(async () => {
       try {
-        const payload: Record<string, unknown> = { ...form, logoBase64: logo };
+        const { runDueWindowDays: windowText, ...formRest } = form;
+        const payload: Record<string, unknown> = {
+          ...formRest,
+          logoBase64: logo,
+          runDueWindowDays: windowText.trim() === "" ? null : Math.max(0, Math.min(90, Number(windowText) || 0)),
+        };
 
         if (canManageProviderSettings) {
           Object.assign(payload, {
@@ -558,6 +566,24 @@ export function SettingsClient({
                 <div className="col-span-2"><label className={lbl}>Email</label><input type="email" className={inp} value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="hello@mybusiness.co.uk" /></div>
                 <div className="col-span-2"><label className={lbl}>Business address</label><textarea className={cn(inp, "resize-none")} rows={3} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} placeholder={"123 High Street\nYour Town\nAB1 2CD"} /></div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Scheduling</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <label className={lbl}>Keep areas together: include customers due up to</label>
+              <div className="flex items-center gap-2">
+                <input type="number" min={0} max={90} className={cn(inp, "w-40")} value={form.runDueWindowDays}
+                  placeholder="Half the frequency"
+                  onChange={(e) => setForm((f) => ({ ...f, runDueWindowDays: e.target.value }))} />
+                <span className="text-sm text-slate-600">days after the run</span>
+              </div>
+              <p className="text-xs text-slate-500">
+                When an area&apos;s run is booked, everyone due by then, or within this many days after, goes on it. Bigger
+                means nobody waits an extra cycle (at most they&apos;re cleaned a little early). Leave blank for half the
+                area&apos;s frequency, e.g. 14 days for 4-weekly. Each area can have its own number in Areas.
+              </p>
             </CardContent>
           </Card>
 

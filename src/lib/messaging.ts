@@ -23,6 +23,8 @@ export type MessageVars = {
   businessName?: string;
   businessPhone?: string;
   nextDueDate?: string;
+  /** First name of whoever is doing (or did) the clean. */
+  workerName?: string;
 };
 
 /** Replace all {{key}} tokens in a template string with provided values. */

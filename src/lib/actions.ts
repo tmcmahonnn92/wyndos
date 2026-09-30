@@ -40,7 +40,6 @@ function utcDay(d: Date): Date {
 }
 
 /** Customers due within this many days after a run's date are included in that run. */
-const DUE_SLACK_DAYS = 6;
 
 function addUtcDays(d: Date, days: number): Date {
   const base = utcDay(d);
@@ -389,6 +388,18 @@ function nextRunAfter(
   return addUtcDays(fromDate, (area.frequencyWeeks ?? 4) * 7);
 }
 
+/**
+ * How many days after a run's date a customer can be due and still go on it. Keeps an area
+ * together: someone slightly out of step is cleaned a little early rather than waiting a
+ * whole extra cycle. Area setting, else business setting, else half the area's frequency.
+ */
+async function runDueWindow(tenantId: number, area: { frequencyWeeks: number; dueWindowDays?: number | null }) {
+  if (area.dueWindowDays != null && area.dueWindowDays >= 0) return area.dueWindowDays;
+  const settings = await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { runDueWindowDays: true } });
+  if (settings?.runDueWindowDays != null && settings.runDueWindowDays >= 0) return settings.runDueWindowDays;
+  return Math.max(3, Math.round(((area.frequencyWeeks || 4) * 7) / 2));
+}
+
 /** Customers actually cleaned on a day: last cleaned that day, next due one area-cycle later. */
 async function markCustomersCleaned(tenantId: number, workDayId: number, cleanedOn: Date, frequencyWeeks: number) {
   const cleanedJobs = await prisma.job.findMany({
@@ -412,7 +423,7 @@ async function syncAreaScheduleAfterCompletion(
     id: number;
     areaId: number | null;
     assignedUserId: string | null;
-    area: { id: number; name: string; frequencyWeeks: number; scheduleType: string; monthlyDay: number | null } | null;
+    area: { id: number; name: string; frequencyWeeks: number; scheduleType: string; monthlyDay: number | null; dueWindowDays?: number | null } | null;
   },
   fallbackCompletedDate: Date,
   splitRun?: { runDate: Date; runDayIds: number[] }
@@ -489,8 +500,7 @@ async function syncAreaScheduleAfterCompletion(
     }
   }
 
-  // Customers due by this run (with a few days' slack) are included; customers on a longer
-  // frequency than the area wait for a later run.
+  // Customers due by this run, or within the area's window after it, are included.
   const eligibleCustomers = await prisma.customer.findMany({
     where: {
       tenantId,
@@ -498,7 +508,7 @@ async function syncAreaScheduleAfterCompletion(
       active: true,
       OR: [
         { nextDueDate: null },
-        { nextDueDate: { lte: addUtcDays(nextDue, DUE_SLACK_DAYS) } },
+        { nextDueDate: { lte: addUtcDays(nextDue, await runDueWindow(tenantId, workDay.area)) } },
         ...(runCustomerIds.length ? [{ id: { in: runCustomerIds } }] : []),
       ],
     },
@@ -563,6 +573,7 @@ export async function updateArea(
     frequencyWeeks?: number;
     monthlyDay?: number | null;
     nextDueDate?: Date | null;
+    dueWindowDays?: number | null;
   }
 ) {
   const actor = await requirePerm("areas");
@@ -876,12 +887,13 @@ export async function scheduleAreaRun(areaId: number, dateISO: string, assignedU
 
   await assertNoConflictingOpenAreaDay(tenantId, areaId, d);
 
+  const windowDays = await runDueWindow(tenantId, area);
   const [, eligibleCustomers] = await Promise.all([
     area,
-    // Customers due by this date (with slack). New customers (no due date) are always included;
-    // customers on a longer frequency than the area wait for a later run.
+    // Customers due by this date or within the area's window after it. New customers
+    // (no due date) are always included.
     prisma.customer.findMany({ where: { tenantId, areaId, active: true,
-        OR: [{ nextDueDate: null }, { nextDueDate: { lte: addUtcDays(d, DUE_SLACK_DAYS) } }],
+        OR: [{ nextDueDate: null }, { nextDueDate: { lte: addUtcDays(d, windowDays) } }],
       },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     }),
@@ -2544,7 +2556,7 @@ export async function syncWorkDayCustomers(workDayId: number): Promise<{ added: 
   const eligibleCustomers = await prisma.customer.findMany({ where: { tenantId,
       areaId: workDay.areaId,
       active: true,
-      OR: [{ nextDueDate: null }, { nextDueDate: { lte: addUtcDays(workDay.date, DUE_SLACK_DAYS) } }],
+      OR: [{ nextDueDate: null }, { nextDueDate: { lte: addUtcDays(workDay.date, await runDueWindow(tenantId, workDay.area!)) } }],
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
@@ -3991,7 +4003,7 @@ export async function getPaymentsPage() {
         allocations: { include: { job: { include: { workDay: true } } } },
       },
       orderBy: { paidAt: "desc" },
-      take: 50,
+      take: 500, // the page shows the latest 50; search looks further back
     }),
     prisma.customer.findMany({
       where: { tenantId },
@@ -4840,6 +4852,7 @@ export async function getBusinessSettingsForClient() {
     textSkipCleanedIfPaid: settings.textSkipCleanedIfPaid,
     textPaymentReminderDays: settings.textPaymentReminderDays,
     textPaymentReminder2Days: settings.textPaymentReminder2Days,
+    runDueWindowDays: settings.runDueWindowDays ?? null,
     textsServerLive: process.env.MESSAGING_LIVE === "true",
     canManageProviderSettings,
   };
@@ -4892,6 +4905,8 @@ export async function updateBusinessSettings(data: {
   textSkipCleanedIfPaid?: boolean;
   textPaymentReminderDays?: number;
   textPaymentReminder2Days?: number;
+  // Scheduling
+  runDueWindowDays?: number | null;
 }) {
   const actor = await requireOwner();
   const tenantId = actor.tenantId;

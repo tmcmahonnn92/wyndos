@@ -7,6 +7,7 @@ export const TEXT_PLACEHOLDERS = [
   { label: "Address", value: "{{customerAddress}}" },
   { label: "Area", value: "{{areaName}}" },
   { label: "Date", value: "{{jobDate}}" },
+  { label: "Cleaner", value: "{{workerName}}" },
   { label: "Price", value: "{{jobPrice}}" },
   { label: "Owes", value: "{{amountDue}}" },
   { label: "Next due", value: "{{nextDueDate}}" },
