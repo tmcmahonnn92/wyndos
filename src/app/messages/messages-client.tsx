@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { MessageSquare, Send } from "lucide-react";
-import { sendBulkTexts } from "@/lib/text-actions";
+import { clearMessageLogs, sendBulkTexts } from "@/lib/text-actions";
 import { Button } from "@/components/ui/button";
 import { SendMethodToggle } from "@/components/phone-send-queue";
 import { PhoneOutboxModal } from "@/components/phone-outbox-modal";
@@ -103,6 +103,9 @@ export function MessagesClient({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [logKind, setLogKind] = useState("");
+  const [logStatus, setLogStatus] = useState("");
+  const [logPicked, setLogPicked] = useState<Set<number>>(new Set());
+  const [logNote, setLogNote] = useState<string | null>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   const areas = useMemo(() => {
@@ -186,7 +189,20 @@ export function MessagesClient({
     });
   };
 
-  const shownLog = log.filter((l) => !logKind || l.kind === logKind);
+  const shownLog = log.filter((l) => (!logKind || l.kind === logKind) && (!logStatus || l.status === logStatus));
+  const clearLogs = (input: Parameters<typeof clearMessageLogs>[0], question: string) => {
+    if (!window.confirm(question)) return;
+    startTransition(async () => {
+      try {
+        const r = await clearMessageLogs(input);
+        setLogPicked(new Set());
+        setLogNote(`${r.cleared} text${r.cleared === 1 ? "" : "s"} cleared from the log.`);
+        router.refresh();
+      } catch (issue) {
+        setLogNote(issue instanceof Error ? issue.message : "Could not clear the log.");
+      }
+    });
+  };
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-5">
@@ -327,17 +343,55 @@ export function MessagesClient({
         </div>
       ) : (
         <div className="space-y-2">
-          <select value={logKind} onChange={(e) => setLogKind(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
-            <option value="">All texts</option>
-            {Object.entries(KIND_LABELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={logKind} onChange={(e) => { setLogKind(e.target.value); setLogPicked(new Set()); }} aria-label="Kind of text" className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
+              <option value="">All texts</option>
+              {Object.entries(KIND_LABELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select>
+            <select value={logStatus} onChange={(e) => { setLogStatus(e.target.value); setLogPicked(new Set()); }} aria-label="Status" className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
+              <option value="">Any status</option>
+              <option value="TEST">Test (not sent)</option>
+              <option value="SENT">Sent</option>
+              <option value="FAILED">Failed</option>
+              <option value="TO_SEND">Waiting (phone)</option>
+              <option value="PHONE">Opened on phone</option>
+            </select>
+          </div>
+          {shownLog.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <button type="button" className="font-semibold text-blue-600"
+                onClick={() => setLogPicked(logPicked.size === shownLog.length ? new Set() : new Set(shownLog.map((l) => l.id)))}>
+                {logPicked.size === shownLog.length ? "Untick all" : "Tick all"}
+              </button>
+              <span className="text-slate-400">{logPicked.size} ticked</span>
+              <span className="ml-auto flex gap-2">
+                <Button size="sm" variant="outline" disabled={isPending || logPicked.size === 0}
+                  onClick={() => clearLogs({ ids: [...logPicked] }, `Clear ${logPicked.size} text${logPicked.size === 1 ? "" : "s"} from the log?`)}>
+                  Clear ticked
+                </Button>
+                <Button size="sm" variant="outline" disabled={isPending}
+                  onClick={() => clearLogs(
+                    logKind || logStatus ? { all: true, kind: logKind || undefined, status: logStatus || undefined } : { all: true },
+                    logKind || logStatus ? "Clear every text matching these filters from the log?" : "Clear the whole text log?",
+                  )}>
+                  {logKind || logStatus ? "Clear all matching" : "Clear all"}
+                </Button>
+              </span>
+            </div>
+          )}
+          {logNote && <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">{logNote}</p>}
+          {shownLog.length > 0 && (
+            <p className="text-[11px] text-slate-400">Clearing only tidies the log: it never un-sends a text, and texts already sent won&apos;t be sent again. Clearing a text still waiting on your phone takes it out of the queue.</p>
+          )}
           {shownLog.length === 0 ? (
             <p className="rounded-xl border border-dashed border-slate-300 py-10 text-center text-sm text-slate-500">No texts yet.</p>
           ) : (
             <ul className="space-y-2">
               {shownLog.map((l) => (
-                <li key={l.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                <li key={l.id} className={cn("rounded-xl border bg-white p-3", logPicked.has(l.id) ? "border-blue-300 ring-1 ring-blue-200" : "border-slate-200")}>
                   <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <input type="checkbox" aria-label="Tick this text" checked={logPicked.has(l.id)}
+                      onChange={() => setLogPicked((prev) => { const next = new Set(prev); if (next.has(l.id)) next.delete(l.id); else next.add(l.id); return next; })} />
                     <span className={cn("rounded-full px-2 py-0.5 font-bold",
                       l.status === "SENT" ? "bg-green-100 text-green-800" : l.status === "FAILED" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800")}>
                       {STATUS_LABELS[l.status] ?? l.status}

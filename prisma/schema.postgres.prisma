@@ -572,6 +572,8 @@ model MessageLog {
   status       String
   error        String   @default("")
   sentByUserId String?
+  /// Cleared from the log by the user. Kept so reminders / cleaned texts aren't sent twice.
+  clearedAt    DateTime?
   createdAt    DateTime @default(now())
 
   @@index([tenantId, createdAt])
