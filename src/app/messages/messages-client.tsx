@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MessageSquare, Send } from "lucide-react";
+import { CalendarDays, MessageSquare, PoundSterling, Send } from "lucide-react";
 import { clearMessageLogs, sendBulkTexts } from "@/lib/text-actions";
 import { Button } from "@/components/ui/button";
 import { SendMethodToggle } from "@/components/phone-send-queue";
@@ -32,15 +32,16 @@ type Recipient = {
   tags: Array<{ id: number; name: string }>;
   unpaidCleans: number;
   reminderDue: { stage: number; age: number } | null;
+  lastText: { kind: string; at: string; status: string } | null;
   nextClean: { date: string; label: string; worker: string } | null;
 };
 
 type View = "all" | "unpaid" | "reminder" | "soon";
-const VIEWS: Array<{ key: View; label: string }> = [
-  { key: "all", label: "Everyone" },
-  { key: "unpaid", label: "Unpaid cleans" },
-  { key: "reminder", label: "Reminder due" },
-  { key: "soon", label: "Cleaning soon" },
+type Purpose = "soon" | "chase" | "anyone";
+const PURPOSES: Array<{ key: Purpose; title: string; desc: string; icon: typeof Send }> = [
+  { key: "soon", title: "Clean coming up", desc: "Let customers know when you're coming.", icon: CalendarDays },
+  { key: "chase", title: "Chase payment", desc: "Customers who owe you, with reminders due first.", icon: PoundSterling },
+  { key: "anyone", title: "Message anyone", desc: "News, price changes, holidays, a quick note.", icon: MessageSquare },
 ];
 const TEMPLATES_FOR_VIEW: Partial<Record<View, string>> = {
   unpaid: "Hi {{customerFirstName}}, just a reminder you have {{amountDue}} outstanding for window cleaning. To pay by bank: {{bankDetails}}, reference {{paymentReference}}. Thanks, {{businessName}}",
@@ -69,6 +70,12 @@ const KIND_LABELS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = { TEST: "TEST – not sent", TO_SEND: "Waiting (phone)", PHONE: "Opened on phone" };
 
 const pad = (n: number) => String(n).padStart(2, "0");
+/** "today", "yesterday", "3 days ago" */
+function ago(iso: string) {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+}
+
 function when(iso: string) {
   const d = new Date(iso);
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -91,14 +98,16 @@ export function MessagesClient({
   const [tab, setTab] = useState<"send" | "log">(initialTab);
   const [areaIds, setAreaIds] = useState<Set<number>>(new Set());
   const [tagId, setTagId] = useState<string>("");
-  const [view, setView] = useState<View>("all");
+  const [view, setView] = useState<View>("soon");
+  const [purpose, setPurpose] = useState<Purpose>("soon");
+  const [showFilters, setShowFilters] = useState(false);
   const [soonDays, setSoonDays] = useState(7);
   const [method, setMethod] = useState<"PHONE" | "VOODOO">(setup.sendMethod);
   const [queue, setQueue] = useState<{ ids?: number[] } | null>(null);
   const [includeQuotes, setIncludeQuotes] = useState(false);
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<Set<number>>(new Set());
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(() => setup.templates.find((t) => t.key === "dayReminder")?.body ?? "");
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -159,6 +168,23 @@ export function MessagesClient({
       })
     : "";
 
+  // Choosing what you're sending picks the right people and starts the right wording.
+  const autoMessageRef = useRef(message);
+  const templateBody = (key: string) => setup.templates.find((t) => t.key === key)?.body ?? "";
+  const choosePurpose = (next: Purpose) => {
+    setPurpose(next);
+    setPicked(new Set());
+    const nextView: View = next === "soon" ? "soon" : next === "chase" ? (recipients.some((r) => r.reminderDue) ? "reminder" : "unpaid") : "all";
+    setView(nextView);
+    const body = next === "soon"
+      ? templateBody("dayReminder") || TEMPLATES_FOR_VIEW.soon!
+      : next === "chase" ? templateBody("payment1") || TEMPLATES_FOR_VIEW.reminder! : "";
+    if (!message.trim() || message === autoMessageRef.current) {
+      setMessage(body);
+      autoMessageRef.current = body;
+    }
+  };
+
   const toggleArea = (id: number) =>
     setAreaIds((prev) => {
       const next = new Set(prev);
@@ -214,7 +240,7 @@ export function MessagesClient({
           {(["send", "log"] as const).map((t) => (
             <button key={t} type="button" onClick={() => setTab(t)}
               className={cn("rounded-md px-3 py-1.5", tab === t ? "bg-slate-800 text-white" : "text-slate-600")}>
-              {t === "send" ? "Send" : `Log (${log.length})`}
+              {t === "send" ? "Send" : `History (${log.length})`}
             </button>
           ))}
         </div>
@@ -231,59 +257,86 @@ export function MessagesClient({
 
       {tab === "send" ? (
         <div className="space-y-4">
-          <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
-            <p className="text-sm font-semibold text-slate-800">1. Who to</p>
-            <div className="flex flex-wrap gap-1.5">
-              {VIEWS.map((v) => (
-                <button key={v.key} type="button"
-                  onClick={() => {
-                    setView(v.key);
-                    setPicked(new Set());
-                    if (TEMPLATES_FOR_VIEW[v.key] && !message.trim()) setMessage(TEMPLATES_FOR_VIEW[v.key]!);
-                  }}
-                  className={cn("rounded-lg border px-3 py-1.5 text-xs font-semibold",
-                    view === v.key ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700")}>
-                  {v.label}
-                  {v.key === "unpaid" && ` (${recipients.filter((r) => r.owed > 0.005).length})`}
-                  {v.key === "reminder" && ` (${recipients.filter((r) => r.reminderDue).length})`}
+          {/* Step 1: what kind of text */}
+          <section className="space-y-2">
+            <p className="text-sm font-semibold text-slate-800">1. What are you sending?</p>
+            <div className="grid grid-cols-3 gap-2">
+              {PURPOSES.map((p) => (
+                <button key={p.key} type="button" onClick={() => choosePurpose(p.key)}
+                  className={cn("rounded-xl border p-3 text-left transition-colors",
+                    purpose === p.key ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600" : "border-slate-200 bg-white hover:border-blue-300")}>
+                  <span className="flex flex-col items-start gap-1 text-sm font-bold leading-tight text-slate-800 sm:flex-row sm:items-center sm:gap-2">
+                    <p.icon size={16} className="text-blue-600" /> {p.title}
+                  </span>
+                  <span className="mt-1 hidden text-xs text-slate-500 sm:block">{p.desc}</span>
                 </button>
               ))}
-              {view === "soon" && (
+            </div>
+          </section>
+
+          {/* Step 2: who */}
+          <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-slate-800">2. Who to</p>
+              <button type="button" onClick={() => setShowFilters((v) => !v)} className="text-xs font-semibold text-blue-600">
+                {showFilters ? "Hide filters" : `Narrow down${areaIds.size || tagId || search ? " (on)" : ""}`}
+              </button>
+            </div>
+            {purpose === "chase" && (
+              <div className="flex flex-wrap gap-1.5">
+                {([
+                  { key: "reminder" as View, label: `Reminder due (${recipients.filter((r) => r.reminderDue).length})` },
+                  { key: "unpaid" as View, label: `Everyone who owes (${recipients.filter((r) => r.owed > 0.005).length})` },
+                ]).map((v) => (
+                  <button key={v.key} type="button" onClick={() => { setView(v.key); setPicked(new Set()); }}
+                    className={cn("rounded-lg border px-3 py-1.5 text-xs font-semibold",
+                      view === v.key ? "border-slate-800 bg-slate-800 text-white" : "border-slate-200 bg-white text-slate-700")}>
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {purpose === "soon" && (
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                Cleans booked in the
                 <select value={soonDays} onChange={(e) => setSoonDays(Number(e.target.value))}
                   className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">
-                  <option value={1}>tomorrow</option>
+                  <option value={1}>next day</option>
                   <option value={3}>next 3 days</option>
                   <option value={7}>next 7 days</option>
                   <option value={14}>next 2 weeks</option>
                 </select>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {areas.map((a) => (
-                <button key={a.id} type="button" onClick={() => toggleArea(a.id)}
-                  className={cn("flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
-                    areaIds.has(a.id) ? "border-slate-800 bg-slate-800 text-white" : "border-slate-200 bg-white text-slate-700")}>
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: a.color }} />
-                  {a.name} <span className="opacity-60">{a.count}</span>
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-3 text-xs">
-
-              <label className="flex items-center gap-1.5">
-                <input type="checkbox" checked={includeQuotes} onChange={(e) => setIncludeQuotes(e.target.checked)} /> Include quotes (not live yet)
               </label>
-              {tags.length > 0 && (
-                <select value={tagId} onChange={(e) => setTagId(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1">
-                  <option value="">Any tag</option>
-                  {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              )}
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or address"
-                className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1" />
-            </div>
+            )}
+            {showFilters && (
+              <div className="space-y-2 rounded-lg bg-slate-50 p-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {areas.map((a) => (
+                    <button key={a.id} type="button" onClick={() => toggleArea(a.id)}
+                      className={cn("flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
+                        areaIds.has(a.id) ? "border-slate-800 bg-slate-800 text-white" : "border-slate-200 bg-white text-slate-700")}>
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: a.color }} />
+                      {a.name} <span className="opacity-60">{a.count}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs">
+                  {tags.length > 0 && (
+                    <select value={tagId} onChange={(e) => setTagId(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1">
+                      <option value="">Any tag</option>
+                      {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  )}
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={includeQuotes} onChange={(e) => setIncludeQuotes(e.target.checked)} /> Include quotes (not live yet)
+                  </label>
+                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or address"
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1" />
+                </div>
+              </div>
+            )}
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-500">{filtered.length} match · {picked.size} chosen</span>
+              <span className="text-slate-500">{filtered.length} customer{filtered.length === 1 ? "" : "s"} · <b className="text-slate-800">{picked.size} chosen</b></span>
               <span className="flex gap-3">
                 <button type="button" className="font-semibold text-blue-600" onClick={() => setPicked((p) => new Set([...p, ...filtered.map((r) => r.id)]))}>
                   Choose all {filtered.length}
@@ -301,11 +354,18 @@ export function MessagesClient({
                       else next.delete(r.id);
                       return next;
                     })} />
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-800">{r.name}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-slate-800">{r.name}</span>
+                    {r.lastText && (
+                      <span className={cn("block truncate text-[11px]",
+                        Date.now() - new Date(r.lastText.at).getTime() < 7 * 86_400_000 ? "font-semibold text-green-700" : "text-slate-400")}>
+                        Last text: {KIND_LABELS[r.lastText.kind] ?? r.lastText.kind} · {r.lastText.status === "TO_SEND" ? "waiting on phone" : ago(r.lastText.at)}
+                      </span>
+                    )}
+                  </span>
                   {r.owed > 0.005 && <span className="text-[11px] font-semibold text-red-600">owes £{r.owed.toFixed(2)}</span>}
                   {r.reminderDue && <span className="rounded bg-red-100 px-1 text-[10px] font-bold text-red-700">reminder {r.reminderDue.stage} due · {r.reminderDue.age}d</span>}
                   {view === "soon" && r.nextClean && <span className="text-[11px] font-semibold text-blue-700">{r.nextClean.label}</span>}
-                  <span className="text-[11px] text-slate-400">{r.area?.name ?? ""}</span>
                   {!r.mobile && <span className="text-[10px] font-semibold text-amber-600">no mobile</span>}
                 </label>
               ))}
@@ -313,10 +373,10 @@ export function MessagesClient({
             </div>
           </section>
 
+          {/* Step 3: the words */}
           <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
-            <p className="text-sm font-semibold text-slate-800">2. Message</p>
+            <p className="text-sm font-semibold text-slate-800">3. Message</p>
             <TemplatePicker templates={setup.templates} onPick={setMessage} />
-            <SendMethodToggle value={method} onChange={setMethod} />
             <textarea ref={textRef} rows={5} value={message} onChange={(e) => setMessage(e.target.value)}
               placeholder="e.g. Hi {{customerFirstName}}, we're in {{areaName}} next week…"
               className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -331,15 +391,26 @@ export function MessagesClient({
             )}
           </section>
 
-          {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-          {result && <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{result}</p>}
-          <Button onClick={send} disabled={isPending || withMobile.length === 0 || !message.trim()} className="w-full">
-            <Send size={14} />
-            {isPending ? "Preparing…" : method === "PHONE"
-              ? `Start sending ${withMobile.length} from my phone`
-              : `${setup.live ? "Send" : "Test send"} to ${withMobile.length} customer${withMobile.length === 1 ? "" : "s"}`}
-            {pickedList.length > withMobile.length && ` (${pickedList.length - withMobile.length} have no mobile)`}
-          </Button>
+          {/* Step 4: send */}
+          <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+            <p className="text-sm font-semibold text-slate-800">4. Send</p>
+            <SendMethodToggle value={method} onChange={setMethod} />
+            {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+            {result && <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{result}</p>}
+            <Button onClick={send} disabled={isPending || withMobile.length === 0 || !message.trim()} className="w-full">
+              <Send size={14} />
+              {isPending ? "Preparing…" : method === "PHONE"
+                ? `Start sending ${withMobile.length} from my phone`
+                : `${setup.live ? "Send" : "Test send"} to ${withMobile.length} customer${withMobile.length === 1 ? "" : "s"}`}
+              {pickedList.length > withMobile.length && ` (${pickedList.length - withMobile.length} have no mobile)`}
+            </Button>
+          </section>
+
+          <p className="text-center text-xs text-slate-500">
+            Texts that go by themselves (&ldquo;windows cleaned, how to pay&rdquo; and overdue reminders) are set up in{" "}
+            <a href="/settings" className="font-semibold text-blue-600 hover:underline">Settings → Messaging</a>.
+            Day reminders are quickest from the day itself.
+          </p>
         </div>
       ) : (
         <div className="space-y-2">

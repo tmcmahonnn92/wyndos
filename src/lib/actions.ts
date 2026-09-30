@@ -1103,15 +1103,24 @@ export async function bulkImportCustomers(
   }>,
   options: {
     createMissingAreas?: boolean;
+    /** Old flag: true = overwrite. Use existingMode instead. */
     updateExisting?: boolean;
+    /**
+     * A row that matches a customer already in Wyndos:
+     * skip = leave them alone; fill = only fill details they're missing (never touches area,
+     * price, dates or the schedule); overwrite = replace their details (area moves carry their
+     * booked jobs across).
+     */
+    existingMode?: "skip" | "fill" | "overwrite";
     matchField?: "name" | "nameAddress";
   } = {}
-): Promise<{ created: number; updated: number; errors: Array<{ row: number; message: string }>; areasCreated: string[] }> {
+): Promise<{ created: number; updated: number; skipped: number; errors: Array<{ row: number; message: string }>; areasCreated: string[] }> {
   const actor = await requireOwner();
   const tenantId = actor.tenantId;
   const errors: Array<{ row: number; message: string }> = [];
   let created = 0;
   let updated = 0;
+  let skipped = 0;
   const areasCreated: string[] = [];
   // Cache newly-created area names → ids so we don't duplicate within one import
   const areaNameCache = new Map<string, number>();
@@ -1227,27 +1236,54 @@ export async function bulkImportCustomers(
         ...(r.lastCompletedDate ? { lastCompletedDate: new Date(r.lastCompletedDate + "T00:00:00.000Z") } : {}),
       };
 
-      // ── Create or update ────────────────────────────────────────────────────
-      if (options.updateExisting) {
-        const matchField = options.matchField ?? "name";
-        const existing = await prisma.customer.findFirst({
-          where: matchField === "nameAddress"
-            ? { tenantId, name: r.name.trim(), address: addressFields.address }
-            : { tenantId, name: r.name.trim() },
-        });
-        if (existing) {
-          await prisma.customer.update({ where: { id: existing.id }, data: customerData });
-          await linkImportTags(existing.id, r.tags);
-          updated++;
-        } else {
-          const made = await prisma.customer.create({ data: { tenantId, name: r.name.trim(), ...customerData } });
-          await linkImportTags(made.id, r.tags);
-          created++;
-        }
-      } else {
+      // ── Create, skip, fill in or overwrite ─────────────────────────────────
+      const mode = options.existingMode ?? (options.updateExisting ? "overwrite" : "skip");
+      const matchField = options.matchField ?? "name";
+      const existing = await prisma.customer.findFirst({
+        where: matchField === "nameAddress"
+          ? { tenantId, name: r.name.trim(), address: addressFields.address }
+          : { tenantId, name: r.name.trim() },
+      });
+      if (!existing) {
         const made = await prisma.customer.create({ data: { tenantId, name: r.name.trim(), ...customerData } });
         await linkImportTags(made.id, r.tags);
         created++;
+      } else if (mode === "skip") {
+        skipped++;
+      } else if (mode === "fill") {
+        // Only what's missing. Area, price, frequency, dates, order and active are left
+        // exactly as they are, so nothing on the schedule moves.
+        const blank = (v: string | null | undefined) => !v || !v.trim();
+        const fill: Record<string, unknown> = {};
+        if (blank(existing.phone) && customerData.phone) fill.phone = customerData.phone;
+        if (blank(existing.email) && customerData.email) fill.email = customerData.email;
+        if (blank(existing.notes) && customerData.notes) fill.notes = customerData.notes;
+        if (blank(existing.preferredPaymentMethod) && customerData.preferredPaymentMethod) fill.preferredPaymentMethod = customerData.preferredPaymentMethod;
+        if (blank(existing.postcode) && addressFields.postcode) fill.postcode = addressFields.postcode;
+        if (blank(existing.street) && addressFields.street) fill.street = addressFields.street;
+        if (blank(existing.town) && addressFields.town) fill.town = addressFields.town;
+        if (blank(existing.houseNameNumber) && addressFields.houseNameNumber) fill.houseNameNumber = addressFields.houseNameNumber;
+        if (!existing.advanceNotice && r.advanceNotice) fill.advanceNotice = true;
+        if (Object.keys(fill).length) await prisma.customer.update({ where: { id: existing.id }, data: fill });
+        await linkImportTags(existing.id, r.tags);
+        if (Object.keys(fill).length || (r.tags && r.tags.length)) updated++; else skipped++;
+      } else {
+        // Overwrite: blanks in the sheet never wipe a date, and moving area takes
+        // their booked jobs with them.
+        const data: Record<string, unknown> = { ...customerData };
+        if (!r.nextDueDate) delete data.nextDueDate;
+        if (!r.lastCompletedDate) delete data.lastCompletedDate;
+        await prisma.customer.update({ where: { id: existing.id }, data });
+        if (existing.areaId !== resolvedAreaId) {
+          await removeCustomerFromPreviousAreaScheduledDays(tenantId, existing.id, existing.areaId, resolvedAreaId);
+          await autoAddToScheduledDays(tenantId, existing.id, resolvedAreaId);
+        }
+        await syncCustomerOpenJobs(tenantId, existing.id, {
+          price: r.price !== existing.price ? r.price : undefined,
+          jobName: undefined,
+        });
+        await linkImportTags(existing.id, r.tags);
+        updated++;
       }
     } catch (e) {
       errors.push({ row: i + 1, message: String(e) });
@@ -1257,7 +1293,7 @@ export async function bulkImportCustomers(
   revalidatePath("/customers");
   revalidatePath("/areas");
   revalidatePath("/scheduler");
-  return { created, updated, errors, areasCreated };
+  return { created, updated, skipped, errors, areasCreated };
 }
 
 export async function deleteAllCustomers(): Promise<{ deleted: number }> {

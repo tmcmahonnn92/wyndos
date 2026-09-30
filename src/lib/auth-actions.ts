@@ -771,8 +771,11 @@ export async function requestPasswordReset(email: string): Promise<RequestResetR
       }
     }
 
-    // No SMTP or send failed — return the link for display in the UI
-    return { ok: true, emailSent: false, resetLink };
+    // No email could be sent. Never hand the link to whoever filled in the form in
+    // production (anyone could reset anyone's password); only show it when developing.
+    console.error("[requestPasswordReset] no email delivery available for a reset request");
+    if (process.env.NODE_ENV !== "production") return { ok: true, emailSent: false, resetLink };
+    return { ok: true, emailSent: true };
   } catch (err: any) {
     console.error("[requestPasswordReset]", err);
     return { ok: false, error: "Failed to process request. Please try again." };

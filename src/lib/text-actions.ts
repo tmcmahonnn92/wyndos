@@ -51,6 +51,35 @@ export async function getTextSetup() {
   };
 }
 
+/** Each customer's most recent text (sent, test, or waiting on the phone): kind and when. */
+async function lastTextFor(tenantId: number, customerIds: number[]) {
+  const out = new Map<number, { kind: string; at: string; status: string }>();
+  if (customerIds.length === 0) return out;
+  const logs = await prisma.messageLog.findMany({
+    where: { tenantId, customerId: { in: customerIds }, status: { not: "FAILED" } },
+    select: { customerId: true, kind: true, createdAt: true, status: true },
+    orderBy: { createdAt: "desc" },
+    take: 5000,
+  });
+  for (const log of logs) {
+    if (log.customerId && !out.has(log.customerId)) {
+      out.set(log.customerId, { kind: log.kind, at: log.createdAt.toISOString(), status: log.status });
+    }
+  }
+  return out;
+}
+
+/** Every text to one customer, newest first (for their page). */
+export async function getCustomerTexts(customerId: number) {
+  const actor = await requirePerm("customers");
+  return prisma.messageLog.findMany({
+    where: { tenantId: actor.tenantId, customerId },
+    select: { id: true, kind: true, status: true, body: true, createdAt: true, error: true },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+}
+
 /** Everyone booked on these area days, with whether they can get a text. */
 export async function getDayReminderRecipients(workDayIds: number[]) {
   const actor = await requirePerm("messaging");
@@ -76,6 +105,18 @@ export async function getDayReminderRecipients(workDayIds: number[]) {
     },
   });
   const { balance } = await balancesFor(tenantId, days.flatMap((d) => d.jobs.map((j) => j.customer.id)));
+  // Who already had (or has waiting on the phone) a reminder for these days: don't text them twice.
+  const earlier = await prisma.messageLog.findMany({
+    where: { tenantId, kind: "DAY_REMINDER", workDayId: { in: days.map((d) => d.id) }, status: { not: "FAILED" } },
+    select: { customerId: true, createdAt: true, status: true },
+    orderBy: { createdAt: "desc" },
+  });
+  const remindedAt = new Map<number, { at: string; waiting: boolean }>();
+  for (const log of earlier) {
+    if (log.customerId && !remindedAt.has(log.customerId)) {
+      remindedAt.set(log.customerId, { at: log.createdAt.toISOString(), waiting: log.status === "TO_SEND" });
+    }
+  }
   const seen = new Set<number>();
   const recipients = [];
   for (const day of days) {
@@ -91,6 +132,7 @@ export async function getDayReminderRecipients(workDayIds: number[]) {
         address: job.customer.address,
         phone: job.customer.phone,
         to,
+        reminded: remindedAt.get(job.customer.id) ?? null,
         vars: settings
           ? varsFor({ ...job.customer, price: job.price }, settings, {
               jobDate: textDate(day.date),
@@ -156,6 +198,7 @@ export async function getBulkRecipients() {
       select: { kind: true, jobId: true },
     }),
   ]);
+  const lastTexts = await lastTextFor(tenantId, ids);
   const done = new Set(reminded.map((r) => `${r.kind}:${r.jobId}`));
   // Same rule as the automatic reminders; if they're off, anything unpaid 14+ days counts as due.
   const first = settings?.textPaymentReminderDays || 14;
@@ -184,6 +227,7 @@ export async function getBulkRecipients() {
     tags: c.tags.map((t) => t.tag),
     unpaidCleans: (unpaidJobs.get(c.id) ?? []).length,
     reminderDue: reminderStage(c.id),
+    lastText: lastTexts.get(c.id) ?? null,
     nextClean: nextBooked.get(c.id)
       ? {
           date: nextBooked.get(c.id)!.date.toISOString().slice(0, 10),
