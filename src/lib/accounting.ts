@@ -29,6 +29,8 @@ export const EXPENSE_CATEGORIES: ExpenseCategoryDefinition[] = [
   { value: "BANK_FEES", label: "Bank fees and finance", hmrcCategory: "financeCharges", hmrcLabel: "Interest, bank and credit card charges" },
   { value: "PROFESSIONAL_FEES", label: "Professional fees", hmrcCategory: "professionalFees", hmrcLabel: "Accountancy, legal and professional fees" },
   { value: "OTHER", label: "Other", hmrcCategory: "otherAllowableBusinessExpenses", hmrcLabel: "Other allowable expenses" },
+  // Starting figure entered when a business moves onto Wyndos part-way through a year.
+  { value: "OPENING", label: "Expenses before Wyndos", hmrcCategory: "otherAllowableBusinessExpenses", hmrcLabel: "Other allowable expenses" },
 ];
 
 export const OTHER_INCOME_CATEGORIES: OtherIncomeCategoryDefinition[] = [
@@ -37,7 +39,11 @@ export const OTHER_INCOME_CATEGORIES: OtherIncomeCategoryDefinition[] = [
   { value: "BONUS", label: "Bonus / tip" },
   { value: "EQUIPMENT_SALE", label: "Equipment sale" },
   { value: "ADJUSTMENT", label: "Adjustment" },
+  { value: "OPENING", label: "Earnings before Wyndos" },
 ];
+
+/** Category used for the one-off starting figures (see Accounting, "Before Wyndos"). */
+export const OPENING_CATEGORY = "OPENING";
 
 export const TAX_TREATMENT_OPTIONS: TaxTreatmentDefinition[] = [
   { value: "NO_VAT", label: "No VAT registered", vatRate: 0 },

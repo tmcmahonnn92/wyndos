@@ -19,6 +19,10 @@ import { cn } from "@/lib/utils";
 import { fmtCurrency } from "@/lib/utils";
 import { syncGoCardlessPayments } from "@/lib/actions";
 import { LogPaymentForm, type PaymentCustomerOption } from "./log-payment-form";
+import { smsHref } from "@/components/phone-send-queue";
+import { logPhoneText } from "@/lib/text-actions";
+import { ukMobile } from "@/lib/text-format";
+import { INVOICE_EMAIL_ENABLED } from "@/lib/features";
 
 export type Debtor = PaymentCustomerOption & {
   email: string;
@@ -181,22 +185,19 @@ function SmsModal({
   const handleSend = async () => {
     const phone = debtor.phone?.trim();
     if (!phone) { setError("This customer has no phone number saved. Edit their profile to add one."); return; }
+    const to = ukMobile(phone);
+    if (!to) { setError("That number isn't a UK mobile, so it can't take a text."); return; }
     setSending(true);
     setError(null);
+    // Texts go from your own phone: log it (so it shows in the text log), then open Messages.
     try {
-      const r = await fetch("/api/sms/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId: debtor.id, to: phone, message }),
-      });
-      const data = await r.json();
-      if (!r.ok || data.error) { setError(data.error ?? "Failed to send"); }
-      else { setDone(true); }
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSending(false);
+      await logPhoneText({ customerId: debtor.id, body: message, kind: selected === 0 ? "PAYMENT_REMINDER_1" : selected === 1 ? "PAYMENT_REMINDER_2" : "BULK" });
+    } catch {
+      // Not allowed to see texts, or offline: still let them send it.
     }
+    setSending(false);
+    setDone(true);
+    window.location.href = smsHref(to, message);
   };
 
   return (
@@ -210,7 +211,8 @@ function SmsModal({
         {done ? (
           <div className="flex flex-col items-center gap-3 py-6">
             <CheckCircle2 size={36} className="text-green-500" />
-            <p className="font-semibold text-slate-700">Reminder sent!</p>
+            <p className="font-semibold text-slate-700">Opened in Messages</p>
+            <p className="text-xs text-slate-500">Press Send on your phone. It&apos;s in the text log.</p>
             <button onClick={onClose} className="px-4 py-2 rounded-lg bg-slate-100 text-sm font-semibold text-slate-700 hover:bg-slate-200">Close</button>
           </div>
         ) : (
@@ -258,7 +260,7 @@ function SmsModal({
                 className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-1.5"
               >
                 {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-                {sending ? "Sending…" : "Send"}
+                {sending ? "Opening…" : "Open in Messages"}
               </button>
             </div>
           </>
@@ -318,8 +320,9 @@ export function DebtorsPanel({
   const [bulkInvoicing, setBulkInvoicing] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [selectedAreaId, setSelectedAreaId] = useState<number | null>(null);
-  const emailInvoicingEnabled = false;
-  const smsRemindersEnabled = false;
+  const emailInvoicingEnabled = INVOICE_EMAIL_ENABLED;
+  // Reminders open in the phone's own Messages app.
+  const smsRemindersEnabled = true;
 
   const filteredDebtors = useMemo(
     () => (selectedAreaId ? debtors.filter((debtor) => debtor.areaId === selectedAreaId) : debtors)
@@ -466,11 +469,6 @@ export function DebtorsPanel({
         )}
       </div>
 
-      {!emailInvoicingEnabled && (
-        <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-          Email invoicing and SMS reminders are currently disabled while the rollout hardening work is in progress. PDF invoice generation remains available through the protected API route.
-        </div>
-      )}
 
       {/* Debtor rows */}
       <div className="divide-y divide-slate-100">
@@ -498,7 +496,7 @@ export function DebtorsPanel({
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-                  <button
+                  {emailInvoicingEnabled && <button
                     onClick={() => sendInvoice(c)}
                     disabled={!emailInvoicingEnabled || invoicing.has(c.id)}
                     title={emailInvoicingEnabled ? (c.email ? `Invoice ${c.email}` : "No email — add one to their profile") : "Email invoicing is disabled for this rollout pass"}
@@ -514,7 +512,7 @@ export function DebtorsPanel({
                       ? <Loader2 size={11} className="animate-spin" />
                       : <Receipt size={11} />}
                     Invoice
-                  </button>
+                  </button>}
 
                   <button
                     onClick={() => smsRemindersEnabled && setSmsDebtor(c)}

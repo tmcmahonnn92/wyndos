@@ -12,6 +12,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { fmtDate, fmtCurrency, cn } from "@/lib/utils";
 import { AddressFields } from "@/components/address-fields";
+import { smsHref } from "@/components/phone-send-queue";
+import { logPhoneText } from "@/lib/text-actions";
+import { ukMobile } from "@/lib/text-format";
+import { INVOICE_EMAIL_ENABLED } from "@/lib/features";
 import { addressPartsOf, type AddressParts } from "@/lib/address";
 
 type Customer = NonNullable<Awaited<ReturnType<typeof getCustomer>>> & {
@@ -185,27 +189,16 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
 
   const handleSendSms = async () => {
     if (!smsTo.trim() || !smsMsg.trim()) return;
+    const to = ukMobile(smsTo);
+    if (!to) { setSmsResult({ ok: false, msg: "That isn't a UK mobile number, so it can't take a text." }); return; }
     setSmsSending(true);
     setSmsResult(null);
-    try {
-      const res = await fetch("/api/sms/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId: customer.id, to: smsTo.trim(), message: smsMsg }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setSmsResult({ ok: false, msg: data.error ?? "Failed to send" });
-      } else {
-        setSmsResult({ ok: true, msg: "SMS sent successfully!" });
-        setSmsMsg("");
-        router.refresh();
-      }
-    } catch (e) {
-      setSmsResult({ ok: false, msg: String(e) });
-    } finally {
-      setSmsSending(false);
-    }
+    // Texts go from your own phone: log it, then open Messages with it filled in.
+    try { await logPhoneText({ customerId: customer.id, body: smsMsg }); } catch { /* still let them send it */ }
+    setSmsSending(false);
+    setSmsResult({ ok: true, msg: "Opened in Messages. Press Send on your phone." });
+    window.location.href = smsHref(to, smsMsg);
+    router.refresh();
   };
 
   const handleSaveTags = () => {
@@ -1307,7 +1300,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               <Download size={14} />
               {invoiceStatus === "loading" ? "Generating…" : "Download PDF"}
             </Button>
-            <Button
+            {INVOICE_EMAIL_ENABLED && <Button
               onClick={() => handleInvoiceAction("email")}
               disabled={invoiceStatus === "loading" || selectedJobIds.size === 0 || !customer.email}
               variant="outline"
@@ -1315,7 +1308,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               title={!customer.email ? "Add an email address to this customer first" : ""}>
               <Mail size={14} />
               {!customer.email ? "No email" : "Send email"}
-            </Button>
+            </Button>}
           </div>
         </div>
       </Modal>
@@ -1365,7 +1358,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
       </Modal>
 
       {/* SMS Modal */}
-      <Modal open={smsOpen} onClose={() => setSmsOpen(false)} title={`Send SMS — ${customer.name}`}>
+      <Modal open={smsOpen} onClose={() => setSmsOpen(false)} title={`Text ${customer.name}`}>
         <div className="space-y-3">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">To (phone number)</label>
@@ -1376,7 +1369,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               placeholder="e.g. 07700 900123 or 447700900123"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <p className="text-xs text-slate-400 mt-1">Include country code (e.g. 447700...) or local format with 0 — we'll strip spaces.</p>
+            <p className="text-xs text-slate-400 mt-1">UK mobile. It opens in your phone&apos;s Messages app, ready to send.</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -1409,7 +1402,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               className="flex-1"
             >
               <MessageSquare size={14} />
-              {smsSending ? "Sending…" : "Send SMS"}
+              {smsSending ? "Opening…" : "Open in Messages"}
             </Button>
             <Button variant="outline" onClick={() => setSmsOpen(false)} className="flex-1">Cancel</Button>
           </div>

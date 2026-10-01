@@ -162,6 +162,7 @@ function RecurringFields({
 }
 
 export function AccountingClient({
+  openingFigures,
   monthlySummaries,
   recentExpenses,
   recentPayments,
@@ -193,6 +194,7 @@ export function AccountingClient({
   availableTaxYears: TaxYearOption[];
   exportGeneratedAt: string;
   initialAction?: string | null;
+  openingFigures?: React.ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -601,6 +603,8 @@ export function AccountingClient({
         <Card><CardHeader><CardTitle>VAT On Income</CardTitle></CardHeader><CardContent><p className="text-xl font-bold text-slate-800">{fmtCurrency(totals.incomeVat)}</p><p className="mt-1 text-xs text-slate-500">Output VAT inside the selected filter range</p></CardContent></Card>
         <Card><CardHeader><CardTitle>VAT On Expenses</CardTitle></CardHeader><CardContent><p className="text-xl font-bold text-slate-800">{fmtCurrency(totals.expenseVat)}</p><p className="mt-1 text-xs text-slate-500">Input VAT inside the selected filter range</p></CardContent></Card>
       </div>
+
+      {openingFigures}
 
       {formError && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{formError}</p>}
       {formSuccess && <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">{formSuccess}</p>}

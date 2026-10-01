@@ -50,7 +50,12 @@ export async function getDashboardInsights() {
   const last28 = addDays(today, -28);
   const last30 = addDays(today, -30);
 
-  const [areas, completedYear, completedRecent, skippedRecent, openDays, paymentsYear, owedJobs, members, newCustomers] = await Promise.all([
+  const [openingYear, areas, completedYear, completedRecent, skippedRecent, openDays, paymentsYear, owedJobs, members, newCustomers] = await Promise.all([
+    // Earnings entered on Accounting as "before Wyndos" count towards this year's totals.
+    prisma.otherIncome.aggregate({
+      where: { tenantId, category: "OPENING", receivedAt: { gte: yearStart, lt: yearEnd } },
+      _sum: { amount: true },
+    }),
     prisma.area.findMany({
       where: { tenantId, isSystemArea: false },
       select: {
@@ -157,9 +162,10 @@ export async function getDashboardInsights() {
     }
   }
   months.forEach((m) => { m.cleaned = round2(m.cleaned); m.projected = round2(m.projected); });
-  const cleanedYtd = round2(months.reduce((s, m) => s + m.cleaned, 0));
+  const openingYtd = round2(openingYear._sum.amount ?? 0);
+  const cleanedYtd = round2(months.reduce((s, m) => s + m.cleaned, 0) + openingYtd);
   const projectedRest = round2(months.reduce((s, m) => s + m.projected, 0));
-  const collectedYtd = round2(paymentsYear.filter((p) => p.paidAt >= yearStart).reduce((s, p) => s + p.amount, 0));
+  const collectedYtd = round2(paymentsYear.filter((p) => p.paidAt >= yearStart).reduce((s, p) => s + p.amount, 0) + openingYtd);
 
   // ── Money coming in ───────────────────────────────────────────────────────
   const cleaned90 = completedRecent.reduce((s, j) => s + j.price, 0);
@@ -237,6 +243,7 @@ export async function getDashboardInsights() {
     thisYear: {
       cleanedYtd,
       collectedYtd,
+      openingYtd,
       projectedRest,
       projectedTotal: round2(cleanedYtd + projectedRest),
       months,

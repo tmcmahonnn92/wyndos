@@ -4656,6 +4656,64 @@ export async function updateExpense(
   revalidatePath("/accounting");
 }
 
+/**
+ * Starting figures for a business that moves onto Wyndos part-way through the tax year:
+ * what it earned and spent this tax year before Wyndos. Stored as one "Earnings before
+ * Wyndos" income entry and one "Expenses before Wyndos" expense, dated the day entered.
+ */
+export async function getOpeningFigures() {
+  const actor = await requirePerm("accounting");
+  const tenantId = actor.tenantId;
+  const taxYear = getCurrentTaxYearStart();
+  const from = getTaxYearStartDate(taxYear);
+  const to = getTaxYearStartDate(taxYear + 1);
+  const [income, expense] = await Promise.all([
+    prisma.otherIncome.findFirst({ where: { tenantId, category: "OPENING", receivedAt: { gte: from, lt: to } }, orderBy: { receivedAt: "desc" } }),
+    prisma.expense.findFirst({ where: { tenantId, category: "OPENING", expenseDate: { gte: from, lt: to } }, orderBy: { expenseDate: "desc" } }),
+  ]);
+  return {
+    taxYearLabel: `${taxYear}/${String((taxYear + 1) % 100).padStart(2, "0")}`,
+    taxYearStart: from.toISOString().slice(0, 10),
+    income: income?.amount ?? 0,
+    expenses: expense?.amount ?? 0,
+    asAt: (income?.receivedAt ?? expense?.expenseDate ?? null)?.toISOString().slice(0, 10) ?? null,
+  };
+}
+
+export async function saveOpeningFigures(data: { income: number; expenses: number; asAt: string }) {
+  const actor = await requirePerm("accounting");
+  const tenantId = actor.tenantId;
+  const income = Math.round(Number(data.income) * 100) / 100;
+  const expenses = Math.round(Number(data.expenses) * 100) / 100;
+  if (!Number.isFinite(income) || income < 0 || !Number.isFinite(expenses) || expenses < 0) throw new Error("Amounts can't be negative.");
+  const taxYear = getCurrentTaxYearStart();
+  const from = getTaxYearStartDate(taxYear);
+  const to = getTaxYearStartDate(taxYear + 1);
+  const asAt = /^\d{4}-\d{2}-\d{2}$/.test(data.asAt) ? isoToUTC(data.asAt) : utcDay(new Date());
+  if (asAt < from || asAt >= to) throw new Error("The date must be in this tax year.");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.otherIncome.deleteMany({ where: { tenantId, category: "OPENING", receivedAt: { gte: from, lt: to } } });
+    await tx.expense.deleteMany({ where: { tenantId, category: "OPENING", expenseDate: { gte: from, lt: to } } });
+    const note = "Starting figure: this tax year before using Wyndos";
+    if (income > 0) {
+      await tx.otherIncome.create({ data: {
+        tenantId, category: "OPENING", source: "Earnings before Wyndos", amount: income, netAmount: income, vatAmount: 0, vatRate: 0,
+        taxTreatment: "NO_VAT", receivedAt: asAt, notes: note,
+      } });
+    }
+    if (expenses > 0) {
+      const cat = getExpenseCategory("OPENING");
+      await tx.expense.create({ data: {
+        tenantId, category: "OPENING", hmrcCategory: cat.hmrcCategory, supplier: "Expenses before Wyndos", amount: expenses, netAmount: expenses,
+        vatAmount: 0, vatRate: 0, taxTreatment: "NO_VAT", expenseDate: asAt, notes: note,
+      } });
+    }
+  });
+  revalidatePath("/accounting");
+  revalidatePath("/");
+}
+
 export async function createOtherIncome(data: {
   category: string;
   source?: string;
@@ -5027,6 +5085,7 @@ export async function getBusinessSettingsForClient() {
     vatNumber: settings.vatNumber,
     invoicePrefix: settings.invoicePrefix,
     nextInvoiceNum: settings.nextInvoiceNum,
+    invoiceNumbersStarted: settings.invoiceNumbersStarted,
     logoBase64: settings.logoBase64,
     goCardlessEnvironment: settings.goCardlessEnvironment,
     goCardlessReferencePrefix: settings.goCardlessReferencePrefix,
@@ -5077,6 +5136,8 @@ export async function updateBusinessSettings(data: {
   bankDetails?: string;
   vatNumber?: string;
   invoicePrefix?: string;
+  /** First invoice number. Only accepted until the first invoice is issued. */
+  nextInvoiceNum?: number;
   logoBase64?: string | null;
   goCardlessAccessToken?: string;
   goCardlessEnvironment?: string;
@@ -5135,6 +5196,18 @@ export async function updateBusinessSettings(data: {
     ? updateData.goCardlessReferencePrefix.trim().toUpperCase()
     : undefined;
 
+  if (updateData.nextInvoiceNum !== undefined) {
+    const n = Math.floor(Number(updateData.nextInvoiceNum));
+    const current = await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { invoiceNumbersStarted: true, nextInvoiceNum: true } });
+    if (current?.invoiceNumbersStarted) {
+      // Locked: invoices already carry numbers, so changing it could duplicate or skip them.
+      delete updateData.nextInvoiceNum;
+    } else if (!Number.isFinite(n) || n < 1 || n > 9999999) {
+      throw new Error("Invoice start number must be a whole number from 1.");
+    } else {
+      updateData.nextInvoiceNum = n;
+    }
+  }
   if (businessName !== undefined) updateData.businessName = businessName;
   if (ownerName !== undefined) updateData.ownerName = ownerName;
   if (phone !== undefined) updateData.phone = phone;
@@ -5200,12 +5273,14 @@ export async function updateBusinessSettings(data: {
 export async function claimNextInvoiceNumber(): Promise<string> {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
-  const settings = await getBusinessSettings();
-  const num = settings.nextInvoiceNum;
-  await prisma.tenantSettings.update({ where: { tenantId },
-    data: { nextInvoiceNum: num + 1 },
+  await loadBusinessSettings(tenantId); // makes sure the settings row exists
+  // Atomic, so two invoices at once never get the same number. The first one locks the start number.
+  const row = await prisma.tenantSettings.update({ where: { tenantId },
+    data: { nextInvoiceNum: { increment: 1 }, invoiceNumbersStarted: true },
+    select: { nextInvoiceNum: true, invoicePrefix: true },
   });
-  return `${settings.invoicePrefix}-${String(num).padStart(4, "0")}`;
+  const num = row.nextInvoiceNum - 1;
+  return `${row.invoicePrefix}-${String(num).padStart(4, "0")}`;
 }
 
 // ── Tags ─────────────────────────────────────────────────────────────────────

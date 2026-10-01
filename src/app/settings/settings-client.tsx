@@ -10,6 +10,7 @@ import {
 import { updateBusinessSettings, createTag, deleteTag } from "@/lib/actions";
 import { runPaymentRemindersNow } from "@/lib/text-actions";
 import { DataTab, type DataCounts } from "./data-tab";
+import { AUTO_SMS_ENABLED } from "@/lib/features";
 import { createInvite, listTeamMembers, listPendingInvites, revokeInvite, removeTeamMember, updateWorkerPermissions, changePassword, resetWorkerPassword } from "@/lib/auth-actions";
 import { ROLE_PRESETS, ALL_PERMISSIONS, PERMISSION_LABELS, DEFAULT_WORKER_PERMISSIONS, type Permission } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ import { cn } from "@/lib/utils";
 interface Settings {
   businessName: string; ownerName: string; phone: string; email: string;
   address: string; bankDetails: string; vatNumber: string;
-  invoicePrefix: string; nextInvoiceNum: number; logoBase64: string | null;
+  invoicePrefix: string; nextInvoiceNum: number; invoiceNumbersStarted: boolean; logoBase64: string | null;
   goCardlessEnvironment: string; goCardlessReferencePrefix: string;
   goCardlessAccessTokenConfigured: boolean; goCardlessLastSyncedAt: string | null;
   smtpProvider: string; smtpHost: string; smtpPort: number;
@@ -175,6 +176,7 @@ export function SettingsClient({
     phone: settings.phone, email: settings.email, address: settings.address,
     bankDetails: settings.bankDetails, vatNumber: settings.vatNumber,
     invoicePrefix: settings.invoicePrefix,
+    nextInvoiceNum: String(settings.nextInvoiceNum),
     runDueWindowDays: settings.runDueWindowDays == null ? "" : String(settings.runDueWindowDays),
   });
 
@@ -398,9 +400,10 @@ export function SettingsClient({
     setSaveError(null);
     startTransition(async () => {
       try {
-        const { runDueWindowDays: windowText, ...formRest } = form;
+        const { runDueWindowDays: windowText, nextInvoiceNum: invoiceStartText, ...formRest } = form;
         const payload: Record<string, unknown> = {
           ...formRest,
+          ...(settings.invoiceNumbersStarted ? {} : { nextInvoiceNum: Math.max(1, Math.floor(Number(invoiceStartText) || 1)) }),
           logoBase64: logo,
           runDueWindowDays: windowText.trim() === "" ? null : Math.max(0, Math.min(90, Number(windowText) || 0)),
         };
@@ -504,12 +507,12 @@ export function SettingsClient({
         </div>
       )}
 
-      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 rounded-lg">
+      {AUTO_SMS_ENABLED && <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 rounded-lg">
         {settings.textsServerLive && !autoTexts.textsTestMode
           ? "Texts are LIVE: customers will receive them."
           : "Texts are in test mode: nothing is sent to customers. Every text is written to the message log (Texts page) so you can check it."}
         {" "}Invoice emails are still switched off.
-      </div>
+      </div>}
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -595,7 +598,11 @@ export function SettingsClient({
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={lbl}>Invoice prefix</label><input className={inp} value={form.invoicePrefix} onChange={(e) => setForm((f) => ({ ...f, invoicePrefix: e.target.value }))} placeholder="INV" /><p className="text-xs text-slate-400 mt-1">e.g. INV → INV-0001</p></div>
-                <div><label className={lbl}>Next invoice #</label><input className={cn(inp, "bg-slate-50 text-slate-500")} value={settings.nextInvoiceNum} disabled readOnly /><p className="text-xs text-slate-400 mt-1">Auto-increments on issue</p></div>
+                {settings.invoiceNumbersStarted ? (
+                  <div><label className={lbl}>Next invoice #</label><input className={cn(inp, "bg-slate-50 text-slate-500")} value={settings.nextInvoiceNum} disabled readOnly /><p className="text-xs text-slate-400 mt-1">Locked: invoices have been issued. Goes up by one each time.</p></div>
+                ) : (
+                  <div><label className={lbl} htmlFor="inv-start">First invoice number</label><input id="inv-start" type="number" min={1} step={1} className={inp} value={form.nextInvoiceNum} onChange={(e) => setForm((f) => ({ ...f, nextInvoiceNum: e.target.value }))} /><p className="text-xs text-slate-400 mt-1">Carry on from your old numbering. Locks once your first invoice is issued.</p></div>
+                )}
                 <div><label className={lbl}>VAT number</label><input className={inp} value={form.vatNumber} onChange={(e) => setForm((f) => ({ ...f, vatNumber: e.target.value }))} placeholder="GB123456789 (optional)" /></div>
               </div>
               <div>
@@ -711,6 +718,12 @@ export function SettingsClient({
           <Card>
             <CardHeader><CardTitle><Send size={16} className="inline mr-2 text-blue-600" />Automatic texts</CardTitle></CardHeader>
             <CardContent className="space-y-4 text-sm">
+              {!AUTO_SMS_ENABLED && (
+                <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  Texts go from your own phone, free on your plan: each one opens in Messages ready to send. Automatic texts below wait on the Texts page until you send them.
+                </p>
+              )}
+              {AUTO_SMS_ENABLED && <>
               <div className="space-y-1.5">
                 <p className="font-semibold text-slate-800">How texts are sent</p>
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -739,6 +752,7 @@ export function SettingsClient({
                   </span>
                 </span>
               </label>
+              </>}
 
               <div className="border-t border-slate-100 pt-3 space-y-2">
                 <label className="flex items-start gap-3">
@@ -789,10 +803,11 @@ export function SettingsClient({
                   <a href="/messages?tab=log" className="text-xs font-medium text-blue-600 hover:underline">Open the text log →</a>
                 </div>
                 {reminderRun && <p className="text-xs text-slate-600">{reminderRun}</p>}
-                <p className="text-[11px] text-slate-400">Once live, they run automatically every day.</p>
+                <p className="text-[11px] text-slate-400">{AUTO_SMS_ENABLED ? "Once live, they run automatically every day." : "Each day, any that are due are added to the Texts page, ready to send from your phone."}</p>
               </div>
             </CardContent>
           </Card>
+          {AUTO_SMS_ENABLED && <>
           <Card>
             <CardHeader><CardTitle><MessageSquare size={16} className="inline mr-2 text-blue-600" />Messaging Provider</CardTitle></CardHeader>
             <CardContent className="space-y-3">
@@ -1057,6 +1072,7 @@ export function SettingsClient({
               Messaging is disabled. Choose a provider above to enable sending messages to customers.
             </div>
           )}
+          </>}
         </div>
       )}
 

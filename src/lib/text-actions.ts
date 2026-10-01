@@ -384,6 +384,19 @@ export async function markPhoneTextOpened(id: number, editedBody?: string) {
   });
 }
 
+/** Record a single text opened on the phone from elsewhere (e.g. Remind on Payments), so it shows in the log. */
+export async function logPhoneText(input: { customerId: number; body: string; kind?: "PAYMENT_REMINDER_1" | "PAYMENT_REMINDER_2" | "BULK" }) {
+  const actor = await requirePerm("messaging");
+  const customer = await prisma.customer.findFirst({ where: { id: input.customerId, tenantId: actor.tenantId }, select: { id: true, phone: true } });
+  const to = customer ? ukMobile(customer.phone) : null;
+  if (!customer || !to) throw new Error("No mobile number saved for this customer.");
+  await prisma.messageLog.create({
+    data: { tenantId: actor.tenantId, customerId: customer.id, kind: input.kind ?? "BULK", toNumber: to, body: input.body.slice(0, 2000), status: "PHONE", sentByUserId: actor.userId },
+  });
+  revalidatePath("/messages");
+  return { to };
+}
+
 /** Drop texts that are waiting to go (e.g. changed your mind). */
 export async function discardPhoneTexts(ids: number[]) {
   const actor = await requirePerm("messaging");
