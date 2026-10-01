@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, MessageSquare, PoundSterling, Send } from "lucide-react";
+import { CalendarDays, Filter, MessageSquare, PoundSterling, Send } from "lucide-react";
 import { clearMessageLogs, sendBulkTexts } from "@/lib/text-actions";
 import { Button } from "@/components/ui/button";
 import { SendMethodToggle } from "@/components/phone-send-queue";
@@ -278,8 +278,10 @@ export function MessagesClient({
           <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-semibold text-slate-800">2. Who to</p>
-              <button type="button" onClick={() => setShowFilters((v) => !v)} className="text-xs font-semibold text-blue-600">
-                {showFilters ? "Hide filters" : `Narrow down${areaIds.size || tagId || search ? " (on)" : ""}`}
+              <button type="button" onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${areaIds.size || tagId || search ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 text-blue-600 hover:bg-slate-50"}`}>
+                <Filter size={13} />
+                {showFilters ? "Hide filters" : `Filter by area${areaIds.size || tagId || search ? " (on)" : ""}`}
               </button>
             </div>
             {purpose === "chase" && (
