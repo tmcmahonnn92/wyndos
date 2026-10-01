@@ -22,8 +22,7 @@ export default async function OnboardingPage() {
             </p>
             <h1 className="text-3xl font-bold text-white">Set up your business</h1>
             <p className="text-sm leading-6 text-slate-400">
-              Tell us a bit about your window cleaning business. You can update these details
-              any time from Settings.
+              Three quick steps, about a minute. You can change anything later in Settings.
             </p>
           </div>
 

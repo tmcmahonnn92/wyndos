@@ -8,7 +8,17 @@ export function platformEmailConfigured() {
   return Boolean(process.env.PLATFORM_SMTP_HOST?.trim() && process.env.PLATFORM_SMTP_USER?.trim() && process.env.PLATFORM_SMTP_PASS);
 }
 
-export async function sendPlatformEmail(input: { to: string; subject: string; html: string; text: string }) {
+export type PlatformEmail = {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  bcc?: string;
+  replyTo?: string;
+  attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>;
+};
+
+export async function sendPlatformEmail(input: PlatformEmail) {
   if (!platformEmailConfigured()) throw new Error("Email isn't set up on the server (PLATFORM_SMTP_*).");
   const port = Number(process.env.PLATFORM_SMTP_PORT) > 0 ? Number(process.env.PLATFORM_SMTP_PORT) : 587;
   const secureSetting = String(process.env.PLATFORM_SMTP_SECURE ?? "").trim().toLowerCase();

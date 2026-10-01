@@ -166,11 +166,55 @@ export type OnboardingInput = {
   phone: string;
   address: string;
   website: string;
+  bankDetails?: string;
+  customerCount?: string;
+  teamSize?: string;
+  paymentMethods?: string[];
+  heardFrom?: string;
 };
 
 export type OnboardingResult = { ok: true } | { ok: false; error: string };
 
 const ONBOARDING_REFRESH_COOKIE = "wyndos_onboarding_refresh";
+
+/** A welcome email to the new owner, and a heads-up to Wyndos support. */
+async function sendSignupEmails(d: {
+  email: string; ownerName: string; companyName: string; phone: string; address: string; website: string;
+  signupInfo: { customerCount: string; teamSize: string; paymentMethods: string[]; heardFrom: string };
+}) {
+  const base = (process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "https://wyndos.io").replace(/\/$/, "");
+  const first = d.ownerName.split(" ")[0] || "there";
+  if (d.email) {
+    const steps = [
+      ["Import your customers", `${base}/customers/import`, "Upload a spreadsheet. Areas are created for you."],
+      ["Plan your round", `${base}/scheduler`, "Drag areas onto days."],
+      ["Invite your team", `${base}/settings`, "Settings, then Team."],
+    ];
+    await sendPlatformEmail({
+      to: d.email,
+      subject: `Welcome to Wyndos, ${first}`,
+      text: `Hi ${first},\n\n${d.companyName} is set up on Wyndos. Three things to do first:\n\n${steps.map(([t, u, x]) => `- ${t}: ${x} ${u}`).join("\n")}\n\nStuck? Use Help & support in the app, or just reply to this email.\n\nWyndos`,
+      html: `<div style="font-family:Arial,sans-serif;font-size:15px;color:#1e293b;line-height:1.5">
+<p>Hi ${escHtml(first)},</p><p><strong>${escHtml(d.companyName)}</strong> is set up on Wyndos. Three things to do first:</p>
+<ol>${steps.map(([t, u, x]) => `<li style="margin-bottom:6px"><a href="${escHtml(u)}" style="color:#2563eb;font-weight:bold">${escHtml(t)}</a><br><span style="color:#64748b">${escHtml(x)}</span></li>`).join("")}</ol>
+<p>Stuck? Use <strong>Help &amp; support</strong> in the app, or just reply to this email.</p><p>Wyndos</p></div>`,
+    });
+  }
+  const to = process.env.SUPPORT_EMAIL?.trim() || "support@wyndos.io";
+  const info = d.signupInfo;
+  const rows: Array<[string, string]> = [
+    ["Business", d.companyName], ["Owner", `${d.ownerName} <${d.email}>`], ["Phone", d.phone], ["Address", d.address], ["Website", d.website],
+    ["Customers", info.customerCount], ["Team", info.teamSize], ["Payments", info.paymentMethods.join(", ")], ["Found us", info.heardFrom],
+  ];
+  await sendPlatformEmail({
+    to,
+    bcc: process.env.SUPPORT_BCC_EMAIL?.trim() || undefined,
+    replyTo: d.email || undefined,
+    subject: `New sign-up: ${d.companyName}`,
+    text: rows.map(([k, v]) => `${k}: ${v || "-"}`).join("\n"),
+    html: `<table style="font-family:Arial,sans-serif;font-size:14px">${rows.map(([k, v]) => `<tr><td style="padding:2px 12px 2px 0;font-weight:bold">${k}</td><td>${escHtml(v || "-")}</td></tr>`).join("")}</table>`,
+  });
+}
 
 export async function completeOwnerOnboarding(input: OnboardingInput): Promise<OnboardingResult> {
   try {
@@ -184,6 +228,15 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
     const address = input.address.trim();
     const website = input.website.trim();
     const email = user.email?.trim().toLowerCase() ?? "";
+    if (!companyName || !ownerName) return { ok: false, error: "Add your business name and your name." };
+    const bankDetails = String(input.bankDetails ?? "").trim().slice(0, 300);
+    const signupInfo = {
+      customerCount: String(input.customerCount ?? "").slice(0, 40),
+      teamSize: String(input.teamSize ?? "").slice(0, 40),
+      paymentMethods: (Array.isArray(input.paymentMethods) ? input.paymentMethods : []).map((m) => String(m).slice(0, 40)).slice(0, 8),
+      heardFrom: String(input.heardFrom ?? "").slice(0, 80),
+    };
+    const firstTime = !(await db.user.findUnique({ where: { id: user.id }, select: { onboardingComplete: true } }))?.onboardingComplete;
 
     await db.$transaction(async (tx: any) => {
       await tx.tenant.update({
@@ -193,6 +246,7 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
           phone,
           address,
           website,
+          signupInfo: JSON.stringify(signupInfo),
           slug: await uniqueSlug(toSlug(companyName), tenantId),
         },
       });
@@ -205,6 +259,7 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
           phone,
           address,
           email,
+          ...(bankDetails ? { bankDetails } : {}),
         },
         create: {
           tenantId,
@@ -213,6 +268,7 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
           phone,
           address,
           email,
+          bankDetails,
         },
       });
 
@@ -233,6 +289,13 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
       path: "/",
       maxAge: 60,
     });
+
+    if (firstTime && platformEmailConfigured()) {
+      // Don't hold up their first look at the app for the emails.
+      void sendSignupEmails({ email, ownerName, companyName, phone, address, website, signupInfo }).catch((e) =>
+        console.error("[completeOwnerOnboarding] email", e)
+      );
+    }
 
     return { ok: true };
   } catch (err: any) {

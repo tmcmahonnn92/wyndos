@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
 import {
   Bell,
+  LifeBuoy,
   LayoutDashboard,
   CalendarDays,
   CalendarClock,
@@ -262,6 +263,9 @@ export function Nav({
               </Link>
             )}
           </div>
+          <Link href={`/support?from=${encodeURIComponent(pathname)}`} className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium", pathname.startsWith("/support") ? "bg-[#131929] text-white" : "text-[#94a3b8] hover:bg-[#131929] hover:text-white")}>
+            <LifeBuoy size={15} /> Help &amp; support
+          </Link>
           <div className="flex items-center justify-between">
             <ThemeToggle />
             <button
@@ -299,6 +303,9 @@ export function Nav({
               <Bell size={14} />
             </Link>
           )}
+          <Link href={`/support?from=${encodeURIComponent(pathname)}`} className="p-1.5 rounded-lg text-[#4A5568] hover:text-[#F8FAFF] hover:bg-[#131929]" aria-label="Help and support">
+            <LifeBuoy size={14} />
+          </Link>
           <button onClick={handleSignOut} className="p-1.5 rounded-lg text-[#4A5568] hover:text-[#F8FAFF] hover:bg-[#131929]" aria-label="Sign out">
             <LogOut size={14} />
           </button>
