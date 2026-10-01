@@ -4,7 +4,7 @@ import { PAYMENT_PREFERENCES } from "@/lib/payment-preference";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
-import { createCustomer } from "@/lib/actions";
+import { createArea, createCustomer } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useActionParam } from "@/lib/use-action-param";
@@ -18,15 +18,25 @@ interface Area {
   nextDueDate: Date | string | null;
 }
 
-export function AddCustomerModal({ areas }: { areas: Area[] }) {
+const NEW_AREA = "__new";
+const FREQUENCIES = [1, 2, 4, 6, 8, 12];
+
+export function AddCustomerModal({ areas: initialAreas }: { areas: Area[] }) {
   const { open, setOpen, close } = useActionParam("new-customer");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
+  // Areas made here are added straight to the list, so a brand-new account can add its first customer.
+  const [areas, setAreas] = useState<Area[]>(initialAreas);
+  const [newAreaName, setNewAreaName] = useState("");
+  const [newAreaWeeks, setNewAreaWeeks] = useState(4);
+  const [areaError, setAreaError] = useState("");
+  const [creatingArea, startAreaTransition] = useTransition();
+
   const [addressParts, setAddressParts] = useState<AddressParts>(EMPTY_ADDRESS);
   const [form, setForm] = useState({
     name: "",
-    areaId: "",
+    areaId: initialAreas.length === 0 ? NEW_AREA : "",
     price: "",
     phone: "",
     email: "",
@@ -39,10 +49,28 @@ export function AddCustomerModal({ areas }: { areas: Area[] }) {
   const set = (k: string, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
 
   const selectedArea = areas.find((a) => String(a.id) === form.areaId);
+  const addingArea = form.areaId === NEW_AREA;
+
+  const addArea = () => {
+    const name = newAreaName.trim();
+    if (!name) { setAreaError("Give the area a name, e.g. the village or estate."); return; }
+    if (areas.some((a) => a.name.toLowerCase() === name.toLowerCase())) { setAreaError("You already have an area with that name."); return; }
+    setAreaError("");
+    startAreaTransition(async () => {
+      try {
+        const area = await createArea({ name, frequencyWeeks: newAreaWeeks });
+        setAreas((prev) => [...prev, area]);
+        set("areaId", String(area.id));
+        setNewAreaName("");
+      } catch (e) {
+        setAreaError(e instanceof Error && e.message ? e.message : "Couldn't add the area.");
+      }
+    });
+  };
   const hasAddress = Boolean(addressParts.houseNameNumber.trim() || addressParts.street.trim());
 
   const handleSubmit = () => {
-    if (!form.name || !form.areaId || !form.price || !hasAddress) return;
+    if (!form.name || !form.areaId || addingArea || !form.price || !hasAddress) return;
     startTransition(async () => {
       await createCustomer({
         name: form.name,
@@ -57,7 +85,7 @@ export function AddCustomerModal({ areas }: { areas: Area[] }) {
         notes: form.notes || undefined,
       });
       setAddressParts(EMPTY_ADDRESS);
-      setForm({ name: "", areaId: "", price: "", phone: "", email: "", jobName: "Window Cleaning", advanceNotice: false, preferredPaymentMethod: "", notes: "" });
+      setForm({ name: "", areaId: areas.length === 0 ? NEW_AREA : "", price: "", phone: "", email: "", jobName: "Window Cleaning", advanceNotice: false, preferredPaymentMethod: "", notes: "" });
       close();
       router.refresh();
     });
@@ -123,6 +151,7 @@ export function AddCustomerModal({ areas }: { areas: Area[] }) {
                 {areas.map((a) => (
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
+                <option value={NEW_AREA}>+ New area…</option>
               </select>
             </div>
             <div>
@@ -138,6 +167,41 @@ export function AddCustomerModal({ areas }: { areas: Area[] }) {
               />
             </div>
           </div>
+
+          {addingArea && (
+            <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
+              <p className="text-xs font-semibold text-blue-800 dark:text-blue-200">
+                {areas.length === 0 ? "Add your first area. An area is a group of streets you clean on the same run." : "New area"}
+              </p>
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="e.g. Worksop North"
+                  value={newAreaName}
+                  onChange={(e) => setNewAreaName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addArea(); } }}
+                  aria-label="Area name"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+                <select
+                  value={newAreaWeeks}
+                  onChange={(e) => setNewAreaWeeks(Number(e.target.value))}
+                  aria-label="How often"
+                  className="border border-slate-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  {FREQUENCIES.map((w) => <option key={w} value={w}>Every {w} week{w === 1 ? "" : "s"}</option>)}
+                </select>
+              </div>
+              {areaError && <p className="text-xs text-red-600">{areaError}</p>}
+              <div className="flex gap-2">
+                <Button size="sm" onClick={addArea} disabled={creatingArea}>{creatingArea ? "Adding…" : "Add area"}</Button>
+                {areas.length > 0 && (
+                  <Button size="sm" variant="ghost" onClick={() => { set("areaId", ""); setAreaError(""); }}>Cancel</Button>
+                )}
+              </div>
+            </div>
+          )}
 
           {selectedArea && (
             <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
@@ -207,7 +271,7 @@ export function AddCustomerModal({ areas }: { areas: Area[] }) {
           <div className="flex gap-2 pt-1">
             <Button
               onClick={handleSubmit}
-              disabled={isPending || !form.name || !form.areaId || !form.price || !hasAddress}
+              disabled={isPending || !form.name || !form.areaId || addingArea || !form.price || !hasAddress}
               className="flex-1"
             >
               {isPending ? "Adding..." : "Add Customer"}

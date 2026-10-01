@@ -3,14 +3,20 @@ import { auth } from "@/auth";
 import { ACTIVE_TENANT_COOKIE } from "@/lib/auth-cookies";
 import { normalizeMemberships } from "@/lib/memberships";
 
+// Relative redirects: behind nginx, request.url is the internal address (localhost:3000),
+// so an absolute URL built from it sends the browser to localhost. 303 turns the POST into a GET.
+function go(path: string) {
+  return new NextResponse(null, { status: 303, headers: { Location: path } });
+}
+
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.redirect(new URL("/auth/signin", request.url));
+    return go("/auth/signin");
   }
 
   if (session.user.role === "SUPER_ADMIN") {
-    return NextResponse.redirect(new URL("/admin", request.url));
+    return go("/admin");
   }
 
   const formData = await request.formData();
@@ -18,10 +24,10 @@ export async function POST(request: Request) {
   const memberships = normalizeMemberships(session.user.memberships);
 
   if (!Number.isInteger(tenantId) || !memberships.some((membership) => membership.tenantId === tenantId)) {
-    return NextResponse.redirect(new URL("/auth/company-select", request.url));
+    return go("/auth/company-select");
   }
 
-  const response = NextResponse.redirect(new URL("/", request.url));
+  const response = go("/");
   response.cookies.set(ACTIVE_TENANT_COOKIE, String(tenantId), {
     httpOnly: true,
     sameSite: "lax",

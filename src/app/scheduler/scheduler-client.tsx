@@ -2809,6 +2809,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
   const [autoError, setAutoError] = useState<string | null>(null);
   // Removed moveModal state and logic (obsolete)
   const [areasCollapsed, setAreasCollapsed] = useState(false);
+  const [areaSearch, setAreaSearch] = useState("");
 
   const areasScrollRef = useRef<HTMLDivElement>(null);
   const [areasCanScrollLeft, setAreasCanScrollLeft] = useState(false);
@@ -2900,6 +2901,10 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
       const db = nextExpectedDateForArea(b)?.getTime() ?? Infinity;
       return da - db;
     });
+
+  // Search box on the areas strip: only narrows what's shown, not overdue counts.
+  const areaQuery = areaSearch.trim().toLowerCase();
+  const shownAreas = areaQuery ? sortedAreas.filter((a) => a.name.toLowerCase().includes(areaQuery)) : sortedAreas;
 
   const overdueAreas = sortedAreas.filter((a) => {
     const expected = nextExpectedDateForArea(a);
@@ -3398,7 +3403,18 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                 </span>
               )}
             </button>
-            <span className="text-[11px] text-slate-400">— drag onto a day below</span>
+            <span className="hidden text-[11px] text-slate-400 lg:inline">— drag onto a day below</span>
+            <div className="relative">
+              <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={areaSearch}
+                onChange={(e) => { setAreaSearch(e.target.value); if (areasCollapsed) setAreasCollapsed(false); }}
+                placeholder="Search areas"
+                aria-label="Search areas"
+                className="w-32 rounded-lg border border-slate-200 bg-white py-1 pl-6 pr-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-40"
+              />
+            </div>
           </div>
           {/* Toolbar buttons */}
           <div className="flex items-center gap-1.5">
@@ -3483,8 +3499,13 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                   All areas scheduled — complete a day to auto-schedule the next.{" "}
                   <button onClick={() => setAddAreaOpen(true)} className="text-blue-600 font-semibold hover:underline">Add area</button>
                 </div>
+              ) : shownAreas.length === 0 ? (
+                <div className="text-xs text-slate-400 py-1">
+                  No unscheduled area matches &ldquo;{areaSearch}&rdquo;.{" "}
+                  <button onClick={() => setAreaSearch("")} className="text-blue-600 font-semibold hover:underline">Clear search</button>
+                </div>
               ) : (
-                sortedAreas.map((area) => {
+                shownAreas.map((area) => {
                   // Find any scheduled-but-uncompleted workday in the past for this area
                   const todayMs = new Date().setHours(0, 0, 0, 0);
                   const overdueWd = workDays.find(

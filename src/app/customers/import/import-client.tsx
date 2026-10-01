@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Sparkles,
   Clock,
+  CalendarPlus,
 } from "lucide-react";
 import { bulkImportCustomers, deleteAllCustomers, bulkImportJobHistory } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
@@ -305,10 +306,12 @@ export function ImportClient({ areas }: { areas: Area[] }) {
     skippedExisting: number;
     areasCreated: string[];
     historyCreated: number;
+    runsBooked: Array<{ area: string; date: string }>;
     errors: Array<{ row: number; message: string }>;
     historyErrors: Array<{ row: number; message: string }>;
   } | null>(null);
-  const [createMissingAreas, setCreateMissingAreas] = useState(false);
+  // A new account has no areas yet, so every area in the sheet is new: create them by default.
+  const [createMissingAreas, setCreateMissingAreas] = useState(areas.filter((a) => !("isSystemArea" in a && a.isSystemArea)).length === 0);
   const [newAreaConfigs, setNewAreaConfigs] = useState<Record<string, NewAreaConfig>>({});
   // What to do with rows for customers already in Wyndos (re-running an import).
   const [existingMode, setExistingMode] = useState<"skip" | "fill" | "overwrite">("skip");
@@ -320,6 +323,8 @@ export function ImportClient({ areas }: { areas: Area[] }) {
   const [startFresh, setStartFresh] = useState(false);
   const [confirmFreshText, setConfirmFreshText] = useState("");
   const [importHistory, setImportHistory] = useState(false);
+  // Book each area's next run from the Last Cleaned / Next Due columns.
+  const [bookRuns, setBookRuns] = useState(true);
   const [historyDragOver, setHistoryDragOver] = useState(false);
   const [historyHeaders, setHistoryHeaders] = useState<string[]>([]);
   const [historyRows, setHistoryRows] = useState<string[][]>([]);
@@ -624,6 +629,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
           createMissingAreas: forceName || createMissingAreas || valid.some((r) => r.areaIsNew),
           existingMode,
           matchField,
+          bookRuns: bookRuns && previewHasDates,
         }
       );
       let historyCreated = 0;
@@ -651,6 +657,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         updated: result.updated,
         skippedExisting: result.skipped,
         areasCreated: result.areasCreated,
+        runsBooked: result.runsBooked,
         historyCreated,
         errors: [
           ...skipped.map((r) => ({ row: r.index, message: r.errors.join("; ") })),
@@ -719,6 +726,8 @@ export function ImportClient({ areas }: { areas: Area[] }) {
     return [...names.values()].sort((a, b) => a.localeCompare(b));
   })();
   const validCount = preview.filter((r) => r.errors.length === 0).length;
+  const datesMapped = ["lastCompletedDate", "nextDueDate"].some((k) => mappings[k] && mappings[k].source !== "skip");
+  const previewHasDates = preview.some((r) => r.errors.length === 0 && (r.nextDueDate || r.lastCompletedDate));
   const newAreaCount = preview.filter((r) => r.errors.length === 0 && r.areaIsNew).length;
   const uniqueNewAreaCount = Object.keys(newAreaConfigs).length;
   const errorCount = preview.filter((r) => r.errors.length > 0).length;
@@ -905,6 +914,27 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                 </div>
               </div>
             </div>
+            {datesMapped && (
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={bookRuns}
+                  onChange={(e) => setBookRuns(e.target.checked)}
+                  className="mt-0.5 accent-blue-600"
+                />
+                <div>
+                  <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <CalendarPlus size={13} className="text-blue-600" />
+                    Put areas on the schedule from these dates
+                  </span>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Last Cleaned starts each customer&apos;s cycle (next due = last cleaned + the area&apos;s frequency, unless you give Next Due).
+                    Each area&apos;s next run is booked on the earliest date someone in it is due, or today if that&apos;s passed.
+                    Areas already booked are left alone. No past cleans are added.
+                  </p>
+                </div>
+              </label>
+            )}
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -1632,6 +1662,19 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                   <Sparkles size={14} />
                   New areas created: {importResult.areasCreated.join(", ")}
                 </p>
+              )}
+              {importResult.runsBooked.length > 0 && (
+                <div className="mx-auto mt-1 max-w-sm rounded-lg bg-blue-50 px-3 py-2 text-left text-sm text-blue-800">
+                  <p className="font-semibold">Runs booked on the schedule</p>
+                  <ul className="mt-1 space-y-0.5 text-xs">
+                    {importResult.runsBooked.map((r) => (
+                      <li key={r.area} className="flex justify-between gap-3">
+                        <span className="truncate">{r.area}</span>
+                        <span className="flex-shrink-0">{new Date(r.date + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
               {importResult.historyCreated > 0 && (
                 <p className="text-sm text-slate-600">

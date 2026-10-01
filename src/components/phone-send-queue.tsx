@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, MessageSquare, SkipForward } from "lucide-react";
 import { markPhoneTextOpened } from "@/lib/text-actions";
+import { AUTO_SMS_ENABLED } from "@/lib/features";
 
 export type PhoneText = { id: number; name: string; to: string; body: string };
 
@@ -161,6 +162,7 @@ export function SendMethodToggle({
   onChange: (value: "PHONE" | "VOODOO") => void;
   voodooLabel?: string;
 }) {
+  if (!AUTO_SMS_ENABLED) return null; // texts only go from the phone for now
   return (
     <div className="flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-semibold" role="radiogroup" aria-label="Send from">
       {([

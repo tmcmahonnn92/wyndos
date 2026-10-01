@@ -10,6 +10,7 @@
 import prisma from "@/lib/db";
 import { interpolateTemplate, sendWithSettings, type MessageVars } from "@/lib/messaging";
 import { decryptSettingsSecrets } from "@/lib/secrets";
+import { AUTO_SMS_ENABLED } from "@/lib/features";
 
 export type TextKind = "DAY_REMINDER" | "CLEANED" | "PAYMENT_REMINDER_1" | "PAYMENT_REMINDER_2" | "BULK";
 
@@ -123,6 +124,7 @@ export type SendMethod = "PHONE" | "VOODOO";
 
 /** How this business sends texts: from their own phone (default) or via VoodooSMS. */
 export function sendMethodOf(settings: Pick<TextSettings, "textSendMethod"> | null): SendMethod {
+  if (!AUTO_SMS_ENABLED) return "PHONE";
   return settings?.textSendMethod === "VOODOO" ? "VOODOO" : "PHONE";
 }
 
@@ -138,6 +140,7 @@ export async function deliverTexts(
   sentByUserId: string | null,
   method: SendMethod = sendMethodOf(settings),
 ) {
+  if (!AUTO_SMS_ENABLED) method = "PHONE";
   const live = method === "VOODOO" && isLive(settings);
   let sent = 0;
   let failed = 0;

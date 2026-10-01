@@ -100,6 +100,7 @@ export function DashboardInsights({ data }: { data: Insights }) {
           </div>
           <p className="text-[11px] text-slate-400">
             Worked out from every area&apos;s booked days, frequency and current prices. It changes as you book, move, split or complete areas.
+            {thisYear.openingYtd > 0 && <> Includes {whole(thisYear.openingYtd)} earned before Wyndos (from Accounting).</>}
           </p>
         </CardContent>
       </Card>

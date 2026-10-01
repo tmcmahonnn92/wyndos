@@ -550,18 +550,22 @@ export async function createArea(data: {
 }) {
   const actor = await requirePerm("areas");
   const tenantId = actor.tenantId;
-  await prisma.area.create({ data: { tenantId,
-      name: data.name,
+  const name = data.name.trim();
+  if (!name) throw new Error("Give the area a name.");
+  const area = await prisma.area.create({ data: { tenantId,
+      name,
       sortOrder: data.sortOrder ?? 0,
       scheduleType: data.scheduleType ?? "WEEKLY",
       frequencyWeeks: data.frequencyWeeks ?? 4,
       monthlyDay: data.monthlyDay ?? null,
       nextDueDate: data.nextDueDate ?? null,
     },
+    select: { id: true, name: true, frequencyWeeks: true, nextDueDate: true },
   });
   revalidatePath("/days");
   revalidatePath("/areas");
   revalidatePath("/");
+  return area;
 }
 
 export async function updateArea(
@@ -1114,11 +1118,17 @@ export async function bulkImportCustomers(
      */
     existingMode?: "skip" | "fill" | "overwrite";
     matchField?: "name" | "nameAddress";
+    /** Book each area's next run on the schedule from the customers' dates. */
+    bookRuns?: boolean;
   } = {}
-): Promise<{ created: number; updated: number; skipped: number; errors: Array<{ row: number; message: string }>; areasCreated: string[] }> {
+): Promise<{
+  created: number; updated: number; skipped: number; errors: Array<{ row: number; message: string }>; areasCreated: string[];
+  runsBooked: Array<{ area: string; date: string }>;
+}> {
   const actor = await requireOwner();
   const tenantId = actor.tenantId;
   const errors: Array<{ row: number; message: string }> = [];
+  const datedAreaIds = new Set<number>();
   let created = 0;
   let updated = 0;
   let skipped = 0;
@@ -1229,7 +1239,12 @@ export async function bulkImportCustomers(
         advanceNotice: r.advanceNotice ?? false,
         preferredPaymentMethod: r.preferredPaymentMethod?.trim() ?? "",
         frequencyWeeks: area.frequencyWeeks, // frequency belongs to the area
-        nextDueDate: r.nextDueDate ? new Date(r.nextDueDate + "T00:00:00.000Z") : null,
+        // Next due from the sheet, else one cycle after they were last cleaned.
+        nextDueDate: r.nextDueDate
+          ? new Date(r.nextDueDate + "T00:00:00.000Z")
+          : r.lastCompletedDate
+            ? nextRunAfter(area, new Date(r.lastCompletedDate + "T00:00:00.000Z"))
+            : null,
         // The order of rows in the sheet is the walking order of the round.
         sortOrder: i,
         ...(r.slip !== undefined ? { slip: r.slip } : {}),
@@ -1245,8 +1260,10 @@ export async function bulkImportCustomers(
           ? { tenantId, name: r.name.trim(), address: addressFields.address }
           : { tenantId, name: r.name.trim() },
       });
+      const datesGiven = Boolean(r.nextDueDate || r.lastCompletedDate);
       if (!existing) {
         const made = await prisma.customer.create({ data: { tenantId, name: r.name.trim(), ...customerData } });
+        if (datesGiven) datedAreaIds.add(resolvedAreaId);
         await linkImportTags(made.id, r.tags);
         created++;
       } else if (mode === "skip") {
@@ -1272,9 +1289,10 @@ export async function bulkImportCustomers(
         // Overwrite: blanks in the sheet never wipe a date, and moving area takes
         // their booked jobs with them.
         const data: Record<string, unknown> = { ...customerData };
-        if (!r.nextDueDate) delete data.nextDueDate;
+        if (!r.nextDueDate && !r.lastCompletedDate) delete data.nextDueDate;
         if (!r.lastCompletedDate) delete data.lastCompletedDate;
         await prisma.customer.update({ where: { id: existing.id }, data });
+        if (datesGiven) datedAreaIds.add(resolvedAreaId);
         if (existing.areaId !== resolvedAreaId) {
           await removeCustomerFromPreviousAreaScheduledDays(tenantId, existing.id, existing.areaId, resolvedAreaId);
           await autoAddToScheduledDays(tenantId, existing.id, resolvedAreaId);
@@ -1291,10 +1309,50 @@ export async function bulkImportCustomers(
     }
   }
 
+  const runsBooked = options.bookRuns ? await bookImportedAreaRuns(tenantId, [...datedAreaIds]) : [];
+
   revalidatePath("/customers");
   revalidatePath("/areas");
   revalidatePath("/scheduler");
-  return { created, updated, skipped, errors, areasCreated };
+  return { created, updated, skipped, errors, areasCreated, runsBooked };
+}
+
+/**
+ * After an import with dates: each area's last clean and next run come from its customers.
+ * The run goes on the earliest date anyone is due (today if that's already passed).
+ * Areas that already have a run booked are left alone. No history is created.
+ */
+async function bookImportedAreaRuns(tenantId: number, areaIds: number[]) {
+  const booked: Array<{ area: string; date: string }> = [];
+  const today = utcDay(new Date());
+  for (const areaId of areaIds) {
+    const area = await prisma.area.findFirst({ where: { id: areaId, tenantId } });
+    if (!area || area.isSystemArea) continue;
+    const customers = await prisma.customer.findMany({
+      where: { tenantId, areaId, active: true },
+      select: { nextDueDate: true, lastCompletedDate: true },
+    });
+    const lastCleaned = customers.reduce<Date | null>((m, c) => (c.lastCompletedDate && (!m || c.lastCompletedDate > m) ? c.lastCompletedDate : m), null);
+    const firstDue = customers.reduce<Date | null>((m, c) => (c.nextDueDate && (!m || c.nextDueDate < m) ? c.nextDueDate : m), null);
+    if (lastCleaned && (!area.lastCompletedDate || lastCleaned > area.lastCompletedDate)) {
+      await prisma.area.update({ where: { id: areaId }, data: { lastCompletedDate: lastCleaned } });
+    }
+    if (!firstDue) continue;
+    const open = await prisma.workDay.findFirst({
+      where: { tenantId, areaId, status: { in: ["PLANNED", "IN_PROGRESS"] } },
+      select: { id: true },
+    });
+    if (open) continue;
+    const runDate = firstDue < today ? today : utcDay(firstDue);
+    const iso = runDate.toISOString().slice(0, 10);
+    try {
+      await scheduleAreaRun(areaId, iso);
+      booked.push({ area: area.name, date: iso });
+    } catch (e) {
+      console.error("[bookImportedAreaRuns]", area.name, e);
+    }
+  }
+  return booked;
 }
 
 export async function deleteAllCustomers(): Promise<{ deleted: number }> {
@@ -4598,6 +4656,64 @@ export async function updateExpense(
   revalidatePath("/accounting");
 }
 
+/**
+ * Starting figures for a business that moves onto Wyndos part-way through the tax year:
+ * what it earned and spent this tax year before Wyndos. Stored as one "Earnings before
+ * Wyndos" income entry and one "Expenses before Wyndos" expense, dated the day entered.
+ */
+export async function getOpeningFigures() {
+  const actor = await requirePerm("accounting");
+  const tenantId = actor.tenantId;
+  const taxYear = getCurrentTaxYearStart();
+  const from = getTaxYearStartDate(taxYear);
+  const to = getTaxYearStartDate(taxYear + 1);
+  const [income, expense] = await Promise.all([
+    prisma.otherIncome.findFirst({ where: { tenantId, category: "OPENING", receivedAt: { gte: from, lt: to } }, orderBy: { receivedAt: "desc" } }),
+    prisma.expense.findFirst({ where: { tenantId, category: "OPENING", expenseDate: { gte: from, lt: to } }, orderBy: { expenseDate: "desc" } }),
+  ]);
+  return {
+    taxYearLabel: `${taxYear}/${String((taxYear + 1) % 100).padStart(2, "0")}`,
+    taxYearStart: from.toISOString().slice(0, 10),
+    income: income?.amount ?? 0,
+    expenses: expense?.amount ?? 0,
+    asAt: (income?.receivedAt ?? expense?.expenseDate ?? null)?.toISOString().slice(0, 10) ?? null,
+  };
+}
+
+export async function saveOpeningFigures(data: { income: number; expenses: number; asAt: string }) {
+  const actor = await requirePerm("accounting");
+  const tenantId = actor.tenantId;
+  const income = Math.round(Number(data.income) * 100) / 100;
+  const expenses = Math.round(Number(data.expenses) * 100) / 100;
+  if (!Number.isFinite(income) || income < 0 || !Number.isFinite(expenses) || expenses < 0) throw new Error("Amounts can't be negative.");
+  const taxYear = getCurrentTaxYearStart();
+  const from = getTaxYearStartDate(taxYear);
+  const to = getTaxYearStartDate(taxYear + 1);
+  const asAt = /^\d{4}-\d{2}-\d{2}$/.test(data.asAt) ? isoToUTC(data.asAt) : utcDay(new Date());
+  if (asAt < from || asAt >= to) throw new Error("The date must be in this tax year.");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.otherIncome.deleteMany({ where: { tenantId, category: "OPENING", receivedAt: { gte: from, lt: to } } });
+    await tx.expense.deleteMany({ where: { tenantId, category: "OPENING", expenseDate: { gte: from, lt: to } } });
+    const note = "Starting figure: this tax year before using Wyndos";
+    if (income > 0) {
+      await tx.otherIncome.create({ data: {
+        tenantId, category: "OPENING", source: "Earnings before Wyndos", amount: income, netAmount: income, vatAmount: 0, vatRate: 0,
+        taxTreatment: "NO_VAT", receivedAt: asAt, notes: note,
+      } });
+    }
+    if (expenses > 0) {
+      const cat = getExpenseCategory("OPENING");
+      await tx.expense.create({ data: {
+        tenantId, category: "OPENING", hmrcCategory: cat.hmrcCategory, supplier: "Expenses before Wyndos", amount: expenses, netAmount: expenses,
+        vatAmount: 0, vatRate: 0, taxTreatment: "NO_VAT", expenseDate: asAt, notes: note,
+      } });
+    }
+  });
+  revalidatePath("/accounting");
+  revalidatePath("/");
+}
+
 export async function createOtherIncome(data: {
   category: string;
   source?: string;
@@ -4969,6 +5085,7 @@ export async function getBusinessSettingsForClient() {
     vatNumber: settings.vatNumber,
     invoicePrefix: settings.invoicePrefix,
     nextInvoiceNum: settings.nextInvoiceNum,
+    invoiceNumbersStarted: settings.invoiceNumbersStarted,
     logoBase64: settings.logoBase64,
     goCardlessEnvironment: settings.goCardlessEnvironment,
     goCardlessReferencePrefix: settings.goCardlessReferencePrefix,
@@ -5019,6 +5136,8 @@ export async function updateBusinessSettings(data: {
   bankDetails?: string;
   vatNumber?: string;
   invoicePrefix?: string;
+  /** First invoice number. Only accepted until the first invoice is issued. */
+  nextInvoiceNum?: number;
   logoBase64?: string | null;
   goCardlessAccessToken?: string;
   goCardlessEnvironment?: string;
@@ -5077,6 +5196,18 @@ export async function updateBusinessSettings(data: {
     ? updateData.goCardlessReferencePrefix.trim().toUpperCase()
     : undefined;
 
+  if (updateData.nextInvoiceNum !== undefined) {
+    const n = Math.floor(Number(updateData.nextInvoiceNum));
+    const current = await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { invoiceNumbersStarted: true, nextInvoiceNum: true } });
+    if (current?.invoiceNumbersStarted) {
+      // Locked: invoices already carry numbers, so changing it could duplicate or skip them.
+      delete updateData.nextInvoiceNum;
+    } else if (!Number.isFinite(n) || n < 1 || n > 9999999) {
+      throw new Error("Invoice start number must be a whole number from 1.");
+    } else {
+      updateData.nextInvoiceNum = n;
+    }
+  }
   if (businessName !== undefined) updateData.businessName = businessName;
   if (ownerName !== undefined) updateData.ownerName = ownerName;
   if (phone !== undefined) updateData.phone = phone;
@@ -5142,12 +5273,14 @@ export async function updateBusinessSettings(data: {
 export async function claimNextInvoiceNumber(): Promise<string> {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
-  const settings = await getBusinessSettings();
-  const num = settings.nextInvoiceNum;
-  await prisma.tenantSettings.update({ where: { tenantId },
-    data: { nextInvoiceNum: num + 1 },
+  await loadBusinessSettings(tenantId); // makes sure the settings row exists
+  // Atomic, so two invoices at once never get the same number. The first one locks the start number.
+  const row = await prisma.tenantSettings.update({ where: { tenantId },
+    data: { nextInvoiceNum: { increment: 1 }, invoiceNumbersStarted: true },
+    select: { nextInvoiceNum: true, invoicePrefix: true },
   });
-  return `${settings.invoicePrefix}-${String(num).padStart(4, "0")}`;
+  const num = row.nextInvoiceNum - 1;
+  return `${row.invoicePrefix}-${String(num).padStart(4, "0")}`;
 }
 
 // ── Tags ─────────────────────────────────────────────────────────────────────
