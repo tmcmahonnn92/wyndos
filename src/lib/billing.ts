@@ -15,6 +15,8 @@ export const TRIAL_DAYS = 15;
 export const PRICE_PENCE = 999;
 export const PRICE_LABEL = "£9.99";
 const PRICE_LOOKUP_KEY = "wyndos_monthly_gbp";
+/** Software as a service, business use. Override with STRIPE_TAX_CODE if needed. */
+const TAX_CODE = process.env.STRIPE_TAX_CODE?.trim() || "txcd_10103001";
 
 export function stripeConfigured() {
   return Boolean(process.env.STRIPE_SECRET_KEY?.trim());
@@ -88,11 +90,19 @@ export async function monthlyPriceId() {
   const fixed = process.env.STRIPE_PRICE_ID?.trim();
   if (fixed) return fixed;
   const s = stripe();
-  const found = await s.prices.list({ lookup_keys: [PRICE_LOOKUP_KEY], active: true, limit: 1 });
-  if (found.data[0]) return found.data[0].id;
+  const found = await s.prices.list({ lookup_keys: [PRICE_LOOKUP_KEY], active: true, limit: 1, expand: ["data.product"] });
+  if (found.data[0]) {
+    // Stripe needs a tax code on the product (e.g. for Managed Payments). Add it to older products.
+    const product = found.data[0].product;
+    if (product && typeof product === "object" && !("deleted" in product && product.deleted) && !(product as Stripe.Product).tax_code) {
+      await s.products.update((product as Stripe.Product).id, { tax_code: TAX_CODE });
+    }
+    return found.data[0].id;
+  }
   const product = await s.products.create({
     name: "Wyndos",
     description: "Round planner for window cleaners: scheduling, customers, payments, texts and accounts.",
+    tax_code: TAX_CODE,
   });
   const price = await s.prices.create({
     product: product.id,
