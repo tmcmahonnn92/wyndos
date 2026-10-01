@@ -28,15 +28,15 @@ export default function SignUpPage() {
               <ul className="space-y-2 text-sm text-slate-400">
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 text-blue-400">✓</span>
-                  Manage your full round end-to-end
+                  15 days free, no card needed
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 text-blue-400">✓</span>
-                  Invite your workers to join your account
+                  Then £9.99/month for everything, cancel any time
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 text-blue-400">✓</span>
-                  Your data, completely separate from other users
+                  Unlimited customers and team logins
                 </li>
               </ul>
               <p className="text-sm text-slate-400">
@@ -53,11 +53,11 @@ export default function SignUpPage() {
             <div className="mx-auto max-w-sm space-y-6">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.28em] text-blue-400">
-                  Get started — it&apos;s free
+                  15-day free trial
                 </p>
                 <h2 className="mt-2 text-3xl font-bold text-white">Create your account</h2>
                 <p className="mt-2 text-sm text-slate-400">
-                  Enter your details below to set up your window cleaning round.
+                  No card needed. Takes about a minute.
                 </p>
               </div>
               <SignUpForm googleEnabled={googleEnabled} />

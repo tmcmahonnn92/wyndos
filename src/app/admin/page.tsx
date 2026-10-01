@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { Activity, Database, ShieldCheck, Users, Building2, ClipboardList, Clock3 } from "lucide-react";
 import { getAdminDashboardData } from "@/lib/admin-support";
 import { TenantSwitcher } from "./tenant-switcher";
+import { BillingControls } from "./billing-controls";
+import { getAdminBilling } from "@/lib/admin-billing";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +25,7 @@ export default async function AdminPage() {
 
   if (session?.user?.role !== "SUPER_ADMIN") redirect("/");
 
-  const data = await getAdminDashboardData();
+  const [data, billing] = await Promise.all([getAdminDashboardData(), getAdminBilling()]);
 
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
@@ -94,6 +96,16 @@ export default async function AdminPage() {
               )}
             </div>
           </div>
+        </section>
+
+        <section className="space-y-4">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Billing</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Free forever (for friends and testers) and trial extensions. Businesses never see these switches.
+            </p>
+          </div>
+          <BillingControls rows={billing} />
         </section>
 
         <section className="grid gap-6 xl:grid-cols-[1.45fr_0.95fr]">

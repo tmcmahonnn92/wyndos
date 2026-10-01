@@ -7,7 +7,7 @@ import { normalizeMemberships, resolveActiveMembership } from "@/lib/memberships
 const { auth } = NextAuth(authConfig);
 const ONBOARDING_REFRESH_COOKIE = "wyndos_onboarding_refresh";
 const PUBLIC_ROUTES = new Set(["/auth/signin", "/auth/signup", "/home", "/privacy", "/terms"]);
-const PUBLIC_PREFIXES = ["/auth/invite/"];
+const PUBLIC_PREFIXES = ["/auth/invite/", "/screens/"];
 
 function parseTenantId(rawValue: string | undefined) {
   const tenantId = rawValue ? Number.parseInt(rawValue, 10) : NaN;
@@ -22,6 +22,8 @@ export default auth((req) => {
 
   if (pathname.startsWith("/api/auth")) return NextResponse.next();
   if (pathname === "/api/health") return NextResponse.next();
+  // Stripe calls this; it checks Stripe's signature itself.
+  if (pathname === "/api/stripe/webhook") return NextResponse.next();
   // Cron endpoints check their own CRON_SECRET bearer token.
   if (pathname.startsWith("/api/cron/")) return NextResponse.next();
 
@@ -93,7 +95,10 @@ export default auth((req) => {
     }
   }
 
-  return NextResponse.next();
+  // Lets the layout know which page it's drawing (for the billing lock screen).
+  const headers = new Headers(req.headers);
+  headers.set("x-wyndos-path", pathname);
+  return NextResponse.next({ request: { headers } });
 });
 
 export const config = {

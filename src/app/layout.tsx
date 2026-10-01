@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import "./globals.css";
 import { auth } from "@/auth";
 import { Nav } from "@/components/nav";
@@ -10,6 +10,8 @@ import { ACTIVE_TENANT_COOKIE, SUPPORT_ACCESS_COOKIE } from "@/lib/auth-cookies"
 import { resolveActiveMembership, resolveActivePermissions } from "@/lib/memberships";
 import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
 import { OfflineStatus } from "@/components/offline-status";
+import { BillingLock, TrialBar } from "@/components/billing-banners";
+import { billingStateForTenant, type BillingState } from "@/lib/billing";
 
 // Fonts are bundled in the repo (src/app/fonts) so builds never depend on reaching Google Fonts.
 const syne = localFont({
@@ -68,6 +70,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   let activePermissions: string[] = [];
   const companyCount = session?.user?.memberships?.length ?? 0;
   let supportSession: { reason: string; startedAt: string } | null = null;
+  let billing: BillingState | null = null;
 
   if (session?.user) {
     const role = session.user.role;
@@ -107,8 +110,17 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       tenantName = activeMembership?.tenantName ?? null;
       activeRole = activeMembership?.role ?? session.user.role ?? null;
       activePermissions = resolveActivePermissions(session.user, preferredTenantId);
+      // The subscription belongs to the business: workers are covered by the owner's.
+      if (activeMembership?.tenantId) billing = await billingStateForTenant(activeMembership.tenantId);
     }
   }
+
+  const path = (await headers()).get("x-wyndos-path") ?? "";
+  // When the trial has ended these still open, so nobody is cut off from their own data.
+  const openWhenLocked = ["/billing", "/account", "/support", "/settings", "/auth", "/api"].some((p) => path === p || path.startsWith(`${p}/`));
+  const locked = Boolean(billing && !billing.access && !openWhenLocked);
+  const showTrialBar = Boolean(billing && activeRole === "OWNER" && !path.startsWith("/billing") && !path.startsWith("/auth")
+    && ((billing.kind === "trial" && billing.daysLeft <= 15) || billing.kind === "past_due"));
 
   return (
     <html lang="en" className={`${syne.variable} ${dmSans.variable} ${dmMono.variable}`}>
@@ -123,13 +135,15 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             permissions={activePermissions}
             activeRole={activeRole}
             companyCount={companyCount}
+            showBilling={activeRole === "OWNER" && Boolean(billing) && billing?.kind !== "free"}
           />
         )}
         <main className={`${session?.user ? "md:ml-56 pt-14 md:pt-0 pb-28 md:pb-0 print:m-0 print:p-0" : ""} min-h-screen`}>
           {session?.user?.role === "SUPER_ADMIN" && tenantName && supportSession && (
             <SupportSessionBanner tenantName={tenantName} reason={supportSession.reason} startedAt={supportSession.startedAt} />
           )}
-          {children}
+          {showTrialBar && billing && <TrialBar state={billing} />}
+          {locked ? <BillingLock isOwner={activeRole === "OWNER"} hadSubscription={billing?.hadSubscription} /> : children}
         </main>
         {session?.user && <PWAInstallPrompt />}
         {session?.user && <div className="print:hidden"><OfflineStatus /></div>}
