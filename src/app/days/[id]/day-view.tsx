@@ -32,6 +32,8 @@ import {
   Pencil,
   X,
   Phone,
+  MoreHorizontal,
+  Users,
 } from "lucide-react";
 import {
   getWorkDay,
@@ -166,6 +168,9 @@ export function DayView({
   const [areaPickerOpen, setAreaPickerOpen] = useState(false);
   const [textsOpen, setTextsOpen] = useState(false);
   const [routeOpen, setRouteOpen] = useState(false);
+  // Phone layout: less-used actions live in a "More" sheet, and the team / print tools fold away.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [toolsOpenFor, setToolsOpenFor] = useState<number | null>(null);
   const [nextRuns, setNextRuns] = useState<Array<{ nextDue: Date | string; nextWorkDayId: number | null; areaName: string }>>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [openJobInPayMode, setOpenJobInPayMode] = useState(false);
@@ -612,23 +617,16 @@ export function DayView({
           />
         </div>
 
-        <div className="grid grid-cols-4 divide-x divide-slate-200 bg-slate-50 border-b border-slate-100">
-          <div className="flex flex-col items-center py-2 px-1">
-            <span className="text-base font-bold text-green-700 leading-tight">{doneJobs.length}</span>
-            <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide mt-0.5">Done</span>
-          </div>
-          <div className="flex flex-col items-center py-2 px-1">
-            <span className="text-base font-bold text-slate-700 leading-tight">{pendingJobs.length}</span>
-            <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide mt-0.5">Pending</span>
-          </div>
-          <div className="flex flex-col items-center py-2 px-1">
-            <span className="text-base font-bold text-slate-700 leading-tight">{sortedJobs.length}</span>
-            <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide mt-0.5">Total</span>
-          </div>
-          <div className="flex flex-col items-center py-2 px-1">
-            <span className="text-base font-bold text-blue-700 leading-tight tabular-nums">{hidePrices ? "–" : fmtCurrency(doneValue)}</span>
-            <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide mt-0.5">Earned</span>
-          </div>
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm">
+          <span className="text-slate-600">
+            <b className="text-green-700 tabular-nums">{doneJobs.length}</b> of <b className="text-slate-800 tabular-nums">{sortedJobs.length}</b> done
+            {pendingJobs.length > 0 && <span className="text-slate-400"> · {pendingJobs.length} to go</span>}
+          </span>
+          {!hidePrices && (
+            <span className="text-slate-600 tabular-nums">
+              <b className="text-blue-700">{fmtCurrency(doneValue)}</b> earned
+            </span>
+          )}
         </div>
 
         {/* View switch: by area (route order) or everything in one list by street */}
@@ -748,24 +746,6 @@ export function DayView({
                 Reopen Day
               </Button>
             )}
-            {multi && (
-              <SharePdfButton
-                href={`/api/run-sheet?date=${dateISO}&sort=${viewMode}${printWorkerParam ? `&worker=${printWorkerParam}` : ""}`}
-                fileName={`run-sheet-${dateISO}.pdf`}
-                title="Run sheet"
-                label=""
-                className="flex flex-shrink-0 items-center rounded-xl border border-slate-200 bg-white px-3 text-slate-700 hover:bg-slate-50"
-              />
-            )}
-            {multi && (
-              <Link
-                href={`/days/date/${dateISO}/print?sort=${viewMode}${printWorkerParam ? `&worker=${printWorkerParam}` : ""}`}
-                aria-label="Print the day"
-                className="flex flex-shrink-0 items-center rounded-xl border border-slate-200 bg-white px-3 text-slate-700 hover:bg-slate-50"
-              >
-                <Printer size={16} />
-              </Link>
-            )}
             {pendingJobs.length > 0 && (
               <button
                 type="button"
@@ -777,12 +757,14 @@ export function DayView({
                 <Navigation2 size={16} />
               </button>
             )}
-            {!allComplete && (
-              <Button variant="outline" onClick={openAddJob} size="lg" className="flex-shrink-0">
-                <Plus size={16} />
-                Add Job
-              </Button>
-            )}
+            <button
+              type="button"
+              onClick={() => setMoreOpen(true)}
+              aria-label="More actions"
+              className="flex flex-shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <MoreHorizontal size={16} /> More
+            </button>
           </div>
         )}
 
@@ -819,27 +801,6 @@ export function DayView({
           </div>
         )}
 
-        {canText && openDays.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setTextsOpen(true)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-700"
-          >
-            <MessageSquare size={14} />
-            Text reminders to {multi ? "this day's" : "this area's"} customers
-          </button>
-        )}
-
-        {multi && canReschedule && openDays.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setRainOff({ dayIds: openDays.map((d) => d.id), date: tomorrowISO() })}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-700"
-          >
-            <CloudRain size={14} />
-            Rained off? Move the whole day to another date
-          </button>
-        )}
 
         {/* One card per area on this date: its worker, notes, and area-only actions */}
         <div className={multi ? "space-y-1.5" : "space-y-4"}>
@@ -893,7 +854,21 @@ export function DayView({
                 </div>
               )}
 
-              <DayTeamBar
+              {!multi && (
+                <button
+                  type="button"
+                  onClick={() => setToolsOpenFor(toolsOpenFor === day.id ? null : day.id)}
+                  aria-expanded={toolsOpenFor === day.id}
+                  className="flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-sm"
+                >
+                  <Users size={15} className="flex-shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate font-medium text-slate-700">
+                    {day.assignedUserId ? memberName(day.assignedUserId) : "You"} · worker, print, move jobs
+                  </span>
+                  <ChevronDown size={15} className={cn("flex-shrink-0 text-slate-400 transition-transform", toolsOpenFor === day.id && "rotate-180")} />
+                </button>
+              )}
+              {(multi || toolsOpenFor === day.id) && <DayTeamBar
                 key={`${day.id}-${printWorkerParam ?? "all"}`}
                 dayId={day.id}
                 dayStatus={day.status}
@@ -903,7 +878,7 @@ export function DayView({
                 printHref={multi ? null : `/days/${day.id}/print?sort=${viewMode}`}
                 pdfHref={`/api/run-sheet?day=${day.id}&sort=${viewMode}`}
                 defaultPrintWorker={printWorkerParam}
-              />
+              />}
 
               {notesEditingDayId === day.id ? (
                 <div className="flex items-end gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
@@ -1046,6 +1021,51 @@ export function DayView({
 
       <CustomerNotesModal job={notesJob} onClose={() => setNotesJob(null)} hidePrices={hidePrices} />
 
+
+      {/* ── More: the less-used day actions ───────────── */}
+      <Modal open={moreOpen} onClose={() => setMoreOpen(false)} title="More">
+        <div className="space-y-1.5">
+          {!allComplete && (
+            <button type="button" onClick={() => { setMoreOpen(false); openAddJob(); }}
+              className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              <Plus size={16} className="text-blue-600" /> Add a job
+            </button>
+          )}
+          {canText && openDays.length > 0 && (
+            <button type="button" onClick={() => { setMoreOpen(false); setTextsOpen(true); }}
+              className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              <MessageSquare size={16} className="text-blue-600" /> Text reminders to {multi ? "this day's" : "this area's"} customers
+            </button>
+          )}
+          {multi && (
+            <>
+              <Link href={`/days/date/${dateISO}/print?sort=${viewMode}${printWorkerParam ? `&worker=${printWorkerParam}` : ""}`}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                <Printer size={16} className="text-blue-600" /> Print the day
+              </Link>
+              <SharePdfButton
+                href={`/api/run-sheet?date=${dateISO}&sort=${viewMode}${printWorkerParam ? `&worker=${printWorkerParam}` : ""}`}
+                fileName={`run-sheet-${dateISO}.pdf`}
+                title="Run sheet"
+                label="Share run sheet (PDF)"
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              />
+            </>
+          )}
+          {!multi && single && (
+            <button type="button" onClick={() => { setMoreOpen(false); setToolsOpenFor(single.id); }}
+              className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              <Users size={16} className="text-blue-600" /> Worker, print, share, move jobs, rained off
+            </button>
+          )}
+          {multi && canReschedule && openDays.length > 0 && (
+            <button type="button" onClick={() => { setMoreOpen(false); setRainOff({ dayIds: openDays.map((d) => d.id), date: tomorrowISO() }); }}
+              className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              <CloudRain size={16} className="text-blue-600" /> Rained off? Move the whole day
+            </button>
+          )}
+        </div>
+      </Modal>
 
       {/* ── Rained off: move area day(s) to another date ───────────── */}
       <Modal open={rainOff !== null} onClose={() => setRainOff(null)} title="Move to another date">

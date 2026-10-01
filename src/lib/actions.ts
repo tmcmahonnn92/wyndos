@@ -402,7 +402,16 @@ async function runDueWindow(tenantId: number, area: { frequencyWeeks: number; du
 }
 
 /** Customers actually cleaned on a day: last cleaned that day, next due one area-cycle later. */
-async function markCustomersCleaned(tenantId: number, workDayId: number, cleanedOn: Date, frequencyWeeks: number) {
+async function markCustomersCleaned(
+  tenantId: number,
+  workDayId: number,
+  cleanedOn: Date,
+  area: { scheduleType: string; frequencyWeeks: number; monthlyDay: number | null } | null | undefined
+) {
+  // Monthly areas (e.g. "the 15th of every month") follow the calendar, not every 4 weeks.
+  const nextDue = area?.scheduleType === "MONTHLY"
+    ? nextRunAfter(area, cleanedOn)
+    : addUtcDays(cleanedOn, (area?.frequencyWeeks || 4) * 7);
   const cleanedJobs = await prisma.job.findMany({
     where: { tenantId, workDayId, status: "COMPLETE" },
     select: { customerId: true },
@@ -412,7 +421,7 @@ async function markCustomersCleaned(tenantId: number, workDayId: number, cleaned
       where: { id: cleaned.customerId },
       data: {
         lastCompletedDate: cleanedOn,
-        nextDueDate: addUtcDays(cleanedOn, (frequencyWeeks || 4) * 7),
+        nextDueDate: nextDue,
       },
     });
   }
@@ -452,7 +461,7 @@ async function syncAreaScheduleAfterCompletion(
   // Only customers actually cleaned on this day count as cleaned. Skipped / not-done
   // customers keep their own due date. Frequency belongs to the area (a different
   // frequency means a different area, e.g. "Cuckney 8 weekly").
-  await markCustomersCleaned(tenantId, workDay.id, fallbackCompletedDate, workDay.area.frequencyWeeks);
+  await markCustomersCleaned(tenantId, workDay.id, fallbackCompletedDate, workDay.area);
   // Everyone cleaned on any part of a split run stays together on the next run.
   const runCustomerIds = splitRun
     ? (await prisma.job.findMany({ where: { tenantId, workDayId: { in: splitRun.runDayIds }, status: "COMPLETE" }, select: { customerId: true } })).map((j) => j.customerId)
@@ -2858,7 +2867,7 @@ export async function uncompleteJob(jobId: number) {
   if (job.status === "COMPLETE") {
     const customer = await prisma.customer.findFirst({
       where: { id: job.customerId, tenantId },
-      select: { frequencyWeeks: true, jobName: true },
+      select: { frequencyWeeks: true, jobName: true, area: { select: { scheduleType: true, frequencyWeeks: true, monthlyDay: true } } },
     });
     const isRegularService = !job.isOneOff || job.name === (customer?.jobName || "Window Cleaning");
     if (customer && isRegularService) {
@@ -2876,7 +2885,11 @@ export async function uncompleteJob(jobId: number) {
         where: { id: job.customerId },
         data: {
           lastCompletedDate: lastDone,
-          nextDueDate: lastDone ? addUtcDays(lastDone, (customer.frequencyWeeks || 4) * 7) : (day?.date ?? null),
+          nextDueDate: lastDone
+            ? customer.area?.scheduleType === "MONTHLY"
+              ? nextRunAfter(customer.area, lastDone)
+              : addUtcDays(lastDone, (customer.frequencyWeeks || 4) * 7)
+            : (day?.date ?? null),
         },
       });
     }
@@ -3335,7 +3348,7 @@ export async function completeDay(
   const run = await runPieces(tenantId, workDay);
   const openParts = run.pieces.filter((piece) => piece.id !== workDay.id && piece.status !== "COMPLETE");
   if (openParts.length > 0) {
-    await markCustomersCleaned(tenantId, workDay.id, finalDate, workDay.area?.frequencyWeeks ?? 4);
+    await markCustomersCleaned(tenantId, workDay.id, finalDate, workDay.area);
   } else {
     const root = run.pieces.find((piece) => piece.id === run.rootId);
     nextRunResult = await syncAreaScheduleAfterCompletion(
@@ -3495,7 +3508,7 @@ export async function updateCompletedWorkDayDate(workDayId: number, isoDate: str
   const refreshed = run.pieces.map((piece) => (piece.id === workDay.id ? { ...piece, date: newDate } : piece));
   if (refreshed.some((piece) => piece.status !== "COMPLETE")) {
     // Part of a split run that isn't finished: just this day's customers.
-    await markCustomersCleaned(tenantId, workDay.id, newDate, workDay.area?.frequencyWeeks ?? 4);
+    await markCustomersCleaned(tenantId, workDay.id, newDate, workDay.area);
   } else {
     const root = refreshed.find((piece) => piece.id === run.rootId);
     await syncAreaScheduleAfterCompletion(

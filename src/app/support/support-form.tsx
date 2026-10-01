@@ -29,6 +29,7 @@ export function SupportForm({ from }: { from: string }) {
   const [section, setSection] = useState(() => SECTION_BY_PATH.find(([p]) => from.startsWith(p))?.[1] ?? "");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  const [copyTo, setCopyTo] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -58,6 +59,7 @@ export function SupportForm({ from }: { from: string }) {
       fd.set("subject", subject);
       fd.set("message", message);
       fd.set("page", from);
+      fd.set("copyTo", copyTo.trim());
       files.forEach((f) => fd.append("files", f));
       const res = await fetch("/api/support", { method: "POST", body: fd });
       const data = await res.json().catch(() => ({ ok: false, error: res.status === 413 ? "The files are too big." : "Something went wrong. Please try again." }));
@@ -70,7 +72,7 @@ export function SupportForm({ from }: { from: string }) {
     }
   };
 
-  const reset = () => { setSentTo(null); setSubject(""); setMessage(""); setFiles([]); setKind(SUPPORT_KINDS[0]); };
+  const reset = () => { setSentTo(null); setSubject(""); setMessage(""); setCopyTo(""); setFiles([]); setKind(SUPPORT_KINDS[0]); };
 
   const field = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-[#1E2840] dark:bg-[#0F1626] dark:text-slate-100";
   const label = "mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300";
@@ -122,6 +124,13 @@ export function SupportForm({ from }: { from: string }) {
                 <label className={label} htmlFor="support-message">Message</label>
                 <textarea id="support-message" required rows={6} maxLength={10000} value={message} onChange={(e) => setMessage(e.target.value)}
                   placeholder={kind === SUPPORT_KINDS[0] ? "What did you do, what did you expect, and what happened instead?" : "Tell us more"} className={field} />
+              </div>
+
+              <div>
+                <label className={label} htmlFor="support-copy">Also send replies to <span className="font-normal text-slate-400">(optional)</span></label>
+                <input id="support-copy" type="email" inputMode="email" autoComplete="email" value={copyTo} onChange={(e) => setCopyTo(e.target.value)}
+                  placeholder="e.g. office@yourbusiness.co.uk" className={field} />
+                <p className="mt-1 text-[11px] text-slate-400">We always reply to your login email; add another address to copy it in.</p>
               </div>
 
               <div>
