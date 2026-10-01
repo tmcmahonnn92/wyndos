@@ -6,7 +6,7 @@ import { cookies } from "next/headers";
 import { hash, compare } from "bcryptjs";
 import { addDays } from "date-fns";
 import nodemailer from "nodemailer";
-import { platformEmailConfigured, sendPlatformEmail } from "@/lib/platform-email";
+import { platformEmailConfigured, sendPlatformEmail, SUPPORT_COPY, SUPPORT_TO } from "@/lib/platform-email";
 import prisma from "@/lib/db";
 import { auth } from "@/auth";
 import { ACTIVE_TENANT_COOKIE } from "@/lib/auth-cookies";
@@ -200,7 +200,7 @@ async function sendSignupEmails(d: {
 <p>Stuck? Use <strong>Help &amp; support</strong> in the app, or just reply to this email.</p><p>Wyndos</p></div>`,
     });
   }
-  const to = process.env.SUPPORT_EMAIL?.trim() || "support@wyndos.io";
+  const to = SUPPORT_TO;
   const info = d.signupInfo;
   const rows: Array<[string, string]> = [
     ["Business", d.companyName], ["Owner", `${d.ownerName} <${d.email}>`], ["Phone", d.phone], ["Address", d.address], ["Website", d.website],
@@ -208,7 +208,7 @@ async function sendSignupEmails(d: {
   ];
   await sendPlatformEmail({
     to,
-    bcc: process.env.SUPPORT_BCC_EMAIL?.trim() || undefined,
+    cc: SUPPORT_COPY,
     replyTo: d.email || undefined,
     subject: `New sign-up: ${d.companyName}`,
     text: rows.map(([k, v]) => `${k}: ${v || "-"}`).join("\n"),

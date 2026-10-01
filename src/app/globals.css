@@ -31,6 +31,15 @@ body {
   transition: background-color 0.2s, color 0.2s;
 }
 
+/* Phones: no double-tap zoom on buttons, and no sideways wobble. */
+html { touch-action: manipulation; }
+@media (max-width: 767px) {
+  body { overflow-x: clip; }
+  /* iPhone zooms the whole page into any box with text under 16px, then it scrolls
+     left and right. 16px stops that. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: 16px !important; }
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-syne), sans-serif;
   letter-spacing: -0.02em;

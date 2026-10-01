@@ -13,8 +13,9 @@ export type PlatformEmail = {
   subject: string;
   html: string;
   text: string;
+  cc?: string | string[];
   bcc?: string;
-  replyTo?: string;
+  replyTo?: string | string[];
   attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>;
 };
 
@@ -33,6 +34,10 @@ export async function sendPlatformEmail(input: PlatformEmail) {
   const fromEmail = String(process.env.PLATFORM_SMTP_FROM_EMAIL ?? user).trim() || user;
   await transporter.sendMail({ from: `"${fromName}" <${fromEmail}>`, ...input });
 }
+
+/** Where support messages and new sign-ups go, and who gets a copy (Tom). Env overrides. */
+export const SUPPORT_TO = process.env.SUPPORT_EMAIL?.trim() || "support@wyndos.io";
+export const SUPPORT_COPY = (process.env.SUPPORT_COPY_EMAIL ?? process.env.SUPPORT_BCC_EMAIL ?? "").trim() || "tmcmahon.tom@gmail.com";
 
 export function appUrl(path = "") {
   const base = (process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");

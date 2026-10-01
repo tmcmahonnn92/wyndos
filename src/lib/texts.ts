@@ -12,13 +12,14 @@ import { interpolateTemplate, sendWithSettings, type MessageVars } from "@/lib/m
 import { decryptSettingsSecrets } from "@/lib/secrets";
 import { AUTO_SMS_ENABLED } from "@/lib/features";
 
-export type TextKind = "DAY_REMINDER" | "CLEANED" | "PAYMENT_REMINDER_1" | "PAYMENT_REMINDER_2" | "BULK";
+export type TextKind = "DAY_REMINDER" | "CLEANED" | "PAYMENT_REMINDER_1" | "PAYMENT_REMINDER_2" | "PAYMENT_CHASE" | "BULK";
 
 export const TEXT_KIND_LABELS: Record<TextKind, string> = {
   DAY_REMINDER: "Day reminder",
   CLEANED: "Cleaned / how to pay",
   PAYMENT_REMINDER_1: "Payment reminder 1",
   PAYMENT_REMINDER_2: "Payment reminder 2",
+  PAYMENT_CHASE: "Payment chase",
   BULK: "Bulk message",
 };
 
@@ -255,6 +256,14 @@ export async function runPaymentReminders(tenantId: number, sentByUserId: string
     select: { kind: true, jobId: true },
   });
   const done = new Set(logs.map((l) => `${l.kind}:${l.jobId}`));
+  // A chase sent by hand from the Texts screen counts too: no automatic reminder straight after it.
+  const chases = await prisma.messageLog.findMany({
+    where: { tenantId, kind: "PAYMENT_CHASE", status: { not: "FAILED" }, customerId: { in: withMobile.map((c) => c.id) } },
+    select: { customerId: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+  const lastChase = new Map<number, Date>();
+  for (const ch of chases) if (ch.customerId != null && !lastChase.has(ch.customerId)) lastChase.set(ch.customerId, ch.createdAt);
 
   const byKind: Record<"PAYMENT_REMINDER_1" | "PAYMENT_REMINDER_2", OutgoingText[]> = { PAYMENT_REMINDER_1: [], PAYMENT_REMINDER_2: [] };
   for (const c of withMobile) {
@@ -264,6 +273,9 @@ export async function runPaymentReminders(tenantId: number, sentByUserId: string
     const ageDays = Math.floor((now.getTime() - oldest.completedAt!.getTime()) / 86_400_000);
     const kind = second > 0 && ageDays >= second ? "PAYMENT_REMINDER_2" : first > 0 && ageDays >= first ? "PAYMENT_REMINDER_1" : null;
     if (!kind || done.has(`${kind}:${oldest.id}`)) continue;
+    const dueFrom = new Date(oldest.completedAt!.getTime() + (kind === "PAYMENT_REMINDER_2" ? second : first) * 86_400_000);
+    const chased = lastChase.get(c.id);
+    if (chased && chased >= dueFrom) continue;
     const template = kind === "PAYMENT_REMINDER_2" ? settings.tmplPaymentReminder2 : settings.tmplPaymentReminder1;
     byKind[kind].push({
       customerId: c.id,

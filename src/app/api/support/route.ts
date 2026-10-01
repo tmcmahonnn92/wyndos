@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import { getActor } from "@/lib/guards";
-import { platformEmailConfigured, sendPlatformEmail } from "@/lib/platform-email";
+import { platformEmailConfigured, sendPlatformEmail, SUPPORT_COPY, SUPPORT_TO } from "@/lib/platform-email";
 import { SUPPORT_KINDS, SUPPORT_MAX_BYTES, SUPPORT_MAX_FILES, SUPPORT_SECTIONS } from "@/lib/support";
 
-const SUPPORT_TO = process.env.SUPPORT_EMAIL?.trim() || "support@wyndos.io";
-const SUPPORT_BCC = process.env.SUPPORT_BCC_EMAIL?.trim() || undefined;
 
 // A few messages an hour per person is plenty; stops a stuck button flooding the inbox.
 const recent = new Map<string, number[]>();
@@ -47,6 +45,11 @@ export async function POST(request: Request) {
   const subject = clip(form.get("subject"), 150);
   const message = clip(form.get("message"), 10000);
   const page = clip(form.get("page"), 300);
+  // Optional extra address to copy replies to (e.g. the office), as well as their login email.
+  const copyTo = clip(form.get("copyTo"), 200).toLowerCase();
+  if (copyTo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(copyTo)) {
+    return NextResponse.json({ ok: false, error: "That copy-to email address doesn't look right." }, { status: 400 });
+  }
   const browser = clip(request.headers.get("user-agent"), 300);
   if (!subject || !message) return NextResponse.json({ ok: false, error: "Add a subject and a message." }, { status: 400 });
 
@@ -72,6 +75,7 @@ export async function POST(request: Request) {
     ["Type", kind],
     ["Section", section || "Not chosen"],
     ["Page", page || "-"],
+    ["Copy replies to", copyTo || "-"],
     ["Files", files.length ? files.map((f) => `${f.name} (${Math.ceil(f.size / 1024)} KB)`).join(", ") : "None"],
     ["Browser", browser || "-"],
   ];
@@ -86,8 +90,9 @@ ${details.map(([k, v]) => `<tr><td style="padding:2px 12px 2px 0;font-weight:bol
   try {
     await sendPlatformEmail({
       to: SUPPORT_TO,
-      bcc: SUPPORT_BCC,
-      replyTo: user?.email ?? undefined,
+      // A visible copy (not bcc) so it reliably lands; replying goes to them and their copy address.
+      cc: [SUPPORT_COPY, copyTo].filter((a) => a && a !== SUPPORT_TO.toLowerCase()),
+      replyTo: [user?.email ?? "", copyTo].filter(Boolean),
       subject: `[Support] ${section ? `${section}: ` : ""}${subject} (${tenant?.name ?? "Wyndos"})`,
       text,
       html,
@@ -97,5 +102,5 @@ ${details.map(([k, v]) => `<tr><td style="padding:2px 12px 2px 0;font-weight:bol
     console.error("[support] send failed", err);
     return NextResponse.json({ ok: false, error: `It didn't send. Please try again, or email ${SUPPORT_TO}.` }, { status: 502 });
   }
-  return NextResponse.json({ ok: true, replyTo: user?.email ?? "" });
+  return NextResponse.json({ ok: true, replyTo: [user?.email, copyTo].filter(Boolean).join(" and ") });
 }
