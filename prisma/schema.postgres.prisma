@@ -60,6 +60,11 @@ model TenantSettings {
   nextInvoiceNum  Int    @default(1)
   /// Set once the first invoice number is used; the start number can no longer change.
   invoiceNumbersStarted Boolean @default(false)
+  /// Show VAT on invoices (needs a VAT number). Prices are treated as including VAT.
+  invoiceVatEnabled Boolean @default(false)
+  invoiceVatRate    Float   @default(20)
+  /// Payment terms / how to pay, printed on every invoice.
+  invoicePaymentTerms String @default("")
   logoBase64      String? // base64 data URL
   goCardlessAccessToken     String   @default("")
   goCardlessEnvironment     String   @default("live")
@@ -384,6 +389,9 @@ model Job {
   status      JobStatus @default(PENDING)
   price       Float
   completedAt DateTime?
+  /// When the clean went on an invoice, and its number ("" when marked by hand).
+  invoicedAt    DateTime?
+  invoiceNumber String    @default("")
   notes       String?
   sortOrder   Int       @default(0)
   isOneOff    Boolean   @default(false)

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Download, Trash2 } from "lucide-react";
 import { clearAllData, clearScheduleAndHistory } from "@/lib/data-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BackupCard } from "./backup-card";
 
 export type DataCounts = {
   customers: number; areas: number; workDays: number; jobs: number;
@@ -72,6 +73,7 @@ function DangerAction({
 export function DataTab({ counts }: { counts: DataCounts | null }) {
   return (
     <div className="space-y-4">
+      <BackupCard />
       <Card>
         <CardHeader><CardTitle><Download size={16} className="inline mr-2 text-blue-600" />Export</CardTitle></CardHeader>
         <CardContent className="space-y-2">
@@ -95,7 +97,7 @@ export function DataTab({ counts }: { counts: DataCounts | null }) {
       <Card>
         <CardHeader><CardTitle><Trash2 size={16} className="inline mr-2 text-red-600" />Start again</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-xs text-slate-600">These can&apos;t be undone. Export first if you might want anything back.</p>
+          <p className="text-xs text-slate-600">These can&apos;t be undone, except by restoring a backup. Download one first.</p>
           <DangerAction
             title="Clear the schedule and all history"
             word="CLEAR"

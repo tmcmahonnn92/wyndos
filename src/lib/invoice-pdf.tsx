@@ -71,6 +71,7 @@ const styles = StyleSheet.create({
   colDesc: { flex: 1, fontSize: 9 },
   colPrice: { width: 64, fontSize: 9, textAlign: "right" },
   colPaid: { width: 64, fontSize: 9, textAlign: "right" },
+  colVat: { width: 56, fontSize: 9, textAlign: "right" },
   colDue: { width: 64, fontSize: 9, textAlign: "right" },
   headerText: { fontFamily: "Helvetica-Bold", fontSize: 8, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 },
   // Totals
@@ -129,11 +130,17 @@ export interface InvoiceData {
     date: string;
     description: string;
     price: number;
+    /** VAT inside the price (VAT invoices only). */
+    vat?: number;
     paid: number;
   }>;
   subtotal: number;
   totalPaid: number;
   amountDue: number;
+  /** Set for a VAT invoice: prices include VAT at this rate. */
+  vat?: { rate: number; net: number; vat: number } | null;
+  paymentTerms?: string;
+  note?: string;
 }
 
 function fmt(n: number) {
@@ -141,6 +148,7 @@ function fmt(n: number) {
 }
 
 export function InvoicePDF({ data }: { data: InvoiceData }) {
+  const vat = data.vat ?? null;
   return (
     <Document title={`Invoice ${data.invoiceNumber}`} author={data.business.name}>
       <Page size="A4" style={styles.page}>
@@ -168,12 +176,18 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
 
         {/* Title strip */}
         <View style={styles.titleStrip}>
-          <Text style={styles.titleText}>INVOICE</Text>
+          <Text style={styles.titleText}>{vat ? "VAT INVOICE" : "INVOICE"}</Text>
           <View style={styles.titleMeta}>
             <Text style={styles.titleMetaText}>Invoice Number</Text>
             <Text style={styles.titleMetaValue}>{data.invoiceNumber}</Text>
             <Text style={[styles.titleMetaText, { marginTop: 4 }]}>Date</Text>
             <Text style={styles.titleMetaValue}>{data.invoiceDate}</Text>
+            {vat && data.business.vatNumber ? (
+              <>
+                <Text style={[styles.titleMetaText, { marginTop: 4 }]}>VAT Reg No.</Text>
+                <Text style={styles.titleMetaValue}>{data.business.vatNumber}</Text>
+              </>
+            ) : null}
           </View>
         </View>
 
@@ -196,7 +210,9 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
           <View style={styles.tableHeader}>
             <Text style={[styles.colDate, styles.headerText]}>Date</Text>
             <Text style={[styles.colDesc, styles.headerText]}>Description</Text>
-            <Text style={[styles.colPrice, styles.headerText]}>Price</Text>
+            {vat ? <Text style={[styles.colPrice, styles.headerText]}>Net</Text> : null}
+            {vat ? <Text style={[styles.colVat, styles.headerText]}>VAT {vat.rate}%</Text> : null}
+            <Text style={[styles.colPrice, styles.headerText]}>{vat ? "Total" : "Price"}</Text>
             <Text style={[styles.colPaid, styles.headerText]}>Paid</Text>
             <Text style={[styles.colDue, styles.headerText]}>Due</Text>
           </View>
@@ -204,6 +220,8 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
             <View key={job.id} style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}>
               <Text style={styles.colDate}>{job.date}</Text>
               <Text style={styles.colDesc}>{job.description}</Text>
+              {vat ? <Text style={styles.colPrice}>{fmt(job.price - (job.vat ?? 0))}</Text> : null}
+              {vat ? <Text style={styles.colVat}>{fmt(job.vat ?? 0)}</Text> : null}
               <Text style={styles.colPrice}>{fmt(job.price)}</Text>
               <Text style={styles.colPaid}>{job.paid > 0 ? fmt(job.paid) : "—"}</Text>
               <Text style={styles.colDue}>{fmt(Math.max(0, job.price - job.paid))}</Text>
@@ -213,10 +231,27 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
 
         {/* Totals */}
         <View style={styles.totalsBlock}>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Subtotal</Text>
-            <Text style={styles.totalValue}>{fmt(data.subtotal)}</Text>
-          </View>
+          {vat ? (
+            <>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Total excl. VAT</Text>
+                <Text style={styles.totalValue}>{fmt(vat.net)}</Text>
+              </View>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>VAT at {vat.rate}%</Text>
+                <Text style={styles.totalValue}>{fmt(vat.vat)}</Text>
+              </View>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Total incl. VAT</Text>
+                <Text style={styles.totalValue}>{fmt(data.subtotal)}</Text>
+              </View>
+            </>
+          ) : (
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Subtotal</Text>
+              <Text style={styles.totalValue}>{fmt(data.subtotal)}</Text>
+            </View>
+          )}
           {data.totalPaid > 0 && (
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Payments received</Text>
@@ -229,6 +264,14 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
           </View>
         </View>
 
+        {/* Payment terms */}
+        {data.paymentTerms ? (
+          <View style={styles.bankBox}>
+            <Text style={styles.bankLabel}>Payment Terms</Text>
+            <Text style={styles.bankText}>{data.paymentTerms}</Text>
+          </View>
+        ) : null}
+
         {/* Bank details */}
         {data.business.bankDetails ? (
           <View style={styles.bankBox}>
@@ -236,6 +279,8 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
             <Text style={styles.bankText}>{data.business.bankDetails}</Text>
           </View>
         ) : null}
+
+        {data.note ? <Text style={[styles.bankText, { marginBottom: 12 }]}>{data.note}</Text> : null}
 
         {/* Footer */}
         <View style={styles.footer}>
