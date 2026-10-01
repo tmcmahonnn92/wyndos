@@ -508,7 +508,7 @@ export function SettingsClient({
         {settings.textsServerLive && !autoTexts.textsTestMode
           ? "Texts are LIVE: customers will receive them."
           : "Texts are in test mode: nothing is sent to customers. Every text is written to the message log (Texts page) so you can check it."}
-        {" "}Email delivery is still switched off.
+        {" "}Invoice emails are still switched off.
       </div>
 
       {/* Header */}
@@ -526,11 +526,12 @@ export function SettingsClient({
       {saved && !saveError && <div className="bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-3 rounded-lg">Settings saved successfully.</div>}
 
       {/* Tab bar */}
-      <div className="flex border-b border-slate-200 overflow-x-auto">
+      {/* Wraps onto a second line instead of scrolling sideways, so every tab is always visible. */}
+      <div role="tablist" aria-label="Settings sections" className="flex flex-wrap gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5 dark:border-[#1E2840] dark:bg-[#131929]">
         {visibleTabs.map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={cn("flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors",
-              tab === t ? "border-blue-600 text-blue-600" : "border-transparent text-slate-500 hover:text-slate-700")}>
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
+            className={cn("flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors",
+              tab === t ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-[#1E2840]")}>
             {TAB_META[t].icon}{TAB_META[t].label}
           </button>
         ))}
