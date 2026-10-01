@@ -90,8 +90,9 @@ ${details.map(([k, v]) => `<tr><td style="padding:2px 12px 2px 0;font-weight:bol
   try {
     await sendPlatformEmail({
       to: SUPPORT_TO,
-      // A visible copy (not bcc) so it reliably lands; replying goes to them and their copy address.
-      cc: [SUPPORT_COPY, copyTo].filter((a) => a && a !== SUPPORT_TO.toLowerCase()),
+      // Tom gets a hidden copy; the customer's own extra address is a visible copy.
+      bcc: SUPPORT_COPY,
+      cc: copyTo ? [copyTo] : undefined,
       replyTo: [user?.email ?? "", copyTo].filter(Boolean),
       subject: `[Support] ${section ? `${section}: ` : ""}${subject} (${tenant?.name ?? "Wyndos"})`,
       text,

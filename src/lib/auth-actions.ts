@@ -208,7 +208,7 @@ async function sendSignupEmails(d: {
   ];
   await sendPlatformEmail({
     to,
-    cc: SUPPORT_COPY,
+    bcc: SUPPORT_COPY,
     replyTo: d.email || undefined,
     subject: `New sign-up: ${d.companyName}`,
     text: rows.map(([k, v]) => `${k}: ${v || "-"}`).join("\n"),
