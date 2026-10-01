@@ -106,3 +106,9 @@ h1, h2, h3, h4, h5, h6 {
 /* Areas strip */
 .areas-scroll::-webkit-scrollbar { display: none; }
 .areas-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Product page: plain, confident headings (the app's display font is too playful here). */
+.landing h1, .landing h2, .landing h3 {
+  font-family: var(--font-dm-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: -0.025em;
+}
