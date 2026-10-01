@@ -273,6 +273,7 @@ export function SettingsClient({
   const [invites, setInvites] = useState<PendingInvite[]>(initialInvites);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteEmailedTo, setInviteEmailedTo] = useState<string | null>(null);
   const [invitePending, startInviteTransition] = useTransition();
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [teamRefreshing, setTeamRefreshing] = useState(false);
@@ -289,6 +290,7 @@ export function SettingsClient({
       const res = await createInvite(inviteEmail.trim(), invitePermissions as Permission[]);
       if (res.ok) {
         setInviteLink(res.link);
+        setInviteEmailedTo(res.emailed ? inviteEmail.trim() : null);
         setInviteEmail("");
         setInvitePermissions(DEFAULT_WORKER_PERMISSIONS);
         setInvites((prev) => [...prev, { id: Date.now(), email: inviteEmail.trim(), expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), createdAt: new Date() }]);
@@ -1189,7 +1191,7 @@ export function SettingsClient({
               {inviteError && <p className="text-xs text-red-600">{inviteError}</p>}
               {inviteLink && (
                 <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 space-y-1.5">
-                  <p className="text-xs font-semibold text-green-800 flex items-center gap-1"><CheckCircle2 size={13} /> Invite created! Share this link:</p>
+                  <p className="text-xs font-semibold text-green-800 flex items-center gap-1"><CheckCircle2 size={13} /> {inviteEmailedTo ? `Invite emailed to ${inviteEmailedTo}. You can also share this link:` : "Invite created! Email isn't set up, so share this link:"}</p>
                   <div className="flex items-center gap-2">
                     <code className="flex-1 text-xs bg-white border border-green-200 rounded px-2 py-1 text-green-700 truncate">{inviteLink}</code>
                     <button

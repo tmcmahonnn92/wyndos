@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { hash, compare } from "bcryptjs";
 import { addDays } from "date-fns";
 import nodemailer from "nodemailer";
+import { platformEmailConfigured, sendPlatformEmail } from "@/lib/platform-email";
 import prisma from "@/lib/db";
 import { auth } from "@/auth";
 import { ACTIVE_TENANT_COOKIE } from "@/lib/auth-cookies";
@@ -245,8 +246,21 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
 // -----------------------------------------------------------------------------
 
 export type CreateInviteResult =
-  | { ok: true; token: string; link: string }
+  | { ok: true; token: string; link: string; emailed: boolean }
   | { ok: false; error: string };
+
+const escHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+async function sendInviteEmail(to: string, link: string, businessName: string, inviterName: string) {
+  const subject = `${inviterName} invited you to ${businessName} on Wyndos`;
+  const text = `${inviterName} has invited you to join ${businessName} on Wyndos.\n\nAccept the invite: ${link}\n\nThe link works for 7 days.`;
+  const html = `<div style="font-family:Arial,sans-serif;font-size:15px;color:#1e293b;line-height:1.5">
+<p><strong>${escHtml(inviterName)}</strong> has invited you to join <strong>${escHtml(businessName)}</strong> on Wyndos.</p>
+<p><a href="${escHtml(link)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Accept invite</a></p>
+<p style="font-size:13px;color:#64748b">The link works for 7 days. If the button doesn't work, copy this into your browser:<br>${escHtml(link)}</p>
+</div>`;
+  await sendPlatformEmail({ to, subject, html, text });
+}
 
 /**
  * OWNER creates a worker invite.
@@ -288,7 +302,22 @@ export async function createInvite(
     const baseUrl = process.env.NEXTAUTH_URL ?? process.env.APP_URL ?? "http://localhost:3000";
     const link = `${baseUrl}/auth/invite/${invite.token}`;
 
-    return { ok: true, token: invite.token, link };
+    // Email it when Wyndos email is set up; the link is still shown as a backup.
+    let emailed = false;
+    if (platformEmailConfigured()) {
+      try {
+        const [tenant, me] = await Promise.all([
+          db.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
+          db.user.findUnique({ where: { id: user.id }, select: { name: true, email: true } }),
+        ]);
+        await sendInviteEmail(normEmail, link, tenant?.name || "your team", me?.name || me?.email || "Your boss");
+        emailed = true;
+      } catch (err) {
+        console.error("[createInvite] email failed", err);
+      }
+    }
+
+    return { ok: true, token: invite.token, link, emailed };
   } catch (err: any) {
     console.error("[createInvite]", err);
     return { ok: false, error: err.message ?? "Failed to create invite." };
