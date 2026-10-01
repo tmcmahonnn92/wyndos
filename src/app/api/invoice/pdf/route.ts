@@ -52,7 +52,18 @@ export async function POST(req: NextRequest) {
       ? await claimNextInvoiceNumber()
       : `${settings.invoicePrefix}-PREVIEW`;
 
+    // VAT invoice: needs the setting and a VAT number. Prices include VAT, split per line.
+    const vatRate = settings.invoiceVatEnabled && settings.vatNumber?.trim() ? Number(settings.invoiceVatRate) || 0 : null;
+    const vatOf = (gross: number) => (vatRate == null ? 0 : Math.round((gross - gross / (1 + vatRate / 100)) * 100) / 100);
+
     const invoiceData: InvoiceData = {
+      vat: vatRate == null ? null : {
+        rate: vatRate,
+        net: Math.round(jobs.reduce((s, j) => s + j.price - vatOf(j.price), 0) * 100) / 100,
+        vat: Math.round(jobs.reduce((s, j) => s + vatOf(j.price), 0) * 100) / 100,
+      },
+      paymentTerms: settings.invoicePaymentTerms?.trim() || "",
+      note: settings.tmplInvoiceNote?.trim() || "",
       invoiceNumber,
       invoiceDate: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
       business: {
@@ -77,6 +88,7 @@ export async function POST(req: NextRequest) {
           date: fmtDate(job.workDay.date),
           description: `Window cleaning${job.isOneOff ? " (one-off)" : ""}${job.notes ? ` — ${job.notes}` : ""}`,
           price: job.price,
+          vat: vatOf(job.price),
           paid,
         };
       }),

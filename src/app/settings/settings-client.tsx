@@ -22,7 +22,8 @@ import { cn } from "@/lib/utils";
 interface Settings {
   businessName: string; ownerName: string; phone: string; email: string;
   address: string; bankDetails: string; vatNumber: string;
-  invoicePrefix: string; nextInvoiceNum: number; invoiceNumbersStarted: boolean; logoBase64: string | null;
+  invoicePrefix: string; nextInvoiceNum: number; invoiceNumbersStarted: boolean;
+  invoiceVatEnabled: boolean; invoiceVatRate: number; invoicePaymentTerms: string; logoBase64: string | null;
   goCardlessEnvironment: string; goCardlessReferencePrefix: string;
   goCardlessAccessTokenConfigured: boolean; goCardlessLastSyncedAt: string | null;
   smtpProvider: string; smtpHost: string; smtpPort: number;
@@ -177,6 +178,9 @@ export function SettingsClient({
     bankDetails: settings.bankDetails, vatNumber: settings.vatNumber,
     invoicePrefix: settings.invoicePrefix,
     nextInvoiceNum: String(settings.nextInvoiceNum),
+    invoiceVatEnabled: settings.invoiceVatEnabled ?? false,
+    invoiceVatRate: String(settings.invoiceVatRate ?? 20),
+    invoicePaymentTerms: settings.invoicePaymentTerms ?? "",
     runDueWindowDays: settings.runDueWindowDays == null ? "" : String(settings.runDueWindowDays),
   });
 
@@ -400,9 +404,10 @@ export function SettingsClient({
     setSaveError(null);
     startTransition(async () => {
       try {
-        const { runDueWindowDays: windowText, nextInvoiceNum: invoiceStartText, ...formRest } = form;
+        const { runDueWindowDays: windowText, nextInvoiceNum: invoiceStartText, invoiceVatRate: vatRateText, ...formRest } = form;
         const payload: Record<string, unknown> = {
           ...formRest,
+          invoiceVatRate: Math.max(0, Math.min(100, Number(vatRateText) || 0)),
           ...(settings.invoiceNumbersStarted ? {} : { nextInvoiceNum: Math.max(1, Math.floor(Number(invoiceStartText) || 1)) }),
           logoBase64: logo,
           runDueWindowDays: windowText.trim() === "" ? null : Math.max(0, Math.min(90, Number(windowText) || 0)),
@@ -609,6 +614,29 @@ export function SettingsClient({
                 <label className={lbl}>Bank / payment details</label>
                 <textarea className={cn(inp, "resize-none")} rows={4} value={form.bankDetails} onChange={(e) => setForm((f) => ({ ...f, bankDetails: e.target.value }))} placeholder={"Bank: Lloyds\nAccount name: J Smith Window Cleaning\nSort code: 12-34-56\nAccount: 12345678"} />
                 <p className="text-xs text-slate-400 mt-1">Shown at the bottom of every invoice</p>
+              </div>
+              <div>
+                <label className={lbl} htmlFor="inv-terms">Payment terms / instructions</label>
+                <textarea id="inv-terms" className={cn(inp, "resize-none")} rows={3} maxLength={1000} value={form.invoicePaymentTerms} onChange={(e) => setForm((f) => ({ ...f, invoicePaymentTerms: e.target.value }))} placeholder={"Payment due within 14 days.\nPlease use your invoice number as the reference."} />
+                <p className="text-xs text-slate-400 mt-1">Printed on every invoice, above the bank details.</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+                <label className="flex items-start gap-3">
+                  <input type="checkbox" className="mt-1" checked={form.invoiceVatEnabled} onChange={(e) => setForm((f) => ({ ...f, invoiceVatEnabled: e.target.checked }))} />
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-800">VAT invoices</span>
+                    <span className="block text-xs text-slate-500">For VAT-registered businesses: invoices become &ldquo;VAT invoices&rdquo; showing your VAT number, the rate, and net, VAT and total for each clean. Your prices are treated as including VAT.</span>
+                  </span>
+                </label>
+                {form.invoiceVatEnabled && (
+                  <div className="ml-7 grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={lbl} htmlFor="inv-vat-rate">VAT rate (%)</label>
+                      <input id="inv-vat-rate" type="number" min={0} max={100} step={0.5} className={inp} value={form.invoiceVatRate} onChange={(e) => setForm((f) => ({ ...f, invoiceVatRate: e.target.value }))} />
+                    </div>
+                    {!form.vatNumber.trim() && <p className="col-span-2 text-xs font-medium text-amber-700">Add your VAT number above, or invoices won&apos;t show VAT.</p>}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

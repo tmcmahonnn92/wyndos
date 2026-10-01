@@ -473,9 +473,10 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                   Booked {fmtDate(bookedJob.workDay.date)} →
                 </Link>
               ) : (
-                <p className="text-xs font-semibold text-amber-700">Not on any day</p>
+                <p className="text-xs text-slate-500">On {customer.area.name}&apos;s next run</p>
               )}
-              {!bookOpen && (
+              {/* Hidden: customers are booked through their area's run. The code stays for later. */}
+              {false && !bookOpen && (
                 <button type="button" onClick={() => { setBookOpen(true); setBookError(null); }} className="mt-1 text-xs font-semibold text-blue-600 hover:underline">
                   {bookedJob ? "Also add to a day" : "Add to a day"}
                 </button>

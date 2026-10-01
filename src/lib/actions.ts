@@ -5086,6 +5086,9 @@ export async function getBusinessSettingsForClient() {
     invoicePrefix: settings.invoicePrefix,
     nextInvoiceNum: settings.nextInvoiceNum,
     invoiceNumbersStarted: settings.invoiceNumbersStarted,
+    invoiceVatEnabled: settings.invoiceVatEnabled,
+    invoiceVatRate: settings.invoiceVatRate,
+    invoicePaymentTerms: settings.invoicePaymentTerms,
     logoBase64: settings.logoBase64,
     goCardlessEnvironment: settings.goCardlessEnvironment,
     goCardlessReferencePrefix: settings.goCardlessReferencePrefix,
@@ -5138,6 +5141,9 @@ export async function updateBusinessSettings(data: {
   invoicePrefix?: string;
   /** First invoice number. Only accepted until the first invoice is issued. */
   nextInvoiceNum?: number;
+  invoiceVatEnabled?: boolean;
+  invoiceVatRate?: number;
+  invoicePaymentTerms?: string;
   logoBase64?: string | null;
   goCardlessAccessToken?: string;
   goCardlessEnvironment?: string;
@@ -5196,6 +5202,12 @@ export async function updateBusinessSettings(data: {
     ? updateData.goCardlessReferencePrefix.trim().toUpperCase()
     : undefined;
 
+  if (updateData.invoiceVatRate !== undefined) {
+    const rate = Number(updateData.invoiceVatRate);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) throw new Error("VAT rate must be between 0 and 100.");
+    updateData.invoiceVatRate = Math.round(rate * 100) / 100;
+  }
+  if (typeof updateData.invoicePaymentTerms === "string") updateData.invoicePaymentTerms = updateData.invoicePaymentTerms.slice(0, 1000);
   if (updateData.nextInvoiceNum !== undefined) {
     const n = Math.floor(Number(updateData.nextInvoiceNum));
     const current = await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { invoiceNumbersStarted: true, nextInvoiceNum: true } });
