@@ -32,6 +32,9 @@ type Recipient = {
   tags: Array<{ id: number; name: string }>;
   unpaidCleans: number;
   reminderDue: { stage: number; age: number } | null;
+  owedDays: number | null;
+  chasedAt: string | null;
+  chasedForDebt: boolean;
   lastText: { kind: string; at: string; status: string } | null;
   nextClean: { date: string; label: string; worker: string } | null;
 };
@@ -65,6 +68,7 @@ const KIND_LABELS: Record<string, string> = {
   CLEANED: "Cleaned / how to pay",
   PAYMENT_REMINDER_1: "Payment reminder 1",
   PAYMENT_REMINDER_2: "Payment reminder 2",
+  PAYMENT_CHASE: "Payment chase",
   BULK: "Bulk",
 };
 const STATUS_LABELS: Record<string, string> = { TEST: "TEST – not sent", TO_SEND: "Waiting (phone)", PHONE: "Opened on phone" };
@@ -102,6 +106,9 @@ export function MessagesClient({
   const [purpose, setPurpose] = useState<Purpose>("soon");
   const [showFilters, setShowFilters] = useState(false);
   const [soonDays, setSoonDays] = useState(7);
+  // Chasing payment: how long they've owed, and leave out anyone already texted about this debt.
+  const [owedMinDays, setOwedMinDays] = useState(0);
+  const [hideChased, setHideChased] = useState(true);
   const [method, setMethod] = useState<"PHONE" | "VOODOO">(setup.sendMethod);
   const [queue, setQueue] = useState<{ ids?: number[] } | null>(null);
   const [includeQuotes, setIncludeQuotes] = useState(false);
@@ -139,6 +146,10 @@ export function MessagesClient({
     if (tagId && !r.tags.some((t) => String(t.id) === tagId)) return false;
     if (view === "unpaid" && r.owed <= 0.005) return false;
     if (view === "reminder" && !r.reminderDue) return false;
+    if (purpose === "chase") {
+      if (owedMinDays > 0 && (r.owedDays ?? 0) < owedMinDays) return false;
+      if (hideChased && r.chasedForDebt) return false;
+    }
     if (view === "soon") {
       if (!r.nextClean) return false;
       const days = (new Date(r.nextClean.date + "T00:00:00Z").getTime() - Date.now()) / 86_400_000;
@@ -198,7 +209,7 @@ export function MessagesClient({
     setResult(null);
     startTransition(async () => {
       try {
-        const r = await sendBulkTexts({ customerIds: [...picked], template: message, method });
+        const r = await sendBulkTexts({ customerIds: [...picked], template: message, method, kind: purpose === "chase" ? "PAYMENT_CHASE" : "BULK" });
         if (r.phone) {
           setQueue({ ids: r.ids });
           return;
@@ -296,6 +307,25 @@ export function MessagesClient({
                     {v.label}
                   </button>
                 ))}
+                <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 pt-1 text-xs text-slate-600">
+                  <label className="flex items-center gap-2">
+                    Owed for
+                    <select value={owedMinDays} onChange={(e) => { setOwedMinDays(Number(e.target.value)); setPicked(new Set()); }}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">
+                      <option value={0}>any time</option>
+                      <option value={7}>7+ days</option>
+                      <option value={14}>14+ days</option>
+                      <option value={30}>30+ days</option>
+                      <option value={60}>60+ days</option>
+                      <option value={90}>90+ days</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={hideChased} onChange={(e) => { setHideChased(e.target.checked); setPicked(new Set()); }} />
+                    Leave out anyone already texted about it
+                    {(() => { const n = recipients.filter((r) => r.owed > 0.005 && r.chasedForDebt).length; return n ? <span className="text-slate-400">({n})</span> : null; })()}
+                  </label>
+                </div>
               </div>
             )}
             {purpose === "soon" && (
@@ -365,7 +395,12 @@ export function MessagesClient({
                       </span>
                     )}
                   </span>
-                  {r.owed > 0.005 && <span className="text-[11px] font-semibold text-red-600">owes £{r.owed.toFixed(2)}</span>}
+                  {r.owed > 0.005 && (
+                    <span className="text-right text-[11px] font-semibold text-red-600">
+                      owes £{r.owed.toFixed(2)}{r.owedDays != null ? ` · ${r.owedDays}d` : ""}
+                      {purpose === "chase" && r.chasedAt && <span className="block font-normal text-slate-400">chased {ago(r.chasedAt)}</span>}
+                    </span>
+                  )}
                   {r.reminderDue && <span className="rounded bg-red-100 px-1 text-[10px] font-bold text-red-700">reminder {r.reminderDue.stage} due · {r.reminderDue.age}d</span>}
                   {view === "soon" && r.nextClean && <span className="text-[11px] font-semibold text-blue-700">{r.nextClean.label}</span>}
                   {!r.mobile && <span className="text-[10px] font-semibold text-amber-600">no mobile</span>}

@@ -189,7 +189,7 @@ export async function getBulkRecipients() {
     orderBy: [{ area: { sortOrder: "asc" } }, { sortOrder: "asc" }],
   });
   const ids = customers.map((c) => c.id);
-  const [{ balance, unpaidJobs }, nextBooked, settings, reminded] = await Promise.all([
+  const [{ balance, unpaidJobs }, nextBooked, settings, reminded, chases] = await Promise.all([
     balancesFor(tenantId, ids),
     nextBookedCleans(tenantId, ids),
     loadTextSettings(tenantId),
@@ -197,7 +197,18 @@ export async function getBulkRecipients() {
       where: { tenantId, kind: { in: ["PAYMENT_REMINDER_1", "PAYMENT_REMINDER_2"] }, customerId: { in: ids } },
       select: { kind: true, jobId: true },
     }),
+    // Any payment text (automatic reminders or a chase from this screen), newest first.
+    prisma.messageLog.findMany({
+      where: { tenantId, kind: { in: ["PAYMENT_REMINDER_1", "PAYMENT_REMINDER_2", "PAYMENT_CHASE"] }, customerId: { in: ids }, status: { not: "FAILED" } },
+      select: { customerId: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
+  const lastChased = new Map<number, Date>();
+  for (const c of chases) if (c.customerId != null && !lastChased.has(c.customerId)) lastChased.set(c.customerId, c.createdAt);
+  // How long they've owed: days since their oldest unpaid clean.
+  const oldestUnpaid = (customerId: number) =>
+    (unpaidJobs.get(customerId) ?? []).reduce<Date | null>((m, j) => (j.completedAt && (!m || j.completedAt < m) ? j.completedAt : m), null);
   const lastTexts = await lastTextFor(tenantId, ids);
   const done = new Set(reminded.map((r) => `${r.kind}:${r.jobId}`));
   // Same rule as the automatic reminders; if they're off, anything unpaid 14+ days counts as due.
@@ -211,6 +222,10 @@ export async function getBulkRecipients() {
     const age = Math.floor((now - oldest.completedAt!.getTime()) / 86_400_000);
     const stage = second > 0 && age >= second ? 2 : age >= first ? 1 : null;
     if (!stage || done.has(`PAYMENT_REMINDER_${stage}:${oldest.id}`)) return null;
+    // Already chased by hand since this reminder became due.
+    const dueFrom = oldest.completedAt!.getTime() + (stage === 2 ? second : first) * 86_400_000;
+    const chased = lastChased.get(customerId);
+    if (chased && chased.getTime() >= dueFrom) return null;
     return { stage, age };
   };
   return customers.map((c) => ({
@@ -227,6 +242,10 @@ export async function getBulkRecipients() {
     tags: c.tags.map((t) => t.tag),
     unpaidCleans: (unpaidJobs.get(c.id) ?? []).length,
     reminderDue: reminderStage(c.id),
+    owedDays: (() => { const o = oldestUnpaid(c.id); return o ? Math.floor((now - o.getTime()) / 86_400_000) : null; })(),
+    chasedAt: lastChased.get(c.id)?.toISOString() ?? null,
+    // Already sent a payment text since this debt started.
+    chasedForDebt: (() => { const o = oldestUnpaid(c.id); const ch = lastChased.get(c.id); return Boolean(o && ch && ch >= o); })(),
     lastText: lastTexts.get(c.id) ?? null,
     nextClean: nextBooked.get(c.id)
       ? {
@@ -260,7 +279,7 @@ async function nextBookedCleans(tenantId: number, customerIds: number[]) {
 }
 
 /** Bulk message with placeholders to the chosen customers. */
-export async function sendBulkTexts(input: { customerIds: number[]; template: string; method?: SendMethod }) {
+export async function sendBulkTexts(input: { customerIds: number[]; template: string; method?: SendMethod; kind?: "BULK" | "PAYMENT_CHASE" }) {
   const actor = await requirePerm("messaging");
   const tenantId = actor.tenantId;
   if (!input.template.trim()) throw new Error("Write the message first.");
@@ -288,7 +307,7 @@ export async function sendBulkTexts(input: { customerIds: number[]; template: st
       })),
     });
   }
-  const result = await deliverTexts(tenantId, settings, "BULK", texts, actor.userId, input.method ?? sendMethodOf(settings));
+  const result = await deliverTexts(tenantId, settings, input.kind === "PAYMENT_CHASE" ? "PAYMENT_CHASE" : "BULK", texts, actor.userId, input.method ?? sendMethodOf(settings));
   revalidatePath("/messages");
   return { ...result, noMobile: customers.length - texts.length };
 }
