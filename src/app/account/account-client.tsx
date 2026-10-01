@@ -6,11 +6,12 @@ import { saveMyNotifyPrefs } from "@/lib/account-actions";
 import type { NotifyPrefs } from "@/lib/notifications";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export function AccountClient({ prefs: initial, email, followsDays, emailReady }: {
+export function AccountClient({ prefs: initial, email, followsDays, emailReady, isOwner }: {
   prefs: NotifyPrefs;
   email: string;
   followsDays: boolean;
   emailReady: boolean;
+  isOwner?: boolean;
 }) {
   const [prefs, setPrefs] = useState(initial);
   const [saved, setSaved] = useState<string | null>(null);
@@ -35,6 +36,11 @@ export function AccountClient({ prefs: initial, email, followsDays, emailReady }
   return (
     <div className="mx-auto max-w-xl space-y-4 px-4 py-5">
       <h1 className="text-xl font-bold text-slate-800">My account</h1>
+      {isOwner && (
+        <a href="/billing" className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          Billing &amp; subscription <span className="text-blue-600">→</span>
+        </a>
+      )}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Bell size={15} className="text-blue-600" /> Email me when…</CardTitle>

@@ -23,6 +23,16 @@ model Tenant {
   logoUrl   String   @default("")
   /// What they told us at sign-up (customer count, team size, payment methods, how they found us). JSON.
   signupInfo String  @default("{}")
+  /// Billing. Free trial runs to trialEndsAt (or 15 days from createdAt when empty).
+  trialEndsAt          DateTime?
+  /// Never asked to pay (early users, Tom's own businesses).
+  billingExempt        Boolean   @default(false)
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?
+  /// Stripe subscription status: trialing, active, past_due, canceled, unpaid, incomplete…
+  subscriptionStatus   String    @default("")
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

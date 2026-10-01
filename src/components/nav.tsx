@@ -48,7 +48,7 @@ const navItems = [
  * stacked: pin icon centered above wordmark + subtitle (sidebar / splash)
  * horizontal: pin left, text right (mobile header)
  */
-function WyndosLogo({
+export function WyndosLogo({
   variant = "stacked",
   pinHeight = 72,
 }: {
@@ -144,6 +144,7 @@ export function Nav({
   permissions = [],
   activeRole,
   companyCount = 0,
+  showBilling = false,
 }: {
   user: {
     name?: string | null;
@@ -155,6 +156,7 @@ export function Nav({
   permissions?: string[];
   activeRole?: string | null;
   companyCount?: number;
+  showBilling?: boolean;
 }) {
   const pathname = usePathname();
   const isSuperAdmin = user.role === "SUPER_ADMIN";
@@ -250,6 +252,11 @@ export function Nav({
             {!isSuperAdmin && (
               <Link href="/account" className="mt-2 mr-3 inline-block text-xs font-semibold text-[#3D8EF5] hover:text-[#8bbcff]">
                 My account
+              </Link>
+            )}
+            {!isSuperAdmin && showBilling && (
+              <Link href="/billing" className="mt-2 mr-3 inline-block text-xs font-semibold text-[#3D8EF5] hover:text-[#8bbcff]">
+                Billing
               </Link>
             )}
             {!isSuperAdmin && companyCount > 1 && (

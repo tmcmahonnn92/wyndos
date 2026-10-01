@@ -21,6 +21,7 @@ export async function getMyNotifyPrefs() {
     // Day emails only go to people who plan the round.
     followsDays: role === "OWNER" || parsePermissions(membership?.permissions).includes("scheduler"),
     emailReady: platformEmailConfigured(),
+    isOwner: role === "OWNER",
   };
 }
 
