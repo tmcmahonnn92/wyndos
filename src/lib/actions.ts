@@ -550,18 +550,22 @@ export async function createArea(data: {
 }) {
   const actor = await requirePerm("areas");
   const tenantId = actor.tenantId;
-  await prisma.area.create({ data: { tenantId,
-      name: data.name,
+  const name = data.name.trim();
+  if (!name) throw new Error("Give the area a name.");
+  const area = await prisma.area.create({ data: { tenantId,
+      name,
       sortOrder: data.sortOrder ?? 0,
       scheduleType: data.scheduleType ?? "WEEKLY",
       frequencyWeeks: data.frequencyWeeks ?? 4,
       monthlyDay: data.monthlyDay ?? null,
       nextDueDate: data.nextDueDate ?? null,
     },
+    select: { id: true, name: true, frequencyWeeks: true, nextDueDate: true },
   });
   revalidatePath("/days");
   revalidatePath("/areas");
   revalidatePath("/");
+  return area;
 }
 
 export async function updateArea(
