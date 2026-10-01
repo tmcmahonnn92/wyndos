@@ -116,11 +116,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   }
 
   const path = (await headers()).get("x-wyndos-path") ?? "";
-  // When the trial has ended these still open, so nobody is cut off from their own data.
-  const openWhenLocked = ["/billing", "/account", "/support", "/settings", "/auth", "/api"].some((p) => path === p || path.startsWith(`${p}/`));
-  const locked = Boolean(billing && !billing.access && !openWhenLocked);
+  // When the trial has ended only planning and the day sheets stop; customers, payments,
+  // settings, backups and everything else stay open so nobody is cut off from their data.
+  const blockedWhenLocked = ["/scheduler", "/days"].some((p) => path === p || path.startsWith(`${p}/`));
+  const locked = Boolean(billing && !billing.access && blockedWhenLocked);
   const showTrialBar = Boolean(billing && activeRole === "OWNER" && !path.startsWith("/billing") && !path.startsWith("/auth")
-    && ((billing.kind === "trial" && billing.daysLeft <= 15) || billing.kind === "past_due"));
+    && ((billing.kind === "trial" && billing.daysLeft <= 15) || billing.kind === "past_due" || billing.kind === "ended"));
 
   return (
     <html lang="en" className={`${syne.variable} ${dmSans.variable} ${dmMono.variable}`}>

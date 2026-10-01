@@ -48,6 +48,9 @@ export async function POST() {
     return NextResponse.json({ url: session.url });
   } catch (e) {
     console.error("[stripe/checkout]", e);
-    return NextResponse.json({ error: "Couldn't open checkout. Please try again." }, { status: 502 });
+    const stripeMessage = e && typeof e === "object" && "type" in e && String((e as { type: unknown }).type).startsWith("Stripe")
+      ? String((e as { message?: unknown }).message ?? "")
+      : "";
+    return NextResponse.json({ error: stripeMessage ? `Stripe: ${stripeMessage}` : "Couldn't open checkout. Please try again." }, { status: 502 });
   }
 }
