@@ -34,7 +34,7 @@ export function BillingClient({ state, isOwner, justSubscribed, price, trialDays
     try {
       const res = await fetch(`/api/stripe/${kind}`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.url) throw new Error(data.error || "Something went wrong.");
+      if (!res.ok || !data.url) throw new Error(data.error || `Something went wrong (${res.status}).`);
       window.location.assign(data.url);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -92,7 +92,7 @@ export function BillingClient({ state, isOwner, justSubscribed, price, trialDays
           {isOwner && kind !== "free" && (
             <div className="flex flex-col gap-2 sm:flex-row">
               {!subscribed && (
-                <Button className="flex-1" disabled={!ready || busy !== ""} onClick={() => go("checkout")}>
+                <Button className="flex-1" disabled={busy !== ""} onClick={() => (ready ? go("checkout") : setError("Payments aren't switched on on the server yet (STRIPE_SECRET_KEY missing). Please contact support."))}>
                   {busy === "checkout" ? <Loader2 size={15} className="animate-spin" /> : <CreditCard size={15} />}
                   Subscribe for {price}/month
                 </Button>
