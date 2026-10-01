@@ -10,6 +10,8 @@ import {
 import { updateBusinessSettings, createTag, deleteTag } from "@/lib/actions";
 import { runPaymentRemindersNow } from "@/lib/text-actions";
 import { DataTab, type DataCounts } from "./data-tab";
+import { AccountTab } from "./account-tab";
+import { UserRound } from "lucide-react";
 import { AUTO_SMS_ENABLED } from "@/lib/features";
 import { createInvite, listTeamMembers, listPendingInvites, revokeInvite, removeTeamMember, updateWorkerPermissions, changePassword, resetWorkerPassword } from "@/lib/auth-actions";
 import { ROLE_PRESETS, ALL_PERMISSIONS, PERMISSION_LABELS, DEFAULT_WORKER_PERMISSIONS, type Permission } from "@/lib/permissions";
@@ -56,7 +58,7 @@ type PendingInvite = { id: number; email: string; expiresAt: Date; createdAt: Da
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TABS = ["general", "email", "messaging", "templates", "broadcast", "tags", "team", "data", "security"] as const;
+const TABS = ["general", "email", "messaging", "templates", "broadcast", "tags", "team", "data", "security", "account"] as const;
 type Tab = (typeof TABS)[number];
 const ROLLOUT_DISABLED_TABS: Tab[] = ["email"];
 const RESTRICTED_TABS: Tab[] = ["team", "data"];
@@ -71,6 +73,7 @@ const TAB_META: Record<Tab, { label: string; icon: React.ReactNode }> = {
   team:      { label: "Team",       icon: <Users size={13} /> },
   data:      { label: "Data",       icon: <Database size={13} /> },
   security:  { label: "Security",   icon: <ShieldCheck size={13} /> },
+  account:   { label: "Account",    icon: <UserRound size={13} /> },
 };
 
 const MESSAGING_PROVIDERS = [
@@ -499,7 +502,7 @@ export function SettingsClient({
   const lbl = "block text-sm font-medium text-slate-700 mb-1";
   const smtpPreset = SMTP_PROVIDERS.find((p) => p.value === smtp.smtpProvider);
   const appPwLink = APP_PW_LINKS[smtp.smtpProvider];
-  const showSave = tab !== "broadcast" && tab !== "tags" && tab !== "team" && tab !== "data";
+  const showSave = tab !== "broadcast" && tab !== "tags" && tab !== "team" && tab !== "data" && tab !== "account";
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1144,6 +1147,8 @@ export function SettingsClient({
           </CardContent>
         </Card>
       )}
+
+      {tab === "account" && <AccountTab isOwner={canManageProviderSettings} businessName={form.businessName || "this business"} />}
 
       {/* ── TEAM ──────────────────────────────────────────────────────────── */}
       {tab === "team" && (
