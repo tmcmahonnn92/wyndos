@@ -1,0 +1,1 @@
+ALTER TABLE "Tenant" ADD COLUMN "signupInfo" TEXT NOT NULL DEFAULT '{}';

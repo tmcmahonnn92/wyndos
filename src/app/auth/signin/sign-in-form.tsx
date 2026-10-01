@@ -127,6 +127,10 @@ export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
           {googleEnabled ? (isGooglePending ? "Redirecting to Google..." : "Continue with Google") : "Google sign-in needs AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET"}
         </button>
       )}
+
+      <p className="text-center text-xs text-slate-500">
+        Can&apos;t get in? Email <a href="mailto:support@wyndos.io" className="font-medium text-slate-400 hover:text-slate-200">support@wyndos.io</a>
+      </p>
     </div>
   );
 }

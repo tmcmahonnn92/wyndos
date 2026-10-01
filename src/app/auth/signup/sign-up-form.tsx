@@ -33,6 +33,7 @@ export function SignUpForm({ googleEnabled }: { googleEnabled: boolean }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isGooglePending, setIsGooglePending] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleGoogle = async () => {
     setError("");
@@ -51,12 +52,6 @@ export function SignUpForm({ googleEnabled }: { googleEnabled: boolean }) {
       const companyName = fd.get("companyName") as string;
       const email = fd.get("email") as string;
       const password = fd.get("password") as string;
-      const confirm = fd.get("confirm") as string;
-
-      if (password !== confirm) {
-        setError("Passwords do not match.");
-        return;
-      }
       if (password.length < 8) {
         setError("Password must be at least 8 characters.");
         return;
@@ -140,13 +135,13 @@ export function SignUpForm({ googleEnabled }: { googleEnabled: boolean }) {
         </div>
 
         <div>
-          <label className="mb-1.5 block text-xs font-medium text-slate-400">Password</label>
-          <input name="password" type="password" required minLength={8} placeholder="Minimum 8 characters" className={inputCls} />
-        </div>
-
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-slate-400">Confirm password</label>
-          <input name="confirm" type="password" required minLength={8} placeholder="Repeat your password" className={inputCls} />
+          <div className="mb-1.5 flex items-center justify-between">
+            <label htmlFor="su-password" className="block text-xs font-medium text-slate-400">Password</label>
+            <button type="button" onClick={() => setShowPassword((v) => !v)} className="text-xs font-medium text-slate-500 hover:text-slate-300">
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
+          <input id="su-password" name="password" type={showPassword ? "text" : "password"} required minLength={8} autoComplete="new-password" placeholder="At least 8 characters" className={inputCls} />
         </div>
 
         <button
@@ -154,7 +149,7 @@ export function SignUpForm({ googleEnabled }: { googleEnabled: boolean }) {
           disabled={loading}
           className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:opacity-60"
         >
-          {loading ? "Creating your account..." : "Create account"}
+          {loading ? "Creating your account..." : "Create account and set up"}
         </button>
       </form>
 

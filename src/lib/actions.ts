@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
+import { queueNotification } from "@/lib/notifications";
 import type { Prisma } from "@/generated/prisma/client";
 import { matchesLooseCustomerSearch } from "@/lib/customer-search";
 import { getExpenseCategory, getOtherIncomeCategory, getTaxTreatment, EXPENSE_CATEGORIES, OTHER_INCOME_CATEGORIES, TAX_TREATMENT_OPTIONS } from "@/lib/accounting";
@@ -2518,6 +2519,9 @@ export async function startDay(workDayId: number) {
     where: { id: workDay.id },
     data: { status: "IN_PROGRESS" },
   });
+  if (workDay.status === "PLANNED") {
+    await queueNotification({ tenantId, kind: "DAY_STARTED", workDayId: workDay.id, actorUserId: actor.userId });
+  }
   revalidatePath(`/days/${workDay.id}`);
 }
 
@@ -2713,10 +2717,13 @@ export async function completeJob(jobId: number) {
   });
 
   // Auto-start the work day if still PLANNED — removes the need to tap "Start Area" separately
-  await prisma.workDay.updateMany({
+  const autoStarted = await prisma.workDay.updateMany({
     where: { id: job.workDayId, tenantId, status: "PLANNED" },
     data: { status: "IN_PROGRESS" },
   });
+  if (autoStarted.count > 0) {
+    await queueNotification({ tenantId, kind: "DAY_STARTED", workDayId: job.workDayId, actorUserId: actor.userId });
+  }
 
   // Only the customer's regular service moves their due date; an extra one-off
   // (e.g. gutters) does not. Each customer keeps their own frequency.
@@ -3042,6 +3049,9 @@ export async function assignWorkDayWorker(workDayId: number, assignedUserId?: st
       where: { tenantId, workDayId, assignedUserId: workerId },
       data: { assignedUserId: null },
     });
+    if (workerId !== workDay.assignedUserId) {
+      await queueNotification({ tenantId, kind: "WORK_ASSIGNED", workDayId, userId: workerId, actorUserId: actor.userId });
+    }
   }
   revalidatePath("/scheduler");
   revalidatePath("/days");
@@ -3085,6 +3095,9 @@ export async function assignJobs(jobIds: number[], userId: string | null, dateIS
     touchedDays.add(job.workDayId);
   }
 
+  if (assignee) {
+    await queueNotification({ tenantId, kind: "WORK_ASSIGNED", userId: assignee, jobIds: jobs.map((job) => job.id), actorUserId: actor.userId });
+  }
   for (const dayId of touchedDays) revalidatePath(`/days/${dayId}`);
   revalidatePath("/days");
   revalidatePath("/scheduler");
@@ -3253,6 +3266,7 @@ export async function completeDay(
     data: { status: "COMPLETE", date: finalDate },
     include: { area: true },
   });
+  await queueNotification({ tenantId, kind: "DAY_COMPLETED", workDayId, actorUserId: actor.userId });
 
   // Auto-schedule next run when a day is completed.
   // nextRunAfter preserves day-of-week for weekly schedules (addWeeks keeps weekday).

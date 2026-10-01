@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { hash, compare } from "bcryptjs";
 import { addDays } from "date-fns";
 import nodemailer from "nodemailer";
+import { platformEmailConfigured, sendPlatformEmail } from "@/lib/platform-email";
 import prisma from "@/lib/db";
 import { auth } from "@/auth";
 import { ACTIVE_TENANT_COOKIE } from "@/lib/auth-cookies";
@@ -165,11 +166,55 @@ export type OnboardingInput = {
   phone: string;
   address: string;
   website: string;
+  bankDetails?: string;
+  customerCount?: string;
+  teamSize?: string;
+  paymentMethods?: string[];
+  heardFrom?: string;
 };
 
 export type OnboardingResult = { ok: true } | { ok: false; error: string };
 
 const ONBOARDING_REFRESH_COOKIE = "wyndos_onboarding_refresh";
+
+/** A welcome email to the new owner, and a heads-up to Wyndos support. */
+async function sendSignupEmails(d: {
+  email: string; ownerName: string; companyName: string; phone: string; address: string; website: string;
+  signupInfo: { customerCount: string; teamSize: string; paymentMethods: string[]; heardFrom: string };
+}) {
+  const base = (process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "https://wyndos.io").replace(/\/$/, "");
+  const first = d.ownerName.split(" ")[0] || "there";
+  if (d.email) {
+    const steps = [
+      ["Import your customers", `${base}/customers/import`, "Upload a spreadsheet. Areas are created for you."],
+      ["Plan your round", `${base}/scheduler`, "Drag areas onto days."],
+      ["Invite your team", `${base}/settings`, "Settings, then Team."],
+    ];
+    await sendPlatformEmail({
+      to: d.email,
+      subject: `Welcome to Wyndos, ${first}`,
+      text: `Hi ${first},\n\n${d.companyName} is set up on Wyndos. Three things to do first:\n\n${steps.map(([t, u, x]) => `- ${t}: ${x} ${u}`).join("\n")}\n\nStuck? Use Help & support in the app, or just reply to this email.\n\nWyndos`,
+      html: `<div style="font-family:Arial,sans-serif;font-size:15px;color:#1e293b;line-height:1.5">
+<p>Hi ${escHtml(first)},</p><p><strong>${escHtml(d.companyName)}</strong> is set up on Wyndos. Three things to do first:</p>
+<ol>${steps.map(([t, u, x]) => `<li style="margin-bottom:6px"><a href="${escHtml(u)}" style="color:#2563eb;font-weight:bold">${escHtml(t)}</a><br><span style="color:#64748b">${escHtml(x)}</span></li>`).join("")}</ol>
+<p>Stuck? Use <strong>Help &amp; support</strong> in the app, or just reply to this email.</p><p>Wyndos</p></div>`,
+    });
+  }
+  const to = process.env.SUPPORT_EMAIL?.trim() || "support@wyndos.io";
+  const info = d.signupInfo;
+  const rows: Array<[string, string]> = [
+    ["Business", d.companyName], ["Owner", `${d.ownerName} <${d.email}>`], ["Phone", d.phone], ["Address", d.address], ["Website", d.website],
+    ["Customers", info.customerCount], ["Team", info.teamSize], ["Payments", info.paymentMethods.join(", ")], ["Found us", info.heardFrom],
+  ];
+  await sendPlatformEmail({
+    to,
+    bcc: process.env.SUPPORT_BCC_EMAIL?.trim() || undefined,
+    replyTo: d.email || undefined,
+    subject: `New sign-up: ${d.companyName}`,
+    text: rows.map(([k, v]) => `${k}: ${v || "-"}`).join("\n"),
+    html: `<table style="font-family:Arial,sans-serif;font-size:14px">${rows.map(([k, v]) => `<tr><td style="padding:2px 12px 2px 0;font-weight:bold">${k}</td><td>${escHtml(v || "-")}</td></tr>`).join("")}</table>`,
+  });
+}
 
 export async function completeOwnerOnboarding(input: OnboardingInput): Promise<OnboardingResult> {
   try {
@@ -183,6 +228,15 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
     const address = input.address.trim();
     const website = input.website.trim();
     const email = user.email?.trim().toLowerCase() ?? "";
+    if (!companyName || !ownerName) return { ok: false, error: "Add your business name and your name." };
+    const bankDetails = String(input.bankDetails ?? "").trim().slice(0, 300);
+    const signupInfo = {
+      customerCount: String(input.customerCount ?? "").slice(0, 40),
+      teamSize: String(input.teamSize ?? "").slice(0, 40),
+      paymentMethods: (Array.isArray(input.paymentMethods) ? input.paymentMethods : []).map((m) => String(m).slice(0, 40)).slice(0, 8),
+      heardFrom: String(input.heardFrom ?? "").slice(0, 80),
+    };
+    const firstTime = !(await db.user.findUnique({ where: { id: user.id }, select: { onboardingComplete: true } }))?.onboardingComplete;
 
     await db.$transaction(async (tx: any) => {
       await tx.tenant.update({
@@ -192,6 +246,7 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
           phone,
           address,
           website,
+          signupInfo: JSON.stringify(signupInfo),
           slug: await uniqueSlug(toSlug(companyName), tenantId),
         },
       });
@@ -204,6 +259,7 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
           phone,
           address,
           email,
+          ...(bankDetails ? { bankDetails } : {}),
         },
         create: {
           tenantId,
@@ -212,6 +268,7 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
           phone,
           address,
           email,
+          bankDetails,
         },
       });
 
@@ -233,6 +290,13 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
       maxAge: 60,
     });
 
+    if (firstTime && platformEmailConfigured()) {
+      // Don't hold up their first look at the app for the emails.
+      void sendSignupEmails({ email, ownerName, companyName, phone, address, website, signupInfo }).catch((e) =>
+        console.error("[completeOwnerOnboarding] email", e)
+      );
+    }
+
     return { ok: true };
   } catch (err: any) {
     console.error("[completeOwnerOnboarding]", err);
@@ -245,8 +309,21 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
 // -----------------------------------------------------------------------------
 
 export type CreateInviteResult =
-  | { ok: true; token: string; link: string }
+  | { ok: true; token: string; link: string; emailed: boolean }
   | { ok: false; error: string };
+
+const escHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+async function sendInviteEmail(to: string, link: string, businessName: string, inviterName: string) {
+  const subject = `${inviterName} invited you to ${businessName} on Wyndos`;
+  const text = `${inviterName} has invited you to join ${businessName} on Wyndos.\n\nAccept the invite: ${link}\n\nThe link works for 7 days.`;
+  const html = `<div style="font-family:Arial,sans-serif;font-size:15px;color:#1e293b;line-height:1.5">
+<p><strong>${escHtml(inviterName)}</strong> has invited you to join <strong>${escHtml(businessName)}</strong> on Wyndos.</p>
+<p><a href="${escHtml(link)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Accept invite</a></p>
+<p style="font-size:13px;color:#64748b">The link works for 7 days. If the button doesn't work, copy this into your browser:<br>${escHtml(link)}</p>
+</div>`;
+  await sendPlatformEmail({ to, subject, html, text });
+}
 
 /**
  * OWNER creates a worker invite.
@@ -288,7 +365,22 @@ export async function createInvite(
     const baseUrl = process.env.NEXTAUTH_URL ?? process.env.APP_URL ?? "http://localhost:3000";
     const link = `${baseUrl}/auth/invite/${invite.token}`;
 
-    return { ok: true, token: invite.token, link };
+    // Email it when Wyndos email is set up; the link is still shown as a backup.
+    let emailed = false;
+    if (platformEmailConfigured()) {
+      try {
+        const [tenant, me] = await Promise.all([
+          db.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
+          db.user.findUnique({ where: { id: user.id }, select: { name: true, email: true } }),
+        ]);
+        await sendInviteEmail(normEmail, link, tenant?.name || "your team", me?.name || me?.email || "Your boss");
+        emailed = true;
+      } catch (err) {
+        console.error("[createInvite] email failed", err);
+      }
+    }
+
+    return { ok: true, token: invite.token, link, emailed };
   } catch (err: any) {
     console.error("[createInvite]", err);
     return { ok: false, error: err.message ?? "Failed to create invite." };

@@ -21,6 +21,8 @@ model Tenant {
   address   String   @default("")
   website   String   @default("")
   logoUrl   String   @default("")
+  /// What they told us at sign-up (customer count, team size, payment methods, how they found us). JSON.
+  signupInfo String  @default("{}")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -163,6 +165,8 @@ model Membership {
   tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   role        UserRole  @default(WORKER)
   permissions String    @default("[]")
+  /// JSON: which email notifications this person wants in this business.
+  notifyPrefs String    @default("{}")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -578,4 +582,27 @@ model MessageLog {
   @@index([tenantId, createdAt])
   @@index([tenantId, kind, customerId])
   @@index([tenantId, status])
+}
+
+
+/// An email notification waiting to go out. Held for a minute, then re-checked
+/// (a day started and straight away undone sends nothing).
+model NotificationEvent {
+  id          Int       @id @default(autoincrement())
+  tenantId    Int
+  /// DAY_STARTED, DAY_COMPLETED, WORK_ASSIGNED
+  kind        String
+  workDayId   Int?
+  /// WORK_ASSIGNED: who the work was given to
+  userId      String?
+  /// WORK_ASSIGNED: JSON list of job ids
+  jobIds      String    @default("[]")
+  actorUserId String?
+  dueAt       DateTime
+  sentAt      DateTime?
+  skipped     String?
+  createdAt   DateTime  @default(now())
+
+  @@index([sentAt, dueAt])
+  @@index([tenantId])
 }
