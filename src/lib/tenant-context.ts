@@ -120,8 +120,28 @@ export async function requirePermission(permission: string): Promise<void> {
   if (role === "SUPER_ADMIN" || role === "OWNER") return;
 
   if (!(permissions ?? []).includes(permission)) {
-    redirect("/");
+    // Never send them back to a page they can't open either (a worker without the
+    // dashboard permission bounced between "/" and "/" forever: "too many redirects").
+    redirect(firstAllowedPage(permissions ?? []));
   }
+}
+
+/** Pages in the order a worker would want to land on them, with the permission each needs. */
+const LANDING_PAGES: Array<[string, string]> = [
+  ["dashboard", "/"],
+  ["schedule", "/days"],
+  ["scheduler", "/scheduler"],
+  ["customers", "/customers"],
+  ["payments", "/payments"],
+  ["messaging", "/messages"],
+  ["areas", "/areas"],
+  ["accounting", "/accounting"],
+  ["settings", "/settings"],
+];
+
+/** The first page these permissions allow; "My account" (open to everyone) if none. */
+export function firstAllowedPage(permissions: string[]) {
+  return LANDING_PAGES.find(([perm]) => permissions.includes(perm))?.[1] ?? "/account";
 }
 
 export async function getActiveTenantId(): Promise<number> {
