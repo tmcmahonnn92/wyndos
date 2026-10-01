@@ -5282,6 +5282,20 @@ export async function updateBusinessSettings(data: {
   revalidatePath("/settings");
 }
 
+/** Mark cleans as invoiced by hand (no PDF), or clear the mark. */
+export async function markJobsInvoiced(customerId: number, jobIds: number[], invoiced: boolean) {
+  const actor = await requireMember();
+  if (!hasPermission(actor, "payments") && !hasPermission(actor, "customers")) throw new AccessDeniedError();
+  const ids = jobIds.filter((id) => Number.isInteger(id) && id > 0);
+  if (!ids.length) return { count: 0 };
+  const r = await prisma.job.updateMany({
+    where: { id: { in: ids }, customerId, tenantId: actor.tenantId },
+    data: invoiced ? { invoicedAt: new Date() } : { invoicedAt: null, invoiceNumber: "" },
+  });
+  revalidatePath(`/customers/${customerId}`);
+  return { count: r.count };
+}
+
 export async function claimNextInvoiceNumber(): Promise<string> {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;

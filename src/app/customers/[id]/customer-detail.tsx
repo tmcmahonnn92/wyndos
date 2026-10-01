@@ -5,7 +5,7 @@ import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Edit2, CalendarDays, PoundSterling, CheckCircle2, SkipForward, FileText, Download, Mail, MapPin, Tag as TagIcon, MessageSquare, ArrowLeftRight, Pencil, Trash2, Zap, UserCheck } from "lucide-react";
-import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, recordPayment, setCustomerTags, updateJobPrice, updatePaymentMeta, voidPayment, createOneOffJob, addCustomerToDate } from "@/lib/actions";
+import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, recordPayment, setCustomerTags, updateJobPrice, updatePaymentMeta, voidPayment, createOneOffJob, addCustomerToDate, markJobsInvoiced } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -160,12 +160,15 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
   );
   const unpaidJobs = invoiceableJobs.filter((j) => unpaidJobIds.has(j.id));
   const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set(unpaidJobIds));
-  const [invoiceJobFilter, setInvoiceJobFilter] = useState<"unpaid" | "complete" | "all">("unpaid");
+  const [invoiceJobFilter, setInvoiceJobFilter] = useState<"unpaid" | "uninvoiced" | "complete" | "all">("unpaid");
   const [invoiceStatus, setInvoiceStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [invoiceMsg, setInvoiceMsg] = useState("");
+  // Tick: making the PDF marks the selected cleans as invoiced (with the invoice number).
+  const [markInvoiced, setMarkInvoiced] = useState(true);
   const visibleInvoiceJobs = invoiceableJobs.filter((j) => {
     if (invoiceJobFilter === "unpaid") return unpaidJobIds.has(j.id);
     if (invoiceJobFilter === "complete") return j.status === "COMPLETE";
+    if (invoiceJobFilter === "uninvoiced") return !j.invoicedAt;
     return true;
   });
 
@@ -218,7 +221,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
       const res = await fetch(`/api/invoice/${action === "pdf" ? "pdf" : "email"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId: customer.id, jobIds }),
+        body: JSON.stringify({ customerId: customer.id, jobIds, markInvoiced }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -235,7 +238,8 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
         a.click();
         URL.revokeObjectURL(url);
         setInvoiceStatus("success");
-        setInvoiceMsg("PDF downloaded.");
+        setInvoiceMsg(markInvoiced ? `PDF downloaded. ${jobIds.length} clean${jobIds.length === 1 ? "" : "s"} marked as invoiced.` : "PDF downloaded.");
+        if (markInvoiced) router.refresh();
       } else {
         const data = await res.json();
         setInvoiceStatus("success");
@@ -677,7 +681,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                   <li key={job.id} className="flex items-center justify-between px-4 py-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-800">{(job as { name?: string }).name || "Window Cleaning"}</p>
-                      <p className="text-xs text-slate-500">{fmtDate(job.workDay.date)}{job.isOneOff ? " · one-off" : ""}</p>
+                      <p className="text-xs text-slate-500">{fmtDate(job.workDay.date)}{job.isOneOff ? " · one-off" : ""}{job.invoicedAt ? ` · invoiced${job.invoiceNumber ? ` ${job.invoiceNumber}` : ""}` : ""}</p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className={cn(
                           "text-xs px-1.5 py-0.5 rounded-full font-medium",
@@ -1229,11 +1233,11 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
         <div className="space-y-4">
           {/* Filter tabs */}
           <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
-            {(["unpaid", "complete", "all"] as const).map((f) => (
+            {(["unpaid", "uninvoiced", "complete", "all"] as const).map((f) => (
               <button key={f} onClick={() => setInvoiceJobFilter(f)}
                 className={cn("flex-1 py-1.5 text-xs font-medium rounded-md transition-colors",
                   invoiceJobFilter === f ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
-                {f === "unpaid" ? "Unpaid" : f === "complete" ? "Completed" : "All jobs"}
+                {f === "unpaid" ? "Unpaid" : f === "uninvoiced" ? "Not invoiced" : f === "complete" ? "Completed" : "All jobs"}
               </button>
             ))}
           </div>
@@ -1264,6 +1268,11 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                         {job.status}{job.isOneOff ? " · one-off" : ""}
                         {jobBalance.paid > 0 ? ` · paid ${fmtCurrency(jobBalance.paid)}` : ""}
                       </p>
+                      {job.invoicedAt && (
+                        <p className="text-[11px] font-semibold text-indigo-600">
+                          Invoiced{job.invoiceNumber ? ` ${job.invoiceNumber}` : ""} · {fmtDate(job.invoicedAt)}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold text-slate-700">{fmtCurrency(job.price)}</p>
@@ -1280,6 +1289,26 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
             <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 flex items-center justify-between">
               <p className="text-sm text-slate-600">{selectedJobIds.size} job{selectedJobIds.size !== 1 ? "s" : ""} · {fmtCurrency(invoiceTotal)} total</p>
               <p className="text-sm font-bold text-red-600">{fmtCurrency(invoiceDue)} due</p>
+            </div>
+          )}
+
+          {/* Mark as invoiced */}
+          {selectedJobIds.size > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" checked={markInvoiced} onChange={(e) => setMarkInvoiced(e.target.checked)} className="rounded accent-blue-600" />
+                Mark as invoiced
+              </label>
+              <span className="flex gap-3 text-xs">
+                <button type="button" className="font-semibold text-blue-600 hover:underline" onClick={() => startTransition(async () => {
+                  const r = await markJobsInvoiced(customer.id, Array.from(selectedJobIds), true);
+                  setInvoiceStatus("success"); setInvoiceMsg(`${r.count} marked as invoiced (no PDF).`); router.refresh();
+                })}>Just mark, no PDF</button>
+                <button type="button" className="text-slate-500 hover:underline" onClick={() => startTransition(async () => {
+                  const r = await markJobsInvoiced(customer.id, Array.from(selectedJobIds), false);
+                  setInvoiceStatus("success"); setInvoiceMsg(`${r.count} unmarked.`); router.refresh();
+                })}>Unmark</button>
+              </span>
             </div>
           )}
 

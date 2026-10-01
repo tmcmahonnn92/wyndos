@@ -389,6 +389,9 @@ model Job {
   status      JobStatus @default(PENDING)
   price       Float
   completedAt DateTime?
+  /// When the clean went on an invoice, and its number ("" when marked by hand).
+  invoicedAt    DateTime?
+  invoiceNumber String    @default("")
   notes       String?
   sortOrder   Int       @default(0)
   isOneOff    Boolean   @default(false)

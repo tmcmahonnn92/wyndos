@@ -16,8 +16,8 @@ function fmtDate(d: Date | string | null) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json() as { customerId: number; jobIds: number[]; claimNumber?: boolean };
-    const { customerId, jobIds, claimNumber = true } = body;
+    const body = await req.json() as { customerId: number; jobIds: number[]; claimNumber?: boolean; markInvoiced?: boolean };
+    const { customerId, jobIds, claimNumber = true, markInvoiced = false } = body;
     const actor = await requireMember();
     if (!hasPermission(actor, "payments") && !hasPermission(actor, "customers")) throw new AccessDeniedError();
     const tenantId = actor.tenantId;
@@ -51,6 +51,13 @@ export async function POST(req: NextRequest) {
     const invoiceNumber = claimNumber
       ? await claimNextInvoiceNumber()
       : `${settings.invoicePrefix}-PREVIEW`;
+
+    if (claimNumber && markInvoiced) {
+      await prisma.job.updateMany({
+        where: { id: { in: requestedJobIds }, customerId, tenantId },
+        data: { invoicedAt: new Date(), invoiceNumber },
+      });
+    }
 
     // VAT invoice: needs the setting and a VAT number. Prices include VAT, split per line.
     const vatRate = settings.invoiceVatEnabled && settings.vatNumber?.trim() ? Number(settings.invoiceVatRate) || 0 : null;
