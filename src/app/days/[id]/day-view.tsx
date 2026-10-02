@@ -609,21 +609,30 @@ export function DayView({
             refreshIfOnline();
           })
         }
-        onQuickPay={(includeDebt: boolean, method: "CASH" | "BACS" | "CARD") =>
+        allowCredit={allowCredit}
+        onQuickPay={({ includeDebt, method, price, paid }) =>
           safely(async () => {
+            // A different price this time (e.g. fronts only) is saved first, so credit and
+            // what's owed are worked out on the new price.
+            if (Math.abs(price - job.price) > 0.004) await doPrice(job, price);
             await doComplete(job);
-            // Credit is used first when the job is ticked; only take the rest.
-            const toCollect = Number(Math.max(0, job.price - creditOf(job)).toFixed(2));
-            const allocations: Array<{ jobId: number; amount: number }> = toCollect > 0.005 ? [{ jobId: job.id, amount: toCollect }] : [];
+            // Credit is used first when the job is ticked; the money handed over pays the rest,
+            // then anything owed from before (if ticked), and any extra becomes credit.
+            let left = Number(paid.toFixed(2));
+            const allocations: Array<{ jobId: number; amount: number }> = [];
+            const visitDue = Number(Math.max(0, price - creditOf(job)).toFixed(2));
+            const take = (jobId: number, due: number) => {
+              const amount = Number(Math.min(due, left).toFixed(2));
+              if (amount > 0.005) { allocations.push({ jobId, amount }); left = Number((left - amount).toFixed(2)); }
+            };
+            take(job.id, visitDue);
             if (includeDebt) {
-              const prevJobs = (job.customer.jobs ?? []).filter((j) => j.id !== job.id);
-              for (const pj of prevJobs) {
-                const paid = (pj.allocations ?? []).reduce((s: number, a: { amount: number }) => s + a.amount, 0);
-                const due = Number(Math.max(0, pj.price - paid).toFixed(2));
-                if (due > 0.005) allocations.push({ jobId: pj.id, amount: due });
+              for (const pj of (job.customer.jobs ?? []).filter((j) => j.id !== job.id)) {
+                const paidSoFar = (pj.allocations ?? []).reduce((s: number, a: { amount: number }) => s + a.amount, 0);
+                take(pj.id, Number(Math.max(0, pj.price - paidSoFar).toFixed(2)));
               }
             }
-            if (allocations.length > 0) await doPay(job, allocations, method);
+            await doPay(job, allocations, method, undefined, left > 0.005 ? left : 0);
             refreshIfOnline();
           })
         }
@@ -2310,6 +2319,7 @@ function JobCard({
   showWorker = false,
   quickPayMethod = "CASH",
   areaTag = null,
+  allowCredit = true,
 }: {
   job: Job;
   showWorker?: boolean;
@@ -2320,15 +2330,20 @@ function JobCard({
   isPending: boolean;
   onNotesClick?: () => void;
   onQuickComplete?: () => void;
-  onQuickPay?: (includeDebt: boolean, method: "CASH" | "BACS" | "CARD") => void;
+  onQuickPay?: (input: { includeDebt: boolean; method: "CASH" | "BACS" | "CARD"; price: number; paid: number }) => void;
   onOpenInPayMode?: () => void;
   hidePrices?: boolean;
+  allowCredit?: boolean;
 }) {
   const isDone = job.status === "COMPLETE";
   const isQuote = Boolean(job.isQuote);
   const isClickable = !isQuote; // Quote visits use their own buttons, not the job modal
   const [showQuickPayChoices, setShowQuickPayChoices] = useState(false);
   const [includeDebt, setIncludeDebt] = useState(false);
+  // Quick "Done & Paid": price this time, what they actually handed over, and how.
+  const [quickMethod, setQuickMethod] = useState<"CASH" | "BACS" | "CARD">(quickPayMethod);
+  const [quickPrice, setQuickPrice] = useState("");
+  const [quickPaid, setQuickPaid] = useState("");
   const previousDebt = job.customer.jobs.filter(j => j.id !== job.id).reduce((sum, j) => {
     const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
     return sum + Math.max(0, j.price - paid);
@@ -2529,47 +2544,108 @@ function JobCard({
                 onClick={(e) => {
                   e.stopPropagation();
                   setIncludeDebt(previousDebt > 0.005);
+                  setQuickMethod(quickPayMethod);
+                  setQuickPrice("");
+                  setQuickPaid("");
                   setShowQuickPayChoices((prev) => !prev);
                 }}
                 disabled={isPending}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 transition-colors disabled:opacity-50 touch-manipulation"
               >
                 <Banknote size={15} className="text-blue-600" />
-                Done &amp; Paid
+                Done &amp; Paid{!hidePrices && ` ${fmtCurrency(Math.max(0, job.price - creditOf(job)))}`}
               </button>
             )}
           </div>
-          {onQuickPay && showQuickPayChoices && (
-            <div className="border-t border-blue-100 bg-blue-50/70 p-2.5 space-y-2" onClick={(e) => e.stopPropagation()}>
-              <p className="text-[11px] font-medium text-blue-800">Paid today by:</p>
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  ["CASH", "Cash"],
-                  ["CARD", "Card"],
-                  ["BACS", "Bank"],
-                ] as const).map(([method, label]) => (
-                  <button
-                    key={method}
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setShowQuickPayChoices(false); onQuickPay(includeDebt, method); }}
-                    disabled={isPending}
-                    className={cn(
-                      "px-3 py-2.5 rounded-lg border bg-white text-sm font-semibold disabled:opacity-50",
-                      quickPayMethod === method ? "border-blue-500 text-blue-800 ring-1 ring-blue-400" : "border-blue-200 text-blue-700"
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
+          {onQuickPay && showQuickPayChoices && (() => {
+            const credit = creditOf(job);
+            const price = quickPrice.trim() === "" ? job.price : Math.max(0, Number(quickPrice) || 0);
+            const visitDue = Math.max(0, price - credit);
+            const owed = Number((visitDue + (includeDebt ? previousDebt : 0)).toFixed(2));
+            const paid = quickPaid.trim() === "" ? owed : Math.max(0, Number(quickPaid) || 0);
+            const extra = Number(Math.max(0, paid - owed).toFixed(2));
+            const short = Number(Math.max(0, owed - paid).toFixed(2));
+            const blocked = extra > 0 && !allowCredit;
+            const label = { CASH: "cash", CARD: "card", BACS: "bank" }[quickMethod];
+            return (
+              <div className="border-t border-blue-100 bg-blue-50/70 p-3 space-y-2.5" onClick={(e) => e.stopPropagation()}>
+                {!hidePrices && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="mb-0.5 block text-[11px] font-semibold text-blue-900">Price this time</span>
+                      <input
+                        type="number" inputMode="decimal" step="0.01" min="0"
+                        value={quickPrice} placeholder={job.price.toFixed(2)}
+                        onChange={(e) => setQuickPrice(e.target.value)}
+                        className="w-full rounded-lg border border-blue-200 bg-white px-2.5 py-2 text-base font-semibold"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-0.5 block text-[11px] font-semibold text-blue-900">They paid</span>
+                      <input
+                        type="number" inputMode="decimal" step="0.01" min="0"
+                        value={quickPaid} placeholder={owed.toFixed(2)}
+                        onChange={(e) => setQuickPaid(e.target.value)}
+                        className="w-full rounded-lg border border-blue-200 bg-white px-2.5 py-2 text-base font-semibold"
+                      />
+                    </label>
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-2">
+                  {([["CASH", "Cash"], ["CARD", "Card"], ["BACS", "Bank"]] as const).map(([method, text]) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setQuickMethod(method); }}
+                      className={cn(
+                        "rounded-lg border py-2 text-sm font-semibold",
+                        quickMethod === method ? "border-blue-600 bg-blue-600 text-white" : "border-blue-200 bg-white text-blue-700",
+                      )}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
+                {previousDebt > 0.005 && (
+                  <label className="flex items-center gap-2 text-[11px] font-medium text-amber-800">
+                    <input type="checkbox" checked={includeDebt} onChange={(e) => setIncludeDebt(e.target.checked)} />
+                    Also pay the {fmtCurrency(previousDebt)} owed from before
+                  </label>
+                )}
+                {!hidePrices && (credit > 0.005 || extra > 0 || short > 0 || Math.abs(price - job.price) > 0.004) && (
+                  <ul className="space-y-0.5 text-[11px] font-medium">
+                    {Math.abs(price - job.price) > 0.004 && <li className="text-slate-600">Price changed for this clean only ({fmtCurrency(job.price)} usual).</li>}
+                    {credit > 0.005 && <li className="text-green-700">{fmtCurrency(Math.min(credit, price))} comes off from their credit.</li>}
+                    {extra > 0 && (() => {
+                      if (!allowCredit) return <li className="text-red-600">{fmtCurrency(extra)} more than owed. Customer credit is off in Settings.</li>;
+                      // Extra money pays anything still owed from before first, then becomes credit.
+                      const toOld = includeDebt ? 0 : Math.min(extra, previousDebt);
+                      const toCredit = Number((extra - toOld).toFixed(2));
+                      return (
+                        <>
+                          {toOld > 0.005 && <li className="text-amber-700">{fmtCurrency(toOld)} extra goes off the {fmtCurrency(previousDebt)} owed from before.</li>}
+                          {toCredit > 0.005 && <li className="text-green-700">{fmtCurrency(toCredit)} extra kept as credit for next time.</li>}
+                        </>
+                      );
+                    })()}
+                    {short > 0 && <li className="text-amber-700">{fmtCurrency(short)} still owing.</li>}
+                  </ul>
+                )}
+                <button
+                  type="button"
+                  disabled={isPending || blocked}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowQuickPayChoices(false);
+                    onQuickPay({ includeDebt, method: quickMethod, price, paid });
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 py-2.5 text-sm font-bold text-white active:bg-green-700 disabled:opacity-50"
+                >
+                  <Check size={15} /> {hidePrices ? `Done · paid by ${label}` : `Done · ${fmtCurrency(paid)} ${label}`}
+                </button>
               </div>
-              {previousDebt > 0.005 && (
-                <label className="flex items-center gap-2 text-[11px] font-medium text-amber-800">
-                  <input type="checkbox" checked={includeDebt} onChange={(e) => setIncludeDebt(e.target.checked)} />
-                  Also pay the {fmtCurrency(previousDebt)} owed from previous visits
-                </label>
-              )}
-            </div>
-          )}
+            );
+          })()}
         </>
       )}
       {!isQuote && job.status === "COMPLETE" && (() => {
