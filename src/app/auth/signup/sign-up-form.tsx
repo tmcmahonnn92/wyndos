@@ -151,6 +151,11 @@ export function SignUpForm({ googleEnabled }: { googleEnabled: boolean }) {
         >
           {loading ? "Creating your account..." : "Create account and set up"}
         </button>
+        <p className="text-center text-xs text-slate-500">
+          You&apos;ll be asked to agree to our <a href="/terms" target="_blank" rel="noopener" className="underline">Terms</a>,{" "}
+          <a href="/privacy" target="_blank" rel="noopener" className="underline">Privacy Policy</a> and{" "}
+          <a href="/cookies" target="_blank" rel="noopener" className="underline">Cookie Policy</a> when you set up.
+        </p>
       </form>
 
       <p className="text-center text-xs text-slate-500">

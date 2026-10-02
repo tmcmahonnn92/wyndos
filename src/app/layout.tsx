@@ -14,6 +14,8 @@ import { BillingLock, TrialBar } from "@/components/billing-banners";
 import { VerifyEmailBar } from "@/components/verify-email-bar";
 import { emailVerificationState } from "@/lib/auth-actions";
 import { billingStateForTenant, type BillingState } from "@/lib/billing";
+import { legalAccepted } from "@/lib/legal-state";
+import { LegalAcceptGate } from "@/components/legal-accept-gate";
 
 // Fonts are bundled in the repo (src/app/fonts) so builds never depend on reaching Google Fonts.
 const syne = localFont({
@@ -73,6 +75,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const companyCount = session?.user?.memberships?.length ?? 0;
   let supportSession: { reason: string; startedAt: string } | null = null;
   let billing: BillingState | null = null;
+  let businessTenantId: number | null = null;
 
   if (session?.user) {
     const role = session.user.role;
@@ -90,6 +93,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         activeRole = own.role;
         activePermissions = resolveActivePermissions(session.user, tenantId);
         billing = await billingStateForTenant(own.tenantId);
+        businessTenantId = own.tenantId;
       }
 
       if (!Number.isNaN(tenantId)) {
@@ -122,6 +126,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       activePermissions = resolveActivePermissions(session.user, preferredTenantId);
       // The subscription belongs to the business: workers are covered by the owner's.
       if (activeMembership?.tenantId) billing = await billingStateForTenant(activeMembership.tenantId);
+      businessTenantId = activeMembership?.tenantId ?? null;
     }
   }
 
@@ -134,6 +139,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // settings, backups and everything else stay open so nobody is cut off from their data.
   const blockedWhenLocked = ["/scheduler", "/days"].some((p) => path === p || path.startsWith(`${p}/`));
   const locked = Boolean(billing && !billing.access && blockedWhenLocked);
+  // Owners accept the current Terms (and confirm they may hold their customers' details) before carrying on.
+  const legalExempt = ["/auth", "/terms", "/privacy", "/cookies", "/support", "/api"].some((p) => path.startsWith(p));
+  const needsLegal = Boolean(session?.user && activeRole === "OWNER" && businessTenantId && !legalExempt)
+    && !(await legalAccepted(businessTenantId!).catch(() => true));
   const showTrialBar = Boolean(billing && activeRole === "OWNER" && !path.startsWith("/billing") && !path.startsWith("/auth")
     && ((billing.kind === "trial" && billing.daysLeft <= 15) || billing.kind === "past_due" || billing.kind === "ended"));
 
@@ -160,7 +169,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           {emailCheck && !emailCheck.verified && <VerifyEmailBar email={emailCheck.email} />}
           {session?.user && <div className="print:hidden"><OfflineStatus /></div>}
           {showTrialBar && billing && <TrialBar state={billing} />}
-          {locked ? <BillingLock isOwner={activeRole === "OWNER"} hadSubscription={billing?.hadSubscription} /> : children}
+          {needsLegal ? <LegalAcceptGate /> : locked ? <BillingLock isOwner={activeRole === "OWNER"} hadSubscription={billing?.hadSubscription} /> : children}
         </main>
         {session?.user && <PWAInstallPrompt />}
       </body>

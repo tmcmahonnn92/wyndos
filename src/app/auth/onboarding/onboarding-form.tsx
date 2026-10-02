@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { completeOwnerOnboarding } from "@/lib/auth-actions";
+import { LegalConsent } from "@/components/legal-consent";
 
 const CUSTOMER_COUNTS = ["Just starting", "Under 100", "100–300", "300–600", "600+"];
 const TEAM_SIZES = ["Just me", "Me + 1 or 2", "3 or more cleaners"];
@@ -39,6 +40,7 @@ export function OnboardingForm({
   const [heardFrom, setHeardFrom] = useState("");
 
   const [startAt, setStartAt] = useState(START_OPTIONS[0].href);
+  const [consent, setConsent] = useState({ acceptTerms: false, acceptData: false });
 
   const next = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +53,10 @@ export function OnboardingForm({
       setStep(step + 1);
       return;
     }
+    if (!consent.acceptTerms || !consent.acceptData) {
+      setError("Please tick both boxes to agree to the terms.");
+      return;
+    }
     void finish();
   };
 
@@ -61,6 +67,8 @@ export function OnboardingForm({
         companyName, ownerName, phone, address, website,
         customerCount, teamSize, paymentMethods: payments, heardFrom,
         bankDetails: payments.includes("Bank transfer") ? bankDetails : "",
+        acceptTerms: consent.acceptTerms,
+        acceptDataPermission: consent.acceptData,
       });
       if (!result.ok) {
         setError(result.error);
@@ -189,6 +197,7 @@ export function OnboardingForm({
               Invite your cleaners from <strong className="text-slate-200">Settings → Team</strong>. They get an email with a link to join.
             </p>
           )}
+          <LegalConsent acceptTerms={consent.acceptTerms} acceptData={consent.acceptData} onChange={setConsent} />
         </div>
       )}
 

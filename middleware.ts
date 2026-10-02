@@ -6,7 +6,9 @@ import { normalizeMemberships, resolveActiveMembership } from "@/lib/memberships
 
 const { auth } = NextAuth(authConfig);
 const ONBOARDING_REFRESH_COOKIE = "wyndos_onboarding_refresh";
-const PUBLIC_ROUTES = new Set(["/auth/signin", "/auth/signup", "/home", "/privacy", "/terms"]);
+const PUBLIC_ROUTES = new Set(["/auth/signin", "/auth/signup", "/home"]);
+/** Legal pages: open to everyone, signed in or not. */
+const LEGAL_ROUTES = new Set(["/privacy", "/terms", "/cookies"]);
 const PUBLIC_PREFIXES = ["/auth/invite/", "/auth/verify-email", "/screens/"];
 
 function parseTenantId(rawValue: string | undefined) {
@@ -26,6 +28,12 @@ export default auth((req) => {
   if (pathname === "/api/stripe/webhook") return NextResponse.next();
   // Cron endpoints check their own CRON_SECRET bearer token.
   if (pathname.startsWith("/api/cron/")) return NextResponse.next();
+
+  if (LEGAL_ROUTES.has(pathname)) {
+    const headers = new Headers(req.headers);
+    headers.set("x-wyndos-path", pathname);
+    return NextResponse.next({ request: { headers } });
+  }
 
   if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return NextResponse.next();

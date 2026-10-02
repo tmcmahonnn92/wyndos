@@ -10,6 +10,7 @@ import { platformEmailConfigured, sendPlatformEmail, SUPPORT_COPY, SUPPORT_TO } 
 import prisma from "@/lib/db";
 import { auth } from "@/auth";
 import { ACTIVE_TENANT_COOKIE } from "@/lib/auth-cookies";
+import { TERMS_VERSION } from "@/lib/legal";
 import { requireOwnerOrAdmin, requireSuperAdmin } from "@/lib/tenant-context";
 import {
   type Permission,
@@ -178,6 +179,9 @@ export type OnboardingInput = {
   teamSize?: string;
   paymentMethods?: string[];
   heardFrom?: string;
+  /** Terms + privacy accepted, and permission to hold their customers' details confirmed. */
+  acceptTerms?: boolean;
+  acceptDataPermission?: boolean;
 };
 
 export type OnboardingResult = { ok: true } | { ok: false; error: string };
@@ -236,6 +240,9 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
     const website = input.website.trim();
     const email = user.email?.trim().toLowerCase() ?? "";
     if (!companyName || !ownerName) return { ok: false, error: "Add your business name and your name." };
+    if (input.acceptTerms !== true || input.acceptDataPermission !== true) {
+      return { ok: false, error: "Please tick both boxes to agree to the terms." };
+    }
     const bankDetails = String(input.bankDetails ?? "").trim().slice(0, 300);
     const signupInfo = {
       customerCount: String(input.customerCount ?? "").slice(0, 40),
@@ -254,6 +261,10 @@ export async function completeOwnerOnboarding(input: OnboardingInput): Promise<O
           address,
           website,
           signupInfo: JSON.stringify(signupInfo),
+          termsVersion: TERMS_VERSION,
+          termsAcceptedAt: new Date(),
+          termsAcceptedByUserId: user.id,
+          dataPermissionAcceptedAt: new Date(),
           slug: await uniqueSlug(toSlug(companyName), tenantId),
         },
       });
