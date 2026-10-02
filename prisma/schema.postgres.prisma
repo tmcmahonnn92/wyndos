@@ -33,6 +33,12 @@ model Tenant {
   subscriptionStatus   String    @default("")
   currentPeriodEnd     DateTime?
   cancelAtPeriodEnd    Boolean   @default(false)
+  /// Terms + privacy accepted by the owner (version string from src/lib/legal.ts).
+  termsVersion         String    @default("")
+  termsAcceptedAt      DateTime?
+  termsAcceptedByUserId String?
+  /// Owner confirmed they have the right to store and use their customers' details to provide their service.
+  dataPermissionAcceptedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -356,6 +362,7 @@ model Customer {
   createdAt              DateTime      @default(now())
   jobs                   Job[]
   payments               Payment[]
+  bankReferences         PayerReference[]
   tags                   CustomerTag[]
 
   @@index([tenantId])
@@ -691,4 +698,56 @@ model CashHandover {
   payments         Payment[]
 
   @@index([tenantId, workerUserId])
+}
+
+/// One bank statement / spreadsheet import. The file itself is never uploaded or kept:
+/// it is read in the browser and only the rows the user confirmed are sent.
+model PaymentImport {
+  id              Int            @id @default(autoincrement())
+  tenantId        Int
+  createdByUserId String?
+  createdAt       DateTime       @default(now())
+  undoneAt        DateTime?
+  paidCount       Int            @default(0)
+  ignoredCount    Int            @default(0)
+  total           Float          @default(0)
+  lines           ImportedLine[]
+
+  @@index([tenantId])
+}
+
+/// A statement line already dealt with (paid or ignored), so overlapping statements skip it.
+/// Only a one-way hash of the line is kept, never the line itself.
+model ImportedLine {
+  id        Int           @id @default(autoincrement())
+  tenantId  Int
+  importId  Int
+  import    PaymentImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  hash      String
+  paymentId Int?
+  ignored   Boolean       @default(false)
+  createdAt DateTime      @default(now())
+
+  @@unique([tenantId, hash])
+  @@index([importId])
+}
+
+/// A bank reference / payer name learned from a confirmed match. Only ever a suggestion:
+/// every import row is still checked by the user before it is saved.
+model PayerReference {
+  id         Int       @id @default(autoincrement())
+  tenantId   Int
+  /// Normalised: upper case, letters and digits only.
+  key        String
+  /// As it appeared on the statement (trimmed, max 60 characters).
+  label      String
+  customerId Int?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// "Not a customer payment": rows with this reference are suggested as Ignore.
+  ignore     Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime  @default(now())
+
+  @@unique([tenantId, key])
+  @@index([tenantId, customerId])
 }

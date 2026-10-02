@@ -1,8 +1,9 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { getCustomer, getAreas, getBusinessSettings, getCustomerBalance, getCustomerCredit, getCustomerPickList, getTags } from "@/lib/actions";
+import { getCustomer, getCustomerBankReferences, getAreas, getBusinessSettings, getCustomerBalance, getCustomerCredit, getCustomerPickList, getTags } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { CustomerDetail } from "./customer-detail";
+import { BankReferences } from "./bank-references";
 import { getCustomerTexts } from "@/lib/text-actions";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,8 @@ export default async function CustomerPage({ params }: Props) {
   const customer = await getCustomer(customerId);
   if (!customer) notFound();
 
-  const [areas, balance, credit, allTags, settings, pickList, texts] = await Promise.all([
+  const canPay = user.role !== "WORKER" || (user.permissions ?? []).includes("payments");
+  const [areas, balance, credit, allTags, settings, pickList, texts, bankRefs] = await Promise.all([
     getAreas(),
     getCustomerBalance(customerId),
     getCustomerCredit(customerId).catch(() => 0),
@@ -29,6 +31,7 @@ export default async function CustomerPage({ params }: Props) {
     getBusinessSettings(),
     getCustomerPickList(),
     getCustomerTexts(customerId).catch(() => []),
+    canPay ? getCustomerBankReferences(customerId).catch(() => []) : Promise.resolve([]),
   ]);
   const payerOptions = pickList.filter((entry) => entry.id !== customerId && !entry.paidByCustomerId);
 
@@ -39,7 +42,7 @@ export default async function CustomerPage({ params }: Props) {
         areas={areas}
         balance={balance}
         credit={credit}
-        canPay={user.role !== "WORKER" || (user.permissions ?? []).includes("payments")}
+        canPay={canPay}
         allowCredit={settings.allowCustomerCredit ?? true}
         allTags={allTags}
         hidePrices={hidePrices}
@@ -47,6 +50,7 @@ export default async function CustomerPage({ params }: Props) {
         payerOptions={payerOptions.map(({ id, name }) => ({ id, name }))}
         texts={texts.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() }))}
       />
+      {canPay && <BankReferences refs={bankRefs.map(({ id, label }) => ({ id, label }))} />}
     </Suspense>
   );
 }

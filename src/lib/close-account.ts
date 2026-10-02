@@ -41,6 +41,9 @@ export async function closeBusiness(confirmWord: string) {
   const where = { tenantId };
 
   await prisma.$transaction(async (tx) => {
+    await tx.importedLine.deleteMany({ where });
+    await tx.paymentImport.deleteMany({ where });
+    await tx.payerReference.deleteMany({ where });
     await tx.paymentAllocation.deleteMany({ where });
     await tx.payment.deleteMany({ where });
     await tx.cashHandover.deleteMany({ where });

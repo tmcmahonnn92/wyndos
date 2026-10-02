@@ -38,12 +38,16 @@ export type BackupFile = {
     messageLogs: Row[];
     /** Added Oct 2026; older backups don't have it. */
     cashHandovers?: Row[];
+    /** Added Oct 2026 (bank statement matching); older backups don't have them. */
+    payerReferences?: Row[];
+    paymentImports?: Row[];
+    importedLines?: Row[];
   };
 };
 
 export async function buildBackup(tenantId: number): Promise<BackupFile> {
   const where = { tenantId };
-  const [tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers] =
+  const [tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines] =
     await Promise.all([
       prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
       prisma.tenantSettings.findUnique({ where }),
@@ -60,8 +64,11 @@ export async function buildBackup(tenantId: number): Promise<BackupFile> {
       prisma.holiday.findMany({ where, orderBy: { id: "asc" } }),
       prisma.messageLog.findMany({ where, orderBy: { id: "asc" } }),
       prisma.cashHandover.findMany({ where, orderBy: { id: "asc" } }),
+      prisma.payerReference.findMany({ where, orderBy: { id: "asc" } }),
+      prisma.paymentImport.findMany({ where, orderBy: { id: "asc" } }),
+      prisma.importedLine.findMany({ where, orderBy: { id: "asc" } }),
     ]);
-  const data = { tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers };
+  const data = { tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines };
   return {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
@@ -116,9 +123,12 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
   const holidays = rows(d.holidays);
   const messageLogs = rows(d.messageLogs);
   const cashHandovers = rows(d.cashHandovers ?? []);
+  const payerReferences = rows(d.payerReferences ?? []);
+  const paymentImports = rows(d.paymentImports ?? []);
+  const importedLines = rows(d.importedLines ?? []);
 
   // Every row must belong to this business (defends against an edited file).
-  for (const list of [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers]) {
+  for (const list of [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines]) {
     if (list.some((r) => r.tenantId !== tenantId)) throw new Error("The backup file has been changed and can't be used.");
   }
 
@@ -136,6 +146,9 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
   const where = { tenantId };
   await prisma.$transaction(async (tx) => {
     // Clear what's there now.
+    await tx.importedLine.deleteMany({ where });
+    await tx.paymentImport.deleteMany({ where });
+    await tx.payerReference.deleteMany({ where });
     await tx.paymentAllocation.deleteMany({ where });
     await tx.payment.deleteMany({ where });
     await tx.cashHandover.deleteMany({ where });
@@ -164,6 +177,9 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
     if (cashHandovers.length) await tx.cashHandover.createMany({ data: cashHandovers as any });
     if (payments.length) await tx.payment.createMany({ data: payments as any });
     if (allocations.length) await tx.paymentAllocation.createMany({ data: allocations as any });
+    if (paymentImports.length) await tx.paymentImport.createMany({ data: paymentImports as any });
+    if (importedLines.length) await tx.importedLine.createMany({ data: importedLines as any });
+    if (payerReferences.length) await tx.payerReference.createMany({ data: payerReferences as any });
     if (expenses.length) await tx.expense.createMany({ data: expenses as any });
     if (otherIncome.length) await tx.otherIncome.createMany({ data: otherIncome as any });
     if (holidays.length) await tx.holiday.createMany({ data: holidays as any });

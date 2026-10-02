@@ -22,6 +22,7 @@ import {
 } from "@/lib/guards";
 import { decryptSettingsSecrets, encryptSecret } from "@/lib/secrets";
 import { creditFor, queueCleanedTexts } from "@/lib/texts";
+import { referenceKeys } from "@/lib/bank-import/match";
 import {
   EMPTY_ADDRESS,
   addressPartsOf,
@@ -5949,4 +5950,227 @@ export async function updateJobCompletedBy(jobId: number, userId: string) {
   if (!member) throw new Error("That person isn't in your team.");
   await prisma.job.update({ where: { id: jobId }, data: { completedByUserId: userId } });
   revalidatePath(`/days/${job.workDayId}`);
+}
+
+// ─── Bank statement / spreadsheet payment import ─────────────────────────────
+// The file is read in the browser and never sent here. Only rows the user has
+// checked and ticked arrive, with just the fields needed to record a payment.
+
+const IMPORT_HASH = /^[a-f0-9]{64}$/;
+const IMPORT_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Everything the import screen needs to suggest matches: what's owed, and learned references. */
+export async function getBankImportData() {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  const [settings, customers, jobs, references] = await Promise.all([
+    prisma.tenantSettings.findUnique({ where: { tenantId }, select: { goCardlessReferencePrefix: true, allowCustomerCredit: true } }),
+    prisma.customer.findMany({
+      where: { tenantId, isProspect: false },
+      select: { id: true, name: true, address: true, active: true, paidByCustomerId: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.job.findMany({
+      where: { tenantId, status: "COMPLETE", isQuote: false },
+      select: {
+        id: true, price: true, customerId: true, name: true,
+        customer: { select: { paidByCustomerId: true, name: true } },
+        workDay: { select: { date: true } },
+        allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
+      },
+      orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
+    }),
+    prisma.payerReference.findMany({ where: { tenantId }, select: { key: true, customerId: true, ignore: true } }),
+  ]);
+  const prefix = settings?.goCardlessReferencePrefix || "WD";
+  const unpaidBy = new Map<number, Array<{ jobId: number; due: number; date: string | null; label: string }>>();
+  for (const job of jobs) {
+    const due = round2(job.price - job.allocations.reduce((s, a) => s + a.amount, 0));
+    if (due <= 0.005) continue;
+    const entry = {
+      jobId: job.id,
+      due,
+      date: job.workDay?.date ? job.workDay.date.toISOString().slice(0, 10) : null,
+      label: job.customer.paidByCustomerId ? `${job.name} (${job.customer.name})` : job.name,
+    };
+    for (const payerId of new Set([job.customerId, job.customer.paidByCustomerId].filter((id): id is number => typeof id === "number"))) {
+      const list = unpaidBy.get(payerId) ?? [];
+      list.push(entry);
+      unpaidBy.set(payerId, list);
+    }
+  }
+  return {
+    tenantId,
+    allowCredit: settings?.allowCustomerCredit ?? true,
+    customers: customers.map((c) => ({
+      id: c.id,
+      name: c.name,
+      address: c.address,
+      active: c.active,
+      reference: c.address.split(",")[0]?.trim() || c.name,
+      wyndosRef: `${prefix}-C${c.id}`,
+      unpaid: unpaidBy.get(c.id) ?? [],
+    })),
+    references,
+  };
+}
+
+/** Which of these line fingerprints were already dealt with in an earlier import. */
+export async function findImportedLines(hashes: string[]) {
+  const actor = await requirePerm("payments");
+  const clean = [...new Set(hashes.filter((h) => typeof h === "string" && IMPORT_HASH.test(h)))].slice(0, 5000);
+  if (clean.length === 0) return [];
+  const found = await prisma.importedLine.findMany({ where: { tenantId: actor.tenantId, hash: { in: clean } }, select: { hash: true } });
+  return found.map((f) => f.hash);
+}
+
+export type BankImportRow =
+  | { action: "pay"; hash: string; date: string; amount: number; text: string; customerId: number; allocations: Array<{ jobId: number; amount: number }>; extra: number; learn: boolean }
+  | { action: "ignore"; hash: string; text: string; learn: boolean };
+
+async function learnReference(tenantId: number, text: string, customerId: number | null) {
+  const label = text.trim().slice(0, 60);
+  for (const key of referenceKeys(text).slice(0, 4)) {
+    await prisma.payerReference.upsert({
+      where: { tenantId_key: { tenantId, key } },
+      update: { customerId, ignore: customerId === null, label, lastUsedAt: new Date() },
+      create: { tenantId, key, label, customerId, ignore: customerId === null },
+    });
+  }
+}
+
+/** Save the rows the user ticked. Each row is recorded on its own; one bad row doesn't stop the rest. */
+export async function commitBankImport(input: { rows: BankImportRow[] }) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  const rows = Array.isArray(input?.rows) ? input.rows : [];
+  if (rows.length === 0) throw new Error("Tick at least one row first.");
+  if (rows.length > 2000) throw new Error("Too many rows in one go. Split the statement into smaller dates.");
+
+  const already = new Set(await findImportedLines(rows.map((r) => r.hash)));
+  const batch = await prisma.paymentImport.create({ data: { tenantId, createdByUserId: actor.userId } });
+  const results: Array<{ hash: string; ok: boolean; message?: string }> = [];
+  let paidCount = 0;
+  let ignoredCount = 0;
+  let total = 0;
+  const touched = new Set<number>();
+
+  for (const row of rows) {
+    const hash = String(row?.hash ?? "");
+    try {
+      if (!IMPORT_HASH.test(hash)) throw new Error("Row not recognised.");
+      if (already.has(hash)) { results.push({ hash, ok: false, message: "Already imported." }); continue; }
+      already.add(hash);
+      const text = String(row.text ?? "").replace(/\s+/g, " ").trim().slice(0, 140);
+
+      if (row.action === "ignore") {
+        await prisma.importedLine.create({ data: { tenantId, importId: batch.id, hash, ignored: true } });
+        if (row.learn) await learnReference(tenantId, text, null);
+        ignoredCount++;
+        results.push({ hash, ok: true });
+        continue;
+      }
+      if (row.action !== "pay") throw new Error("Row not recognised.");
+
+      const amount = round2(Number(row.amount));
+      const customerId = Number(row.customerId);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) throw new Error("Amount not valid.");
+      if (!IMPORT_DATE.test(String(row.date))) throw new Error("Date not valid.");
+      const paidAt = new Date(`${row.date}T12:00:00.000Z`);
+      if (Number.isNaN(paidAt.getTime()) || paidAt.getTime() > Date.now() + 2 * 86_400_000) throw new Error("Date not valid.");
+      if (!Number.isInteger(customerId) || customerId <= 0) throw new Error("Choose a customer.");
+      const allocations = (Array.isArray(row.allocations) ? row.allocations : [])
+        .map((a) => ({ jobId: Number(a.jobId), amount: round2(Number(a.amount)) }))
+        .filter((a) => Number.isInteger(a.jobId) && a.amount > 0.005);
+      const extra = round2(Math.max(0, Number(row.extra) || 0));
+      const sum = round2(allocations.reduce((s, a) => s + a.amount, 0) + extra);
+      if (Math.abs(sum - amount) > 0.01) throw new Error("The amounts on the jobs don't add up to the payment.");
+
+      const payment = await createAllocatedPayment({
+        tenantId,
+        customerId,
+        allocations,
+        extra,
+        method: "BACS",
+        notes: text ? `Bank: ${text}` : "Bank import",
+        paidAt,
+        collectedByUserId: actor.userId,
+      });
+      try {
+        await prisma.importedLine.create({ data: { tenantId, importId: batch.id, hash, paymentId: payment.id } });
+      } catch (error) {
+        // Imported at the same moment elsewhere: don't keep a second payment.
+        await prisma.payment.update({ where: { id: payment.id }, data: { voidedAt: new Date(), voidReason: "Duplicate bank import" } });
+        throw error;
+      }
+      if (row.learn) await learnReference(tenantId, text, customerId);
+      paidCount++;
+      total = round2(total + amount);
+      touched.add(customerId);
+      results.push({ hash, ok: true });
+    } catch (error) {
+      results.push({ hash, ok: false, message: error instanceof Error ? error.message : "Couldn't save this row." });
+    }
+  }
+
+  if (paidCount === 0 && ignoredCount === 0) {
+    await prisma.paymentImport.delete({ where: { id: batch.id } });
+  } else {
+    await prisma.paymentImport.update({ where: { id: batch.id }, data: { paidCount, ignoredCount, total } });
+  }
+  revalidatePath("/payments");
+  for (const id of touched) revalidatePath(`/customers/${id}`);
+  return { importId: paidCount + ignoredCount > 0 ? batch.id : null, paidCount, ignoredCount, total, results };
+}
+
+/** Recent imports, newest first, for the Undo list. */
+export async function getRecentBankImports() {
+  const actor = await requirePerm("payments");
+  return prisma.paymentImport.findMany({
+    where: { tenantId: actor.tenantId },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+    select: { id: true, createdAt: true, undoneAt: true, paidCount: true, ignoredCount: true, total: true },
+  });
+}
+
+/** Undo a whole import: its payments are cancelled and its lines can be imported again. */
+export async function undoBankImport(importId: number) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  const batch = await prisma.paymentImport.findFirst({ where: { id: Number(importId), tenantId }, select: { id: true, undoneAt: true } });
+  if (!batch) throw new Error("Import not found.");
+  if (batch.undoneAt) return;
+  const lines = await prisma.importedLine.findMany({ where: { tenantId, importId: batch.id }, select: { paymentId: true } });
+  const paymentIds = lines.map((l) => l.paymentId).filter((id): id is number => typeof id === "number");
+  const payments = await prisma.payment.findMany({ where: { tenantId, id: { in: paymentIds } }, select: { customerId: true } });
+  await prisma.$transaction([
+    prisma.payment.updateMany({ where: { tenantId, id: { in: paymentIds }, voidedAt: null }, data: { voidedAt: new Date(), voidReason: "Bank import undone" } }),
+    prisma.importedLine.deleteMany({ where: { tenantId, importId: batch.id } }),
+    prisma.paymentImport.update({ where: { id: batch.id }, data: { undoneAt: new Date() } }),
+  ]);
+  revalidatePath("/payments");
+  for (const id of new Set(payments.map((p) => p.customerId))) revalidatePath(`/customers/${id}`);
+}
+
+/** Bank references learned for one customer (shown on the customer page). */
+export async function getCustomerBankReferences(customerId: number) {
+  const actor = await requirePerm("payments");
+  const refs = await prisma.payerReference.findMany({
+    where: { tenantId: actor.tenantId, customerId: Number(customerId) },
+    orderBy: { lastUsedAt: "desc" },
+    select: { id: true, label: true },
+  });
+  const seen = new Set<string>();
+  return refs.filter((r) => (seen.has(r.label) ? false : (seen.add(r.label), true)));
+}
+
+export async function removeBankReference(referenceId: number) {
+  const actor = await requirePerm("payments");
+  const ref = await prisma.payerReference.findFirst({ where: { id: Number(referenceId), tenantId: actor.tenantId }, select: { id: true, customerId: true } });
+  if (!ref) return;
+  // One statement line is learned as a few keys with the same label: remove them together.
+  const label = (await prisma.payerReference.findUnique({ where: { id: ref.id }, select: { label: true } }))?.label ?? "";
+  await prisma.payerReference.deleteMany({ where: { tenantId: actor.tenantId, customerId: ref.customerId, label } });
+  if (ref.customerId) revalidatePath(`/customers/${ref.customerId}`);
 }

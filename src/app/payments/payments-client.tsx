@@ -15,6 +15,7 @@ import {
   AlertCircle,
   CheckCircle2,
   StickyNote,
+  FileUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtCurrency, fmtDate } from "@/lib/utils";
@@ -94,6 +95,14 @@ export function PaymentsToolbar({
         <RefreshCw size={14} className={cn(isSyncing && "animate-spin")} />
         {isSyncing ? "Syncing..." : "Sync GoCardless"}
       </button>}
+      <Link
+        href="/payments/import"
+        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+        title="Match payments from a bank statement or spreadsheet"
+      >
+        <FileUp size={14} />
+        <span className="hidden sm:inline">Bank statement</span>
+      </Link>
       {allowCredit && <AddCreditForm customers={allCustomers} buttonClassName="whitespace-nowrap" />}
       <LogPaymentForm customers={customers} buttonClassName="whitespace-nowrap" allowCredit={allowCredit} />
 
