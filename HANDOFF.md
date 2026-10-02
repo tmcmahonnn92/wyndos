@@ -22,6 +22,7 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Support: `SUPPORT_EMAIL` (support@wyndos.io), `SUPPORT_COPY_EMAIL` or `SUPPORT_BCC_EMAIL` (Tom's BCC copy).
 - Stripe: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, optional `STRIPE_PRICE_ID`, `STRIPE_TAX_CODE`.
 - Texts: `MESSAGING_LIVE` (server-sent SMS is switched off, see Feature flags).
+- Legal pages (build-time, so redeploy after changing): `NEXT_PUBLIC_LEGAL_NAME`, `NEXT_PUBLIC_LEGAL_ADDRESS`, `NEXT_PUBLIC_ICO_NUMBER`, `NEXT_PUBLIC_HOSTING_LOCATION`.
 
 ## How scheduling works (the core idea)
 - Customers belong to an **Area**; you schedule the area, not single jobs. `scheduleAreaRun` puts an area on a date as a `WorkDay` with a `Job` per due customer.
@@ -68,6 +69,23 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Gate: in `src/app/layout.tsx`. When the trial/subscription has ended only `/scheduler` and `/days` are locked. Owners see a trial bar. Workers are covered by the business's subscription.
 - `Tenant.billingExempt` = free forever (all pre-billing businesses were set exempt by the migration).
 - Stripe is in **test mode**. The webhook is set up in Stripe Workbench → Webhooks.
+
+## Bank statement matching
+- `/payments/import` (button "Bank statement" on Payments). `src/lib/bank-import/parse.ts` (read CSV/XLSX in the browser, find header row, detect columns, UK dates/amounts), `match.ts` (suggestions: saved reference, address first line incl. bank-truncated "68 RIDDEL", Wyndos ref, name/surname, amount fits what's owed).
+- **The file never leaves the browser.** Only rows the user ticks are sent (`commitBankImport` in actions.ts). Nothing is ever auto-saved: every row needs a tick. Changing the customer or jobs un-ticks the row.
+- `ImportedLine` keeps only a SHA-256 of each handled line (dedupe across overlapping statements). `PaymentImport` = one batch, Undo voids its payments and frees its lines.
+- `PayerReference` = learned references (on confirm, if "Remember" is ticked). Shown on the customer page, removable. Only ever a suggestion.
+- Payments are recorded as BACS, dated the bank date, note `Bank: <statement text>`, allocated to the ticked jobs oldest first; the rest is credit (refused if credit is off).
+
+## Legal
+- `/terms`, `/privacy`, `/cookies` (open signed in or out). Text constants + sub-processor list in `src/lib/legal.ts`.
+- Owners tick two boxes at onboarding (terms + "I have the right to store and use my customers' details"). Stored on `Tenant.termsVersion/termsAcceptedAt/termsAcceptedByUserId/dataPermissionAcceptedAt`.
+- Layout shows `LegalAcceptGate` to owners until the current `TERMS_VERSION` is accepted (workers aren't blocked). Bump `TERMS_VERSION` to ask everyone again.
+- Data protection to-do list: `docs/DATA_PROTECTION.md`.
+
+## Staging and backups
+- Staging: `deploy/STAGING.md` (`/opt/wyndos-staging`, port 3001, `sudo ./deploy/deploy-vps.sh --staging`).
+- Hourly encrypted off-site DB backups: `deploy/BACKUPS.md` (`deploy/backup/wyndos-backup.sh`, systemd timer, monthly `wyndos-restore-test.sh`).
 
 ## Feature flags
 `src/lib/features.ts`: `AUTO_SMS_ENABLED = false` (VoodooSMS etc. hidden; phone only), `INVOICE_EMAIL_ENABLED = false`, `GOCARDLESS_ENABLED = false` (settings, sync button, customer GoCardless fields hidden until stage two).

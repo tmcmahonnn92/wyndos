@@ -5,10 +5,21 @@ set -euo pipefail
 APP_USER="wyndos"
 APP_GROUP="wyndos"
 APP_SERVICE="wyndos"
-RELEASE_DIR="/opt/wyndos/current"
-SHARED_DIR="/opt/wyndos/shared"
-ENV_FILE="$SHARED_DIR/.env.production"
+APP_ROOT="/opt/wyndos"
 LOG_DIR="/var/log/wyndos"
+APP_PORT=3000
+
+# Staging: sudo ./deploy/deploy-vps.sh --staging (separate folder, database, service and port).
+if [[ "${1:-}" == "--staging" ]]; then
+  APP_SERVICE="wyndos-staging"
+  APP_ROOT="/opt/wyndos-staging"
+  LOG_DIR="/var/log/wyndos-staging"
+  APP_PORT=3001
+fi
+
+RELEASE_DIR="$APP_ROOT/current"
+SHARED_DIR="$APP_ROOT/shared"
+ENV_FILE="$SHARED_DIR/.env.production"
 RELEASE_META_FILE="$RELEASE_DIR/.release-meta.json"
 
 run_as_app() {
@@ -34,7 +45,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-install -d -o "$APP_USER" -g "$APP_GROUP" -m 755 /opt/wyndos "$SHARED_DIR" "$LOG_DIR"
+install -d -o "$APP_USER" -g "$APP_GROUP" -m 755 "$APP_ROOT" "$SHARED_DIR" "$LOG_DIR"
 chown -R "$APP_USER:$APP_GROUP" "$RELEASE_DIR"
 chmod 755 "$RELEASE_DIR"
 
@@ -57,4 +68,4 @@ systemctl restart "$APP_SERVICE"
 sleep 5
 
 systemctl status "$APP_SERVICE" --no-pager -l
-curl --fail --silent --show-error http://127.0.0.1:3000/api/health
+curl --fail --silent --show-error "http://127.0.0.1:$APP_PORT/api/health"

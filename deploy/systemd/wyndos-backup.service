@@ -1,0 +1,10 @@
+[Unit]
+Description=Wyndos encrypted database backup
+After=postgresql.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/wyndos-backup
+Nice=10
+IOSchedulingClass=idle
