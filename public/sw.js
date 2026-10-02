@@ -6,13 +6,13 @@
  * when there's no signal Next falls back to a full page load, which is served from here.
  */
 
-const VERSION = "v3";
+const VERSION = "v4";
 const PAGES = `wyndos-pages-${VERSION}`;
 const STATIC = `wyndos-static-${VERSION}`;
 const OFFLINE_URL = "/offline.html";
 const PRECACHE = [OFFLINE_URL, "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png"];
 const NETWORK_TIMEOUT = 6000;
-const MAX_PAGES = 60;
+const MAX_PAGES = 100;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

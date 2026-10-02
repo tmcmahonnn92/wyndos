@@ -15,7 +15,7 @@ const OFFLINE_META_KEY = "wyndos-offline-meta";
 const OFFLINE_WORK_DAYS_KEY = "wyndos-offline-work-days";
 
 /**
- * Save today's and the next few days' work on the phone (pages and the app files they
+ * Save the coming week's work and work sheets on the phone (pages and the app files they
  * need), so they open with no signal even if they haven't been visited yet.
  */
 let lastWarm = 0;
@@ -26,13 +26,18 @@ function warmPages(workDays: Array<{ id: number; date: string }>) {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const from = today.getTime() - 86_400_000;
-  const to = today.getTime() + 4 * 86_400_000;
+  const to = today.getTime() + 8 * 86_400_000; // the coming week
   const soon = workDays.filter((d) => {
     const t = new Date(d.date).getTime();
     return t >= from && t < to;
   });
   const dates = [...new Set(soon.map((d) => new Date(d.date).toISOString().slice(0, 10)))];
-  const urls = ["/", "/days", ...dates.map((iso) => `/days/date/${iso}`), ...soon.map((d) => `/days/${d.id}`)];
+  // Each day and its work sheet (print view). Workers only get their own days from /api/work-days.
+  const urls = [
+    "/", "/days",
+    ...dates.flatMap((iso) => [`/days/date/${iso}`, `/days/date/${iso}/print`]),
+    ...soon.flatMap((d) => [`/days/${d.id}`, `/days/${d.id}/print`]),
+  ];
   navigator.serviceWorker.ready
     .then((registration) => registration.active?.postMessage({ type: "warm", urls }))
     .catch(() => {});
