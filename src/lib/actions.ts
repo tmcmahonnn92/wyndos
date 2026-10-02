@@ -2110,6 +2110,11 @@ function workDayInclude(actor: Actor) {
           customer: {
             include: {
               area: true,
+              // To work out credit (paid in advance / paid extra): payment minus what's on cleans.
+              payments: {
+                where: { voidedAt: null },
+                select: { amount: true, allocations: { select: { amount: true } } },
+              },
               // COMPLETE jobs only — used to compute per-job outstanding balance
               jobs: {
                 where: { status: "COMPLETE" },
@@ -5895,4 +5900,14 @@ export async function setCustomerPin(customerId: number, pin: { latitude: number
     data: { latitude: pin?.latitude ?? null, longitude: pin?.longitude ?? null },
   });
   revalidatePath(`/customers/${customerId}`);
+}
+
+/** Change who cleaned a finished job (owner only). Used for worker pay. */
+export async function updateJobCompletedBy(jobId: number, userId: string) {
+  const actor = await requireOwner();
+  const job = await requireTenantJob(actor.tenantId, jobId);
+  const member = await prisma.membership.findFirst({ where: { tenantId: actor.tenantId, userId }, select: { id: true } });
+  if (!member) throw new Error("That person isn't in your team.");
+  await prisma.job.update({ where: { id: jobId }, data: { completedByUserId: userId } });
+  revalidatePath(`/days/${job.workDayId}`);
 }

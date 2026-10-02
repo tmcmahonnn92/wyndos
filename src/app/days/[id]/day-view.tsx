@@ -59,6 +59,7 @@ import {
   updateJobNotes,
   updateJobCompletedAt,
   updateJobPrice,
+  updateJobCompletedBy,
   moveOverdueJobsToDay,
   rescheduleWorkDay,
 } from "@/lib/actions";
@@ -97,6 +98,13 @@ function preferredMethod(job: { customer: { preferredPaymentMethod?: string | nu
 
 function getJobTitle(job: { name?: string | null }) {
   return job.name?.trim() || "Window Cleaning";
+}
+
+/** Credit the customer holds (paid in advance / paid extra), not used on any clean yet. */
+function creditOf(job: Job) {
+  const payments = (job.customer as { payments?: Array<{ amount: number; allocations: Array<{ amount: number }> }> }).payments ?? [];
+  const spare = payments.reduce((sum, p) => sum + Math.max(0, p.amount - p.allocations.reduce((s, a) => s + a.amount, 0)), 0);
+  return Number(spare.toFixed(2));
 }
 
 function getPaidAfterCompletion(job: Job) {
@@ -392,6 +400,8 @@ export function DayView({
     method: "CASH" | "BACS" | "CARD",
     notes?: string,
   ) => {
+    // Nothing left to take (their credit covered it).
+    if (allocations.every((a) => a.amount <= 0.005)) return;
     await runOrQueue(
       { kind: "pay", jobId: job.id, workDayId: job.workDayId, customerId: job.customerId, allocations, method },
       (clientRequestId) => recordPayment({ customerId: job.customerId, allocations, method, notes, clientRequestId }),
@@ -598,7 +608,9 @@ export function DayView({
         onQuickPay={(includeDebt: boolean, method: "CASH" | "BACS" | "CARD") =>
           safely(async () => {
             await doComplete(job);
-            const allocations: Array<{ jobId: number; amount: number }> = [{ jobId: job.id, amount: job.price }];
+            // Credit is used first when the job is ticked; only take the rest.
+            const toCollect = Number(Math.max(0, job.price - creditOf(job)).toFixed(2));
+            const allocations: Array<{ jobId: number; amount: number }> = toCollect > 0.005 ? [{ jobId: job.id, amount: toCollect }] : [];
             if (includeDebt) {
               const prevJobs = (job.customer.jobs ?? []).filter((j) => j.id !== job.id);
               for (const pj of prevJobs) {
@@ -607,7 +619,7 @@ export function DayView({
                 if (due > 0.005) allocations.push({ jobId: pj.id, amount: due });
               }
             }
-            await doPay(job, allocations, method);
+            if (allocations.length > 0) await doPay(job, allocations, method);
             refreshIfOnline();
           })
         }
@@ -1389,10 +1401,12 @@ export function DayView({
             router.refresh();
           });
         }}
-        onSaveEdit={(price, note) => {
+        team={team}
+        onSaveEdit={(price, note, cleanedBy) => {
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
+            if (cleanedBy !== null) await updateJobCompletedBy(job.id, cleanedBy);
             if (note !== null) await doNote(job, note);
             if (price !== null) await doPrice(job, price);
             setSelectedJob(null); setOpenJobInPayMode(false);
@@ -1483,6 +1497,7 @@ function JobActionModal({
   onUndo,
   onSkip,
   onSaveEdit,
+  team = null,
   isPending,
   hidePrices = false,
   openInPayFormMode = false,
@@ -1497,7 +1512,9 @@ function JobActionModal({
   onUndo: () => void;
   onSkip: (price: number, note: string) => void;
   /** Change a finished job: null = leave as it is. */
-  onSaveEdit: (price: number | null, note: string | null) => void;
+  onSaveEdit: (price: number | null, note: string | null, cleanedBy: string | null) => void;
+  /** Owner only: team to pick "cleaned by" from. */
+  team?: TeamMember[] | null;
   isPending: boolean;
   hidePrices?: boolean;
   openInPayFormMode?: boolean;
@@ -1509,6 +1526,7 @@ function JobActionModal({
   const [payMethod, setPayMethod] = useState<"CASH" | "BACS" | "CARD">("CASH");
   const [payNotes, setPayNotes] = useState("");
   const [editingCompletedDate, setEditingCompletedDate] = useState(false);
+  const [cleanedBy, setCleanedBy] = useState("");
   const [completedDateInput, setCompletedDateInput] = useState("");
 
   const customerUnpaidJobs = useMemo(() => {
@@ -1535,12 +1553,13 @@ function JobActionModal({
   useEffect(() => {
     if (job) {
       setPayMode("jobs");
-      setPayAmount(String(job.price));
+      setPayAmount(String(Number(Math.max(0, job.price - (job.status === "PENDING" ? creditOf(job) : 0)).toFixed(2))));
       setPayNotes("");
       setPayMethod(preferredMethod(job));
       setEditingCompletedDate(false);
       setCompletedDateInput(job.completedAt ? new Date(job.completedAt).toISOString().split("T")[0] : "");
       setWorkerNote(job.notes ?? "");
+      setCleanedBy(job.completedByUserId ?? "");
       setPriceInput(String(job.price));
       if (openInPayFormMode && job.status === "PENDING") {
         // Opened directly from card "Done & Paid" button — jump straight to pay form
@@ -1563,7 +1582,10 @@ function JobActionModal({
   }, 0) : 0;
   const currentOutstanding = job ? Math.max(0, job.price - getPaidAfterCompletion(job)) : 0;
   const isSettled = currentOutstanding < 0.005;
-  const cleanAndDebtAmount = Number((currentVisitAmount + previousDebt).toFixed(2));
+  const credit = job ? creditOf(job) : 0;
+  // What's left to collect for this visit once their credit is used.
+  const visitToCollect = Number(Math.max(0, currentVisitAmount - credit).toFixed(2));
+  const cleanAndDebtAmount = Number((visitToCollect + previousDebt).toFixed(2));
 
   return (
     <Modal
@@ -1665,6 +1687,19 @@ function JobActionModal({
                     />
                   </label>
                 )}
+                {team && team.length > 1 && (
+                  <label className="flex items-center gap-2 text-xs text-slate-600">
+                    <span className="w-12">Cleaned by</span>
+                    <select
+                      value={cleanedBy}
+                      onChange={(e) => setCleanedBy(e.target.value)}
+                      className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                    >
+                      {!cleanedBy && <option value="">Not set</option>}
+                      {team.map((m) => <option key={m.id} value={m.id}>{m.isMe ? `${m.name} (you)` : m.name}</option>)}
+                    </select>
+                  </label>
+                )}
                 <textarea
                   value={workerNote}
                   onChange={(e) => setWorkerNote(e.target.value)}
@@ -1676,11 +1711,12 @@ function JobActionModal({
                   const nextPrice = parseFloat(priceInput);
                   const priceChanged = !hidePrices && Number.isFinite(nextPrice) && Math.abs(nextPrice - job.price) > 0.004;
                   const noteChanged = workerNote.trim() !== (job.notes ?? "").trim();
+                  const byChanged = Boolean(cleanedBy) && cleanedBy !== (job.completedByUserId ?? "");
                   return (
                     <button
                       type="button"
-                      disabled={isPending || (!priceChanged && !noteChanged) || (priceChanged && nextPrice < 0)}
-                      onClick={() => onSaveEdit(priceChanged ? nextPrice : null, noteChanged ? workerNote : null)}
+                      disabled={isPending || (!priceChanged && !noteChanged && !byChanged) || (priceChanged && nextPrice < 0)}
+                      onClick={() => onSaveEdit(priceChanged ? nextPrice : null, noteChanged ? workerNote : null, byChanged ? cleanedBy : null)}
                       className="w-full rounded-lg bg-slate-800 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-40"
                     >
                       Save changes
@@ -1817,6 +1853,16 @@ function JobActionModal({
           ) : (
             /* ─── Pending: full action list ─── */
             <div className="space-y-2">
+              {!hidePrices && credit > 0.005 && (
+                <div className="flex items-start gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+                  <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0 text-green-600" />
+                  <span>
+                    {credit >= currentVisitAmount - 0.005
+                      ? <>Paid in advance: their {fmtCurrency(credit)} credit covers this clean. Just mark it complete, nothing to collect.</>
+                      : <>{fmtCurrency(credit)} credit comes off this clean. Collect {fmtCurrency(currentVisitAmount - credit)}.</>}
+                  </span>
+                </div>
+              )}
               {/* Done */}
               {!showPayForm && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
@@ -1857,12 +1903,12 @@ function JobActionModal({
                 <span className="ml-auto text-xs text-green-600 font-normal">Complete, no payment</span>
               </button>
 
-              {/* Done & Paid */}
-              {!showPayForm ? (
+              {/* Done & Paid (not needed when credit covers the clean) */}
+              {visitToCollect <= 0.005 && previousDebt <= 0.005 ? null : !showPayForm ? (
                 <button
                   disabled={isPending}
                   onClick={() => {
-                    const allJobsForMode = [{ id: job.id, name: job.name ?? undefined, price: currentVisitAmount, paid: 0, due: currentVisitAmount, date: null as null, isOneOff: job.isOneOff ?? false }, ...customerUnpaidJobs];
+                    const allJobsForMode = [{ id: job.id, name: job.name ?? undefined, price: currentVisitAmount, paid: 0, due: visitToCollect, date: null as null, isOneOff: job.isOneOff ?? false }, ...customerUnpaidJobs];
                     setPayJobIds(new Set(allJobsForMode.map(j => j.id)));
                     setPayNotes(workerNote);
                     setPayMethod("CASH");
@@ -1872,7 +1918,7 @@ function JobActionModal({
                 >
                   <Banknote size={18} className="text-blue-600" />
                   Done &amp; Paid
-                  <span className="ml-auto text-xs text-blue-600 font-normal">{hidePrices ? null : fmtCurrency(job.price)}</span>
+                  <span className="ml-auto text-xs text-blue-600 font-normal">{hidePrices ? null : fmtCurrency(visitToCollect)}</span>
                 </button>
               ) : (
                 <div className="border border-blue-300 rounded-xl bg-blue-50 p-3 space-y-3">
@@ -1881,7 +1927,7 @@ function JobActionModal({
                     Done &amp; Paid
                   </p>
                   {(() => {
-                    const allJobsForMode = [{ id: job.id, name: job.name ?? undefined, price: currentVisitAmount, paid: 0, due: currentVisitAmount, date: null as null, isOneOff: job.isOneOff ?? false }, ...customerUnpaidJobs];
+                    const allJobsForMode = [{ id: job.id, name: job.name ?? undefined, price: currentVisitAmount, paid: 0, due: visitToCollect, date: null as null, isOneOff: job.isOneOff ?? false }, ...customerUnpaidJobs];
                     return (
                       <>
                         <div className="space-y-2">
@@ -2351,6 +2397,11 @@ function JobCard({
               <Pencil size={9} /> Edit
             </span>
           )}
+          {!hidePrices && !isQuote && creditOf(job) > 0.005 && (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200 whitespace-nowrap">
+              {fmtCurrency(creditOf(job))} credit
+            </span>
+          )}
           {(() => {
             const debt = (job.customer.jobs ?? []).reduce((sum, j) => {
               const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
@@ -2402,13 +2453,13 @@ function JobCard({
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-green-700 bg-green-50 hover:bg-green-100 active:bg-green-200 transition-colors disabled:opacity-50 touch-manipulation"
               >
                 <Check size={15} />
-                Done
+                {creditOf(job) >= job.price - 0.005 ? "Done · paid from credit" : "Done"}
               </button>
             )}
-            {onQuickPay && onQuickComplete && (
+            {onQuickPay && onQuickComplete && creditOf(job) < job.price - 0.005 && (
               <div className="w-px bg-slate-100" />
             )}
-            {onQuickPay && (
+            {onQuickPay && creditOf(job) < job.price - 0.005 && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
