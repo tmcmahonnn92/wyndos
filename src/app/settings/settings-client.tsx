@@ -1,5 +1,6 @@
 "use client";
 
+import { GOCARDLESS_ENABLED } from "@/lib/features";
 import { useState, useTransition, useRef, useCallback, useEffect } from "react";
 import {
   Save, Upload, X, Building2, Mail, Eye, EyeOff,
@@ -419,8 +420,10 @@ export function SettingsClient({
 
         if (canManageProviderSettings) {
           Object.assign(payload, {
-            goCardlessEnvironment: goCardless.environment,
-            goCardlessReferencePrefix: goCardless.referencePrefix.trim() || "WD",
+            ...(GOCARDLESS_ENABLED ? {
+              goCardlessEnvironment: goCardless.environment,
+              goCardlessReferencePrefix: goCardless.referencePrefix.trim() || "WD",
+            } : {}),
             smtpProvider: smtp.smtpProvider,
             smtpHost: smtp.smtpHost,
             smtpPort: smtp.smtpPort,
@@ -652,7 +655,7 @@ export function SettingsClient({
             </CardContent>
           </Card>
 
-          <Card>
+          {GOCARDLESS_ENABLED && <Card>
             <CardHeader><CardTitle><Link2 size={16} className="inline mr-2 text-blue-600" />GoCardless</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
@@ -702,7 +705,7 @@ export function SettingsClient({
                 <p>Last sync: {settings.goCardlessLastSyncedAt ? new Date(settings.goCardlessLastSyncedAt).toLocaleString("en-GB") : "Never"}</p>
               </div>
             </CardContent>
-          </Card>
+          </Card>}
         </div>
       )}
 

@@ -5,7 +5,7 @@ import { completeOwnerOnboarding } from "@/lib/auth-actions";
 
 const CUSTOMER_COUNTS = ["Just starting", "Under 100", "100–300", "300–600", "600+"];
 const TEAM_SIZES = ["Just me", "Me + 1 or 2", "3 or more cleaners"];
-const PAYMENT_METHODS = ["Cash", "Bank transfer", "Card", "Direct Debit (GoCardless)", "Cheque"];
+const PAYMENT_METHODS = ["Cash", "Bank transfer", "Card", "Direct Debit", "Cheque"];
 const HEARD_FROM = ["Google", "Facebook group", "Another window cleaner", "Social media", "Other"];
 const START_OPTIONS = [
   { href: "/customers/import", title: "Import my customers", desc: "Upload a spreadsheet (CSV or Excel). Areas are made for you." },

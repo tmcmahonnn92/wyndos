@@ -7,3 +7,6 @@ export const AUTO_SMS_ENABLED = false;
 
 /** Emailing invoices to customers. Off: invoices are downloaded as PDFs. */
 export const INVOICE_EMAIL_ENABLED = false;
+
+/** GoCardless (Direct Debit) sync and settings. Off until the second stage. */
+export const GOCARDLESS_ENABLED = false;

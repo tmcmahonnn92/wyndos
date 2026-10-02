@@ -3,6 +3,7 @@
 import { AddCreditForm } from "@/app/payments/add-credit-form";
 import { MapPinEditor } from "@/components/map-pin-editor";
 import { mapsHref } from "@/lib/maps-link";
+import { GOCARDLESS_ENABLED } from "@/lib/features";
 import { PAYMENT_PREFERENCES } from "@/lib/payment-preference";
 import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
@@ -578,7 +579,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                 {customer.active ? "Active" : "Inactive"}
               </Badge>
             </div>
-            {(customer.goCardlessCustomerReference || customer.goCardlessMandateId || customer.goCardlessCustomerId) && (
+            {GOCARDLESS_ENABLED && (customer.goCardlessCustomerReference || customer.goCardlessMandateId || customer.goCardlessCustomerId) && (
               <div className="pt-1 border-t border-slate-100 space-y-1">
                 <span className="text-xs text-slate-500 block">GoCardless matching</span>
                 {customer.goCardlessCustomerReference && <p className="text-xs text-slate-700">Reference: {customer.goCardlessCustomerReference}</p>}
@@ -877,7 +878,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
             </select>
             <p className="mt-1 text-xs text-slate-400">Their jobs show up when you take payment from that customer.</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 space-y-3">
+          {GOCARDLESS_ENABLED && <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 space-y-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">GoCardless customer reference</label>
               <input type="text" value={form.goCardlessCustomerReference} onChange={(e) => setForm(f => ({ ...f, goCardlessCustomerReference: e.target.value }))}
@@ -899,7 +900,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                   className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
               </div>
             </div>
-          </div>
+          </div>}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
             <textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={2}

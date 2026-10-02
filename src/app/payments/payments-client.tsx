@@ -25,7 +25,7 @@ import { smsHref } from "@/components/phone-send-queue";
 import { logPhoneText, queuePhoneTexts } from "@/lib/text-actions";
 import { SendOnPhone } from "@/components/send-on-phone";
 import { ukMobile } from "@/lib/text-format";
-import { INVOICE_EMAIL_ENABLED } from "@/lib/features";
+import { GOCARDLESS_ENABLED, INVOICE_EMAIL_ENABLED } from "@/lib/features";
 
 export type Debtor = PaymentCustomerOption & {
   email: string;
@@ -80,11 +80,11 @@ export function PaymentsToolbar({
 
   return (
     <div className="flex items-center gap-2">
-      {goCardlessConfigured && <div className="text-right hidden sm:block">
+      {GOCARDLESS_ENABLED && goCardlessConfigured && <div className="text-right hidden sm:block">
         <p className="text-[11px] font-medium text-slate-500">GoCardless</p>
         <p className="text-[11px] text-slate-400">{goCardlessLastSyncedAt ? `Last sync ${new Date(goCardlessLastSyncedAt).toLocaleString("en-GB")}` : "Not synced yet"}</p>
       </div>}
-      {goCardlessConfigured && <button
+      {GOCARDLESS_ENABLED && goCardlessConfigured && <button
         type="button"
         onClick={handleSync}
         disabled={!goCardlessConfigured || isSyncing}

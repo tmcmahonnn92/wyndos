@@ -70,7 +70,7 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Stripe is in **test mode**. The webhook is set up in Stripe Workbench → Webhooks.
 
 ## Feature flags
-`src/lib/features.ts`: `AUTO_SMS_ENABLED = false` (VoodooSMS etc. hidden; phone only), `INVOICE_EMAIL_ENABLED = false`.
+`src/lib/features.ts`: `AUTO_SMS_ENABLED = false` (VoodooSMS etc. hidden; phone only), `INVOICE_EMAIL_ENABLED = false`, `GOCARDLESS_ENABLED = false` (settings, sync button, customer GoCardless fields hidden until stage two).
 
 ## Testing locally
 - `NODE_ENV=production npx next build && npx next start -H 127.0.0.1 -p 3000` against SQLite (`DATABASE_URL=file:./demo.db`).
