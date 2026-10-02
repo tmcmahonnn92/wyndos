@@ -40,6 +40,7 @@ export default async function CustomerPage({ params }: Props) {
         balance={balance}
         credit={credit}
         canPay={user.role !== "WORKER" || (user.permissions ?? []).includes("payments")}
+        allowCredit={settings.allowCustomerCredit ?? true}
         allTags={allTags}
         hidePrices={hidePrices}
         goCardlessReferencePrefix={settings.goCardlessReferencePrefix || "WD"}

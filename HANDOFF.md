@@ -49,6 +49,12 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - No balance column: credit = the part of a payment not allocated to any job (`Payment.amount` minus its allocations).
 - `applyCredit` (actions.ts) pays unpaid completed cleans oldest-first; runs on `completeJob`, on payments with `extra`, and when a job's price drops (`releaseOverpaid`).
 - Re-opening a job keeps its payment as credit (no more auto-void) and keeps `completedByUserId`.
+- Setting `TenantSettings.allowCustomerCredit` (default on): when off, no new credit (overpay / Add credit refused); existing credit still used.
+- Day sheet pay forms take "Amount received": short leaves the rest owing, extra becomes credit.
+
+## Cash handover
+- A worker's CASH payments (`collectedByUserId`) stay "with them" until the owner records a `CashHandover` (`Payment.handoverId`). `src/lib/cash-actions.ts`, page `/payments/cash`, to-do item for the owner, worker dashboard "Cash to hand over". Owner's own cash isn't tracked.
+- Day sheet shows "Cash to collect" (pending cash / no-preference customers, less credit).
 
 ## Offline
 - Own service worker `public/sw.js` (next-pwa removed). Pages network-first then cached; `/_next/static` cache-first; RSC/API/POST never cached. `public/offline.html` fallback.

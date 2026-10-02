@@ -159,6 +159,31 @@ export async function getAdminTodo(): Promise<TodoItem[]> {
     }
   }
 
+  // 5. Cash the team took at the door and hasn't handed over (owner only).
+  if (!actor.isWorker) {
+    const workers = await prisma.membership.findMany({ where: { tenantId, role: "WORKER" }, select: { userId: true, user: { select: { name: true, email: true } } } });
+    if (workers.length > 0) {
+      const held = await prisma.payment.groupBy({
+        by: ["collectedByUserId"],
+        where: { tenantId, method: "CASH", voidedAt: null, handoverId: null, collectedByUserId: { in: workers.map((w) => w.userId) } },
+        _sum: { amount: true },
+      });
+      for (const h of held) {
+        const amount = Number(h._sum.amount ?? 0);
+        if (amount <= 0.005) continue;
+        const w = workers.find((x) => x.userId === h.collectedByUserId);
+        items.push({
+          key: `cash-${h.collectedByUserId}`,
+          tone: "amber",
+          title: `${w?.user.name || w?.user.email || "Team member"} has £${amount.toFixed(2)} cash`,
+          detail: "Mark it received when they hand it over",
+          href: "/payments/cash",
+          action: "Cash",
+        });
+      }
+    }
+  }
+
   // 5. Areas past their due date with nothing booked.
   const overdue = await prisma.area.findMany({
     where: { tenantId, isSystemArea: false, nextDueDate: { lt: today } },

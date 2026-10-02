@@ -43,6 +43,7 @@ export async function closeBusiness(confirmWord: string) {
   await prisma.$transaction(async (tx) => {
     await tx.paymentAllocation.deleteMany({ where });
     await tx.payment.deleteMany({ where });
+    await tx.cashHandover.deleteMany({ where });
     await tx.messageLog.deleteMany({ where });
     await tx.notificationEvent.deleteMany({ where });
     await tx.job.deleteMany({ where });

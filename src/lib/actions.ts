@@ -322,6 +322,14 @@ async function createAllocatedPayment(data: {
       allocation.amount = due;
     }
   }
+  if (extra > 0 || overflow > 0.005) {
+    const settings = await prisma.tenantSettings.findUnique({ where: { tenantId: data.tenantId }, select: { allowCustomerCredit: true } });
+    if (settings && !settings.allowCustomerCredit) {
+      throw new Error(overflow > 0.005
+        ? "That's more than is owed. Customer credit is turned off in Settings."
+        : "Customer credit is turned off in Settings.");
+    }
+  }
   if (overflow > 0) {
     extra = Number((extra + overflow).toFixed(2));
     allocationData = allocationData.filter((allocation) => allocation.amount > 0.005);
@@ -4067,8 +4075,9 @@ async function getWorkerDashboardData(actor: Actor) {
     prisma.job.aggregate({ where: { ...mine, completedAt: { gte: weekStart } }, _count: { _all: true }, _sum: { price: true } }),
     prisma.job.aggregate({ where: { ...mine, completedAt: { gte: monthStart } }, _count: { _all: true }, _sum: { price: true } }),
     prisma.job.aggregate({ where: mine, _count: { _all: true }, _sum: { price: true } }),
+    // Cash they took that hasn't been handed to the owner yet.
     prisma.payment.aggregate({
-      where: { tenantId, collectedByUserId: actor.userId, method: "CASH", voidedAt: null, paidAt: { gte: weekStart } },
+      where: { tenantId, collectedByUserId: actor.userId, method: "CASH", voidedAt: null, handoverId: null },
       _sum: { amount: true },
     }),
     prisma.job.findMany({
@@ -5248,6 +5257,7 @@ export async function getBusinessSettingsForClient() {
     nextInvoiceNum: settings.nextInvoiceNum,
     invoiceNumbersStarted: settings.invoiceNumbersStarted,
     invoiceVatEnabled: settings.invoiceVatEnabled,
+    allowCustomerCredit: settings.allowCustomerCredit,
     invoiceVatRate: settings.invoiceVatRate,
     invoicePaymentTerms: settings.invoicePaymentTerms,
     logoBase64: settings.logoBase64,
@@ -5303,6 +5313,7 @@ export async function updateBusinessSettings(data: {
   /** First invoice number. Only accepted until the first invoice is issued. */
   nextInvoiceNum?: number;
   invoiceVatEnabled?: boolean;
+  allowCustomerCredit?: boolean;
   invoiceVatRate?: number;
   invoicePaymentTerms?: string;
   logoBase64?: string | null;

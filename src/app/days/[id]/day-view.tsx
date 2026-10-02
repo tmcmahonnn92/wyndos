@@ -131,6 +131,8 @@ interface Props {
   otherAreasOnDate?: number;
   /** May send texts (owner, or a worker with the Texts permission). */
   canText?: boolean;
+  /** Business setting: overpayments are kept as credit. */
+  allowCredit?: boolean;
   /** Split runs: other parts of each day's run that aren't done yet. */
   runSiblings?: Record<number, Array<{ id: number; date: string; status: string }>>;
 }
@@ -157,6 +159,7 @@ export function DayView({
   canReschedule = false,
   otherAreasOnDate = 0,
   canText = false,
+  allowCredit = true,
   runSiblings = {},
 }: Props) {
   const todayDateValue = new Date().toISOString().slice(0, 10);
@@ -399,12 +402,13 @@ export function DayView({
     allocations: Array<{ jobId: number; amount: number }>,
     method: "CASH" | "BACS" | "CARD",
     notes?: string,
+    extra = 0,
   ) => {
     // Nothing left to take (their credit covered it).
-    if (allocations.every((a) => a.amount <= 0.005)) return;
+    if (allocations.every((a) => a.amount <= 0.005) && extra <= 0.005) return;
     await runOrQueue(
-      { kind: "pay", jobId: job.id, workDayId: job.workDayId, customerId: job.customerId, allocations, method },
-      (clientRequestId) => recordPayment({ customerId: job.customerId, allocations, method, notes, clientRequestId }),
+      { kind: "pay", jobId: job.id, workDayId: job.workDayId, customerId: job.customerId, allocations, method, extra },
+      (clientRequestId) => recordPayment({ customerId: job.customerId, allocations, method, notes, clientRequestId, extra }),
     );
   };
 
@@ -676,6 +680,18 @@ export function DayView({
             </span>
           )}
         </div>
+
+        {/* Cash still to pick up today: customers who pay cash (or haven't said), less any credit */}
+        {!hidePrices && (() => {
+          const cashJobs = pendingJobs.filter((j) => !j.isQuote && ["", "CASH"].includes(normalisePreference(j.customer.preferredPaymentMethod)));
+          const toCollect = cashJobs.reduce((sum, j) => sum + Math.max(0, j.price - creditOf(j)), 0);
+          return toCollect > 0.005 ? (
+            <div className="flex items-center justify-between gap-3 border-b border-amber-100 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
+              <span><b>Cash to collect</b> · {cashJobs.length} house{cashJobs.length === 1 ? "" : "s"}</span>
+              <b className="tabular-nums">{fmtCurrency(toCollect)}</b>
+            </div>
+          ) : null;
+        })()}
 
         {/* View switch: by area (route order) or everything in one list by street */}
         {days.length > 0 && (
@@ -1402,6 +1418,7 @@ export function DayView({
           });
         }}
         team={team}
+        allowCredit={allowCredit}
         onSaveEdit={(price, note, cleanedBy) => {
           if (!selectedJob) return;
           const job = selectedJob;
@@ -1424,44 +1441,44 @@ export function DayView({
             refreshIfOnline();
           });
         }}
-        onDoneAndPaid={async (visitPrice, allocations, method, notes) => {
+        onDoneAndPaid={async (visitPrice, allocations, method, notes, extra) => {
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
             if (notes?.trim()) await doNote(job, notes.trim());
             if (visitPrice !== job.price) await doPrice(job, visitPrice);
             await doComplete(job);
-            await doPay(job, allocations, method, notes);
+            await doPay(job, allocations, method, notes, extra);
             setSelectedJob(null); setOpenJobInPayMode(false);
             refreshIfOnline();
           });
         }}
-        onMarkPaidJobs={(allocations, method, notes) => {
+        onMarkPaidJobs={(allocations, method, notes, extra) => {
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            await doPay(job, allocations, method, notes);
+            await doPay(job, allocations, method, notes, extra);
             setSelectedJob(null); setOpenJobInPayMode(false);
             refreshIfOnline();
           });
         }}
-        onDoneAndPaidJobs={(visitPrice, allocations, method, notes) => {
+        onDoneAndPaidJobs={(visitPrice, allocations, method, notes, extra) => {
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
             if (notes?.trim()) await doNote(job, notes.trim());
             if (visitPrice !== job.price) await doPrice(job, visitPrice);
             await doComplete(job);
-            await doPay(job, allocations, method, notes);
+            await doPay(job, allocations, method, notes, extra);
             setSelectedJob(null); setOpenJobInPayMode(false);
             refreshIfOnline();
           });
         }}
-        onMarkPaid={(allocations, method, notes) => {
+        onMarkPaid={(allocations, method, notes, extra) => {
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            await doPay(job, allocations, method, notes);
+            await doPay(job, allocations, method, notes, extra);
             setSelectedJob(null); setOpenJobInPayMode(false);
             refreshIfOnline();
           });
@@ -1498,6 +1515,7 @@ function JobActionModal({
   onSkip,
   onSaveEdit,
   team = null,
+  allowCredit = true,
   isPending,
   hidePrices = false,
   openInPayFormMode = false,
@@ -1505,10 +1523,12 @@ function JobActionModal({
   job: Job | null;
   onClose: () => void;
   onDone: (price: number, note: string) => void;
-  onDoneAndPaid: (visitPrice: number, allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string) => void;
-  onDoneAndPaidJobs: (visitPrice: number, allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string) => void;
-  onMarkPaid: (allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string) => void;
-  onMarkPaidJobs: (allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string) => void;
+  onDoneAndPaid: (visitPrice: number, allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string, extra?: number) => void;
+  onDoneAndPaidJobs: (visitPrice: number, allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string, extra?: number) => void;
+  onMarkPaid: (allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string, extra?: number) => void;
+  onMarkPaidJobs: (allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string, extra?: number) => void;
+  /** Business setting: keep overpayments as credit. */
+  allowCredit?: boolean;
   onUndo: () => void;
   onSkip: (price: number, note: string) => void;
   /** Change a finished job: null = leave as it is. */
@@ -1527,6 +1547,20 @@ function JobActionModal({
   const [payNotes, setPayNotes] = useState("");
   const [editingCompletedDate, setEditingCompletedDate] = useState(false);
   const [cleanedBy, setCleanedBy] = useState("");
+  // Cash or money actually handed over. Blank = exactly what's selected.
+  const [received, setReceived] = useState("");
+  /** Spread what was handed over across the selected jobs (oldest first); any extra is credit. */
+  const splitReceived = (jobs: Array<{ id: number; due: number }>) => {
+    const total = Number(jobs.reduce((s, j) => s + j.due, 0).toFixed(2));
+    const got = received.trim() === "" ? total : Math.max(0, Number(received) || 0);
+    let left = Math.min(got, total);
+    const allocations = jobs.map((j) => {
+      const amount = Number(Math.min(j.due, left).toFixed(2));
+      left = Number((left - amount).toFixed(2));
+      return { jobId: j.id, amount };
+    });
+    return { allocations, total, got, extra: Number(Math.max(0, got - total).toFixed(2)), short: Number(Math.max(0, total - got).toFixed(2)) };
+  };
   const [completedDateInput, setCompletedDateInput] = useState("");
 
   const customerUnpaidJobs = useMemo(() => {
@@ -1560,6 +1594,7 @@ function JobActionModal({
       setCompletedDateInput(job.completedAt ? new Date(job.completedAt).toISOString().split("T")[0] : "");
       setWorkerNote(job.notes ?? "");
       setCleanedBy(job.completedByUserId ?? "");
+      setReceived("");
       setPriceInput(String(job.price));
       if (openInPayFormMode && job.status === "PENDING") {
         // Opened directly from card "Done & Paid" button — jump straight to pay form
@@ -1791,6 +1826,21 @@ function JobActionModal({
                       </div>
                     </div>
                   ) : null}
+                  {!hidePrices && (() => {
+                    const split = splitReceived(customerUnpaidJobs.filter((j) => payJobIds.has(j.id)));
+                    return (
+                      <div>
+                        <label className="text-xs text-slate-600 font-medium mb-1 block">Amount received <span className="font-normal text-slate-400">(if different)</span></label>
+                        <input type="number" inputMode="decimal" step="0.01" min="0" value={received} placeholder={split.total.toFixed(2)}
+                          onChange={(e) => setReceived(e.target.value)}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                        {split.extra > 0 && (allowCredit
+                          ? <p className="mt-1 text-xs font-medium text-green-700">{fmtCurrency(split.extra)} extra kept as credit for their next clean.</p>
+                          : <p className="mt-1 text-xs font-medium text-red-600">That&apos;s {fmtCurrency(split.extra)} more than owed. Customer credit is off in Settings.</p>)}
+                        {split.short > 0 && <p className="mt-1 text-xs font-medium text-amber-700">{fmtCurrency(split.short)} will still be owing.</p>}
+                      </div>
+                    );
+                  })()}
                   <div>
                     <label className="text-xs text-slate-600 font-medium mb-1 block">Method</label>
                     <div className="flex gap-2">
@@ -1810,13 +1860,13 @@ function JobActionModal({
                   </div>
                   <div className="flex gap-2">
                     <Button
-                      disabled={isPending || payJobIds.size === 0}
+                      disabled={isPending || payJobIds.size === 0 || (!allowCredit && splitReceived(customerUnpaidJobs.filter((j) => payJobIds.has(j.id))).extra > 0)}
                         onClick={() => {
-                          const allocations = customerUnpaidJobs.filter((j) => payJobIds.has(j.id)).map((j) => ({ jobId: j.id, amount: j.due }));
-                          onMarkPaidJobs(allocations, payMethod, payNotes || undefined);
+                          const split = splitReceived(customerUnpaidJobs.filter((j) => payJobIds.has(j.id)));
+                          onMarkPaidJobs(split.allocations, payMethod, payNotes || undefined, split.extra);
                         }}
                       className="flex-1" size="sm">
-                      {isPending ? "Saving..." : `Confirm - ${fmtCurrency(customerUnpaidJobs.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0))}`}
+                      {isPending ? "Saving..." : `Confirm - ${fmtCurrency(splitReceived(customerUnpaidJobs.filter((j) => payJobIds.has(j.id))).got)}`}
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => setShowPayForm(false)}>Back</Button>
                   </div>
@@ -1959,6 +2009,21 @@ function JobActionModal({
                             {!hidePrices && <p className="text-sm font-bold text-slate-800">{fmtCurrency(allJobsForMode.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0))}</p>}
                           </div>
                         </div>
+                  {!hidePrices && (() => {
+                    const split = splitReceived(allJobsForMode.filter((j) => payJobIds.has(j.id)));
+                    return (
+                      <div>
+                        <label className="text-xs text-slate-600 font-medium mb-1 block">Amount received <span className="font-normal text-slate-400">(if different)</span></label>
+                        <input type="number" inputMode="decimal" step="0.01" min="0" value={received} placeholder={split.total.toFixed(2)}
+                          onChange={(e) => setReceived(e.target.value)}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                        {split.extra > 0 && (allowCredit
+                          ? <p className="mt-1 text-xs font-medium text-green-700">{fmtCurrency(split.extra)} extra kept as credit for their next clean.</p>
+                          : <p className="mt-1 text-xs font-medium text-red-600">That&apos;s {fmtCurrency(split.extra)} more than owed. Customer credit is off in Settings.</p>)}
+                        {split.short > 0 && <p className="mt-1 text-xs font-medium text-amber-700">{fmtCurrency(split.short)} will still be owing.</p>}
+                      </div>
+                    );
+                  })()}
                         <div>
                           <label className="text-xs text-slate-600 font-medium mb-1 block">Method</label>
                           <div className="flex gap-2">
@@ -1974,12 +2039,12 @@ function JobActionModal({
                             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
                         </div>
                         <div className="flex gap-2">
-                          <Button disabled={isPending || payJobIds.size === 0}
+                          <Button disabled={isPending || payJobIds.size === 0 || (!allowCredit && splitReceived(allJobsForMode.filter((j) => payJobIds.has(j.id))).extra > 0)}
                             onClick={() => {
-                              const allocations = allJobsForMode.filter(j => payJobIds.has(j.id)).map(j => ({ jobId: j.id, amount: j.due }));
-                              onDoneAndPaidJobs(currentVisitAmount, allocations, payMethod, payNotes || undefined);
+                              const split = splitReceived(allJobsForMode.filter((j) => payJobIds.has(j.id)));
+                              onDoneAndPaidJobs(currentVisitAmount, split.allocations, payMethod, payNotes || undefined, split.extra);
                             }} className="flex-1" size="sm">
-                            {isPending ? "Saving..." : `Confirm - ${fmtCurrency(allJobsForMode.filter(j => payJobIds.has(j.id)).reduce((s, j) => s + j.due, 0))}`}
+                            {isPending ? "Saving..." : `Confirm - ${fmtCurrency(splitReceived(allJobsForMode.filter((j) => payJobIds.has(j.id))).got)}`}
                           </Button>
                           <Button variant="outline" size="sm" onClick={() => setShowPayForm(false)}>Back</Button>
                         </div>

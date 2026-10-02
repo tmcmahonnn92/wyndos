@@ -25,7 +25,7 @@ interface Settings {
   businessName: string; ownerName: string; phone: string; email: string;
   address: string; bankDetails: string; vatNumber: string;
   invoicePrefix: string; nextInvoiceNum: number; invoiceNumbersStarted: boolean;
-  invoiceVatEnabled: boolean; invoiceVatRate: number; invoicePaymentTerms: string; logoBase64: string | null;
+  invoiceVatEnabled: boolean; invoiceVatRate: number; allowCustomerCredit?: boolean; invoicePaymentTerms: string; logoBase64: string | null;
   goCardlessEnvironment: string; goCardlessReferencePrefix: string;
   goCardlessAccessTokenConfigured: boolean; goCardlessLastSyncedAt: string | null;
   smtpProvider: string; smtpHost: string; smtpPort: number;
@@ -182,6 +182,7 @@ export function SettingsClient({
     invoicePrefix: settings.invoicePrefix,
     nextInvoiceNum: String(settings.nextInvoiceNum),
     invoiceVatEnabled: settings.invoiceVatEnabled ?? false,
+    allowCustomerCredit: settings.allowCustomerCredit ?? true,
     invoiceVatRate: String(settings.invoiceVatRate ?? 20),
     invoicePaymentTerms: settings.invoicePaymentTerms ?? "",
     runDueWindowDays: settings.runDueWindowDays == null ? "" : String(settings.runDueWindowDays),
@@ -623,6 +624,13 @@ export function SettingsClient({
                 <textarea id="inv-terms" className={cn(inp, "resize-none")} rows={3} maxLength={1000} value={form.invoicePaymentTerms} onChange={(e) => setForm((f) => ({ ...f, invoicePaymentTerms: e.target.value }))} placeholder={"Payment due within 14 days.\nPlease use your invoice number as the reference."} />
                 <p className="text-xs text-slate-400 mt-1">Printed on every invoice, above the bank details.</p>
               </div>
+              <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-3">
+                <input type="checkbox" className="mt-1" checked={form.allowCustomerCredit} onChange={(e) => setForm((f) => ({ ...f, allowCustomerCredit: e.target.checked }))} />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-800">Customer credit</span>
+                  <span className="block text-xs text-slate-500">When someone pays in advance or pays too much, keep it as credit. It comes off their next cleans by itself.</span>
+                </span>
+              </label>
               <div className="rounded-lg border border-slate-200 p-3 space-y-2">
                 <label className="flex items-start gap-3">
                   <input type="checkbox" className="mt-1" checked={form.invoiceVatEnabled} onChange={(e) => setForm((f) => ({ ...f, invoiceVatEnabled: e.target.checked }))} />

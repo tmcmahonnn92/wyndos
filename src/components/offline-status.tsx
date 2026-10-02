@@ -115,6 +115,7 @@ export function OfflineStatus() {
           allocations: entry.allocations,
           method: entry.method,
           clientRequestId: entry.id,
+          extra: entry.extra,
           paidAt: new Date(entry.createdAt),
         }),
       });

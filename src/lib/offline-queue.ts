@@ -22,6 +22,8 @@ export type QueuedAction =
       customerId: number;
       allocations: Array<{ jobId: number; amount: number }>;
       method: "CASH" | "BACS" | "CARD";
+      /** Paid on top: kept as credit. */
+      extra?: number;
     };
 
 type NewAction = QueuedAction extends infer A ? (A extends QueuedAction ? Omit<A, "id" | "createdAt"> : never) : never;

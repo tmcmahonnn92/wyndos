@@ -73,6 +73,8 @@ model TenantSettings {
   /// Show VAT on invoices (needs a VAT number). Prices are treated as including VAT.
   invoiceVatEnabled Boolean @default(false)
   invoiceVatRate    Float   @default(20)
+  /// Keep money paid in advance or paid extra as credit for the next cleans.
+  allowCustomerCredit Boolean @default(true)
   /// Payment terms / how to pay, printed on every invoice.
   invoicePaymentTerms String @default("")
   logoBase64      String? // base64 data URL
@@ -454,6 +456,9 @@ model Payment {
   collectedByUserId   String?
   /// Client-generated id so an offline retry can't record the same payment twice.
   clientRequestId     String?             @unique
+  /// Cash a team member took, once they've handed it to the owner.
+  handoverId          Int?
+  handover            CashHandover?       @relation(fields: [handoverId], references: [id], onDelete: SetNull)
   allocations PaymentAllocation[]
 
   @@index([tenantId])
@@ -671,4 +676,18 @@ model SupportReply {
   createdAt DateTime      @default(now())
 
   @@index([ticketId])
+}
+
+/// Cash a team member gave to the owner (covers the payments that point at it).
+model CashHandover {
+  id               Int       @id @default(autoincrement())
+  tenantId         Int
+  workerUserId     String
+  receivedByUserId String
+  amount           Float
+  notes            String    @default("")
+  createdAt        DateTime  @default(now())
+  payments         Payment[]
+
+  @@index([tenantId, workerUserId])
 }

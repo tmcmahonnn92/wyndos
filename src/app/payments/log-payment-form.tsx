@@ -36,6 +36,7 @@ export function LogPaymentForm({
   buttonVariant = "primary",
   buttonClassName,
   size = "sm",
+  allowCredit = true,
 }: {
   customers: PaymentCustomerOption[];
   initialCustomerId?: number;
@@ -43,6 +44,7 @@ export function LogPaymentForm({
   buttonVariant?: "primary" | "outline" | "ghost";
   buttonClassName?: string;
   size?: "sm" | "md" | "lg";
+  allowCredit?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -171,7 +173,8 @@ export function LogPaymentForm({
   const submitDisabled =
     isPending ||
     !selectedCustomer ||
-    receivedAmount <= 0;
+    receivedAmount <= 0 ||
+    (!allowCredit && extraCredit > 0);
 
   return (
     <>
@@ -360,9 +363,9 @@ export function LogPaymentForm({
                     onChange={(e) => setReceived(e.target.value)}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  {extraCredit > 0 && (
-                    <p className="mt-1 text-xs font-medium text-green-700">{fmtCurrency(extraCredit)} extra is kept as credit and comes off their next clean.</p>
-                  )}
+                  {extraCredit > 0 && (allowCredit
+                    ? <p className="mt-1 text-xs font-medium text-green-700">{fmtCurrency(extraCredit)} extra is kept as credit and comes off their next clean.</p>
+                    : <p className="mt-1 text-xs font-medium text-red-600">That&apos;s more than owed. Customer credit is off in Settings.</p>)}
                   {shortBy > 0 && (
                     <p className="mt-1 text-xs font-medium text-amber-700">{fmtCurrency(shortBy)} will still be owing.</p>
                   )}

@@ -47,6 +47,7 @@ interface Props {
   /** Paid in advance / paid extra, not used yet. */
   credit?: number;
   canPay?: boolean;
+  allowCredit?: boolean;
   allTags: TagRow[];
   hidePrices?: boolean;
   goCardlessReferencePrefix?: string;
@@ -80,7 +81,7 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", payerOptions = [], texts = [] }: Props) {
+export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", payerOptions = [], texts = [] }: Props) {
   const [showAllTexts, setShowAllTexts] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [bookDate, setBookDate] = useState("");
@@ -462,7 +463,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                   {fmtCurrency(credit)} credit: no need to pay, it comes off the next clean
                 </p>
               )}
-              {!hidePrices && canPay && (
+              {!hidePrices && canPay && allowCredit && (
                 <div className="mt-1.5">
                   <AddCreditForm
                     customers={[{ id: customer.id, name: customer.name, address: customer.address, credit }]}

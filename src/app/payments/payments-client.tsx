@@ -45,11 +45,13 @@ type AreaFilter = {
 export function PaymentsToolbar({
   customers,
   allCustomers,
+  allowCredit = true,
   goCardlessConfigured,
   goCardlessLastSyncedAt,
 }: {
   customers: Debtor[];
   allCustomers: CreditCustomerOption[];
+  allowCredit?: boolean;
   goCardlessConfigured: boolean;
   goCardlessLastSyncedAt: string | null;
 }) {
@@ -92,8 +94,8 @@ export function PaymentsToolbar({
         <RefreshCw size={14} className={cn(isSyncing && "animate-spin")} />
         {isSyncing ? "Syncing..." : "Sync GoCardless"}
       </button>}
-      <AddCreditForm customers={allCustomers} buttonClassName="whitespace-nowrap" />
-      <LogPaymentForm customers={customers} buttonClassName="whitespace-nowrap" />
+      {allowCredit && <AddCreditForm customers={allCustomers} buttonClassName="whitespace-nowrap" />}
+      <LogPaymentForm customers={customers} buttonClassName="whitespace-nowrap" allowCredit={allowCredit} />
 
       {(syncError || syncResult) && (
         <div className="fixed bottom-4 right-4 z-50 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">

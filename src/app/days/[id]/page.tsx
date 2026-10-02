@@ -1,3 +1,4 @@
+import { getBusinessSettings } from "@/lib/actions";
 import { notFound } from "next/navigation";
 import { getAssignableTeam, getRunSiblings, getWorkDay, getWorkDays } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
@@ -45,6 +46,7 @@ export default async function DayPage({ params }: Props) {
       team={team}
       canReschedule={canReschedule}
       canText={canText}
+      allowCredit={(await getBusinessSettings().catch(() => null))?.allowCustomerCredit ?? true}
       runSiblings={runSiblings}
       otherAreasOnDate={otherAreasOnDate}
     />

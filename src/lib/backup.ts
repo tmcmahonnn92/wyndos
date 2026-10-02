@@ -36,12 +36,14 @@ export type BackupFile = {
     otherIncome: Row[];
     holidays: Row[];
     messageLogs: Row[];
+    /** Added Oct 2026; older backups don't have it. */
+    cashHandovers?: Row[];
   };
 };
 
 export async function buildBackup(tenantId: number): Promise<BackupFile> {
   const where = { tenantId };
-  const [tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs] =
+  const [tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers] =
     await Promise.all([
       prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
       prisma.tenantSettings.findUnique({ where }),
@@ -57,8 +59,9 @@ export async function buildBackup(tenantId: number): Promise<BackupFile> {
       prisma.otherIncome.findMany({ where, orderBy: { id: "asc" } }),
       prisma.holiday.findMany({ where, orderBy: { id: "asc" } }),
       prisma.messageLog.findMany({ where, orderBy: { id: "asc" } }),
+      prisma.cashHandover.findMany({ where, orderBy: { id: "asc" } }),
     ]);
-  const data = { tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs };
+  const data = { tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers };
   return {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
@@ -112,9 +115,10 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
   const otherIncome = rows(d.otherIncome);
   const holidays = rows(d.holidays);
   const messageLogs = rows(d.messageLogs);
+  const cashHandovers = rows(d.cashHandovers ?? []);
 
   // Every row must belong to this business (defends against an edited file).
-  for (const list of [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs]) {
+  for (const list of [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers]) {
     if (list.some((r) => r.tenantId !== tenantId)) throw new Error("The backup file has been changed and can't be used.");
   }
 
@@ -134,6 +138,7 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
     // Clear what's there now.
     await tx.paymentAllocation.deleteMany({ where });
     await tx.payment.deleteMany({ where });
+    await tx.cashHandover.deleteMany({ where });
     await tx.messageLog.deleteMany({ where });
     await tx.notificationEvent.deleteMany({ where });
     await tx.job.deleteMany({ where });
@@ -156,6 +161,7 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
     if (customerTags.length) await tx.customerTag.createMany({ data: customerTags as any });
     if (workDays.length) await tx.workDay.createMany({ data: workDays as any });
     if (jobs.length) await tx.job.createMany({ data: jobs as any });
+    if (cashHandovers.length) await tx.cashHandover.createMany({ data: cashHandovers as any });
     if (payments.length) await tx.payment.createMany({ data: payments as any });
     if (allocations.length) await tx.paymentAllocation.createMany({ data: allocations as any });
     if (expenses.length) await tx.expense.createMany({ data: expenses as any });

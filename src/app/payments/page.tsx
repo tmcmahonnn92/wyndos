@@ -1,4 +1,7 @@
+import Link from "next/link";
 import { getAreas, getBusinessSettings, getPaymentsPage } from "@/lib/actions";
+import { getCashWithTeam } from "@/lib/cash-actions";
+import { fmtCurrency } from "@/lib/utils";
 import { requirePermission } from "@/lib/tenant-context";
 import { PaymentsToolbar } from "./payments-client";
 import { PaymentsBody } from "./payments-search";
@@ -9,12 +12,14 @@ const DAY = 86_400_000;
 
 export default async function PaymentsPage({ searchParams }: { searchParams: Promise<{ late?: string; tab?: string }> }) {
   await requirePermission("payments");
-  const [{ payments, customersWithDebt, customersWithCredit, allCustomers }, areas, settings, params] = await Promise.all([
+  const [{ payments, customersWithDebt, customersWithCredit, allCustomers }, areas, settings, params, cash] = await Promise.all([
     getPaymentsPage(),
     getAreas(),
     getBusinessSettings(),
     searchParams,
+    getCashWithTeam().catch(() => null),
   ]);
+  const cashHeld = cash ? cash.held.reduce((sum, h) => sum + h.amount, 0) : 0;
   const owingAreaIds = new Set(customersWithDebt.map((customer) => customer.areaId).filter((id): id is number => typeof id === "number"));
   const owingAreas = areas.filter((area) => owingAreaIds.has(area.id));
 
@@ -45,10 +50,17 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
           <PaymentsToolbar
             customers={debtors}
             allCustomers={allCustomers}
+            allowCredit={settings.allowCustomerCredit ?? true}
             goCardlessConfigured={settings.goCardlessConfigured}
             goCardlessLastSyncedAt={settings.goCardlessLastSyncedAt ? settings.goCardlessLastSyncedAt.toISOString() : null}
           />
         </div>
+        {cash && (cashHeld > 0.005 || cash.handovers.length > 0) && (
+          <Link href="/payments/cash" className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 hover:bg-amber-100">
+            <span><b>Cash with the team</b>{cashHeld > 0.005 ? ` · ${cash.held.map((h) => h.name).join(", ")}` : " · all handed over"}</span>
+            <b className="tabular-nums">{fmtCurrency(cashHeld)}</b>
+          </Link>
+        )}
       </div>
 
       <PaymentsBody

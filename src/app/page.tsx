@@ -150,10 +150,10 @@ export default async function DashboardPage() {
             <CardContent className="py-4">
               <div className="flex items-center gap-2 mb-1">
                 <PoundSterling size={15} className="text-amber-500" />
-                <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Cash collected</span>
+                <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Cash to hand over</span>
               </div>
               <p className="text-2xl font-bold text-slate-800">{fmtCurrency(cashCollectedThisWeek)}</p>
-              <p className="text-xs text-slate-400 mt-0.5">this week, to hand over</p>
+              <p className="text-xs text-slate-400 mt-0.5">{cashCollectedThisWeek > 0.005 ? "give this to the owner" : "all handed over"}</p>
             </CardContent>
           </Card>
         </div>
