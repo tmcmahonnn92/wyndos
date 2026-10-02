@@ -39,8 +39,6 @@ export async function POST() {
         metadata: { tenantId: String(actor.tenantId) },
         ...(keepTrial ? { trial_end: Math.floor(trialEnd.getTime() / 1000) } : {}),
       },
-      // Adds VAT on top of the price (needs Stripe Tax set up in the Stripe dashboard).
-      ...(process.env.STRIPE_AUTOMATIC_TAX === "1" ? { automatic_tax: { enabled: true } } : {}),
       allow_promotion_codes: true,
       billing_address_collection: "auto",
       customer_update: { address: "auto", name: "auto" },

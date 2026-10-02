@@ -55,7 +55,7 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Taps (done, skip, pay, note, price) queue in `src/lib/offline-queue.ts`; calls give up after 12s on weak signal and queue.
 
 ## Billing (Stripe)
-- £9.99 + VAT a month, everything included. New prices are created `tax_behavior: exclusive`; set `STRIPE_AUTOMATIC_TAX=1` (with Stripe Tax set up) for Checkout to add VAT. 15-day trial kept by Wyndos (from `Tenant.createdAt`, or `trialEndsAt`), no card.
+- £9.99/month, everything included, no VAT (Tom isn't VAT registered). 15-day trial kept by Wyndos (from `Tenant.createdAt`, or `trialEndsAt`), no card.
 - `src/lib/billing.ts`: price by lookup key `wyndos_monthly_gbp` (created on first checkout, tax code `txcd_10103001` for Managed Payments), Checkout with `trial_end` during the trial, customer portal, `applySubscription` / `syncCustomer`.
 - Routes: `/api/stripe/checkout`, `/api/stripe/portal`, `/api/stripe/webhook` (signature checked; events: checkout.session.completed, customer.subscription.created/updated/deleted, invoice.paid, invoice.payment_failed). `/billing` page syncs on return from Checkout.
 - Gate: in `src/app/layout.tsx`. When the trial/subscription has ended only `/scheduler` and `/days` are locked. Owners see a trial bar. Workers are covered by the business's subscription.

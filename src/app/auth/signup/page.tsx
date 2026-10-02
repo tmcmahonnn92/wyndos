@@ -32,7 +32,7 @@ export default function SignUpPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 text-blue-400">✓</span>
-                  Then £9.99 + VAT a month for everything, cancel any time
+                  Then £9.99/month for everything, cancel any time
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 text-blue-400">✓</span>
