@@ -6,7 +6,7 @@
  * when there's no signal Next falls back to a full page load, which is served from here.
  */
 
-const VERSION = "v4";
+const VERSION = "v5";
 const PAGES = `wyndos-pages-${VERSION}`;
 const STATIC = `wyndos-static-${VERSION}`;
 const OFFLINE_URL = "/offline.html";
@@ -94,6 +94,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/") || url.pathname === "/sw.js") return;
+  if (url.pathname.startsWith("/payments/import")) return; // bank statement matching: never saved on the phone
 
   if (url.pathname.startsWith("/_next/static/")) {
     event.respondWith(handleStatic(request));

@@ -38,15 +38,41 @@ export async function readStatementFile(file: File): Promise<string[][]> {
     const text = await file.text();
     matrix = parseCSVText(sniffDelimiter(text) === ";" ? text.replace(/;/g, ",") : text);
   } else if (/\.(xlsx|xls|ods)$/.test(name)) {
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false, defval: "", dateNF: "dd/mm/yyyy" });
-    matrix = rows.map((row) => row.map((cell) => String(cell ?? "")));
+    matrix = await readSheetInWorker(await file.arrayBuffer());
   } else {
     throw new Error("Please choose a .csv, .xlsx or .xls file.");
   }
   return matrix.map((row) => row.map((cell) => String(cell ?? "").replace(/\s+/g, " ").trim()));
+}
+
+/**
+ * Spreadsheets are opened in a throwaway Web Worker: the bytes are handed over (not copied),
+ * only text cells come back, and the worker is ended straight after.
+ */
+function readSheetInWorker(bytes: ArrayBuffer): Promise<string[][]> {
+  return new Promise((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("./sheet.worker.ts", import.meta.url));
+    } catch {
+      reject(new Error("Couldn't open that spreadsheet here. Try saving it as CSV."));
+      return;
+    }
+    const done = () => worker.terminate();
+    const timer = setTimeout(() => { done(); reject(new Error("That spreadsheet took too long to read. Try saving it as CSV.")); }, 20000);
+    worker.onmessage = (event: MessageEvent<{ ok: boolean; grid?: string[][] }>) => {
+      clearTimeout(timer);
+      done();
+      if (event.data?.ok && Array.isArray(event.data.grid)) resolve(event.data.grid);
+      else reject(new Error("Couldn't read that spreadsheet. Try saving it as CSV."));
+    };
+    worker.onerror = () => {
+      clearTimeout(timer);
+      done();
+      reject(new Error("Couldn't read that spreadsheet. Try saving it as CSV."));
+    };
+    worker.postMessage(bytes, [bytes]); // transferred: the page no longer holds the file's bytes
+  });
 }
 
 /** A few European banks export with ";" — only switch when the first lines clearly use it. */

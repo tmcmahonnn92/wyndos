@@ -84,6 +84,7 @@ export function BankImportClient({
 
   /** Drop everything read from the statement. */
   const forget = () => {
+    setStep((current) => (current === 3 ? 3 : 0));
     setMatrix([]);
     setRows([]);
     setMapping(null);
@@ -91,8 +92,13 @@ export function BankImportClient({
     setAlreadyCount(0);
     if (fileRef.current) fileRef.current.value = "";
   };
-  // Leaving the page forgets the statement too.
-  useEffect(() => () => forget(), []);
+  // Leaving the page forgets the statement too, including when the browser keeps the page
+  // in its back/forward cache or the tab is closed.
+  useEffect(() => {
+    const onHide = () => forget();
+    window.addEventListener("pagehide", onHide);
+    return () => { window.removeEventListener("pagehide", onHide); forget(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function ingest(file: File) {
     setError(null);

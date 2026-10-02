@@ -83,6 +83,12 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Layout shows `LegalAcceptGate` to owners until the current `TERMS_VERSION` is accepted (workers aren't blocked). Bump `TERMS_VERSION` to ask everyone again.
 - Data protection to-do list: `docs/DATA_PROTECTION.md`.
 
+## Bank statement import (security)
+- The file never leaves the browser: CSV is read in the page, spreadsheets in a throwaway Web Worker (`src/lib/bank-import/sheet.worker.ts`, bytes transferred then the worker is ended). Only the rows the user ticks are sent (date, amount, up to 140 chars of text). Nothing goes in browser storage.
+- File input is cleared straight after reading; everything is forgotten on save, on leaving the page and on `pagehide`. `/payments/import` is `Cache-Control: no-store` and skipped by the service worker.
+- Server keeps only: the payment (notes "Bank: <text>"), a one-way hash per line (`ImportedLine`) to skip repeats, and learned references (≤60 chars) when the user ticks "remember".
+- To-do: `xlsx` 0.18.5 from npm has known issues (fixed in SheetJS 0.20.x, only on cdn.sheetjs.com). Risk is low (runs in the worker on the user's own file). Upgrade with `npm i --legacy-peer-deps https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`.
+
 ## Staging and backups
 - Staging: `deploy/STAGING.md` (`/opt/wyndos-staging`, port 3001, `sudo ./deploy/deploy-vps.sh --staging`).
 - Hourly encrypted off-site DB backups: `deploy/BACKUPS.md` (`deploy/backup/wyndos-backup.sh`, systemd timer, monthly `wyndos-restore-test.sh`).
