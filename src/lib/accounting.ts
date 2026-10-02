@@ -56,7 +56,9 @@ export const TAX_TREATMENT_OPTIONS: TaxTreatmentDefinition[] = [
 
 const EXPENSE_CATEGORY_MAP = new Map(EXPENSE_CATEGORIES.map((category) => [category.value, category]));
 const OTHER_INCOME_CATEGORY_MAP = new Map(OTHER_INCOME_CATEGORIES.map((category) => [category.value, category]));
-const TAX_TREATMENT_MAP = new Map(TAX_TREATMENT_OPTIONS.map((treatment) => [treatment.value, treatment]));
+// "VAT entered as an amount" (starting figures): not offered in the pickers.
+const ENTERED_VAT: TaxTreatmentDefinition = { value: "MIXED", label: "VAT as entered", vatRate: 0 };
+const TAX_TREATMENT_MAP = new Map([...TAX_TREATMENT_OPTIONS, ENTERED_VAT].map((option) => [option.value, option]));
 
 export function getExpenseCategory(value: string | null | undefined) {
   return EXPENSE_CATEGORY_MAP.get(value ?? "") ?? EXPENSE_CATEGORY_MAP.get("OTHER")!;

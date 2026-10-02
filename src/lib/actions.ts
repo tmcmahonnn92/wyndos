@@ -4820,16 +4820,28 @@ export async function getOpeningFigures() {
     taxYearStart: from.toISOString().slice(0, 10),
     income: income?.amount ?? 0,
     expenses: expense?.amount ?? 0,
+    incomeVat: income?.vatAmount ?? 0,
+    expensesVat: expense?.vatAmount ?? 0,
     asAt: (income?.receivedAt ?? expense?.expenseDate ?? null)?.toISOString().slice(0, 10) ?? null,
   };
 }
 
-export async function saveOpeningFigures(data: { income: number; expenses: number; asAt: string }) {
+export async function saveOpeningFigures(data: { income: number; expenses: number; incomeVat?: number; expensesVat?: number; asAt: string }) {
   const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
   const income = Math.round(Number(data.income) * 100) / 100;
   const expenses = Math.round(Number(data.expenses) * 100) / 100;
+  // VAT inside those totals (VAT charged on what you earned, VAT paid on what you spent).
+  const incomeVat = Math.round(Number(data.incomeVat ?? 0) * 100) / 100;
+  const expensesVat = Math.round(Number(data.expensesVat ?? 0) * 100) / 100;
   if (!Number.isFinite(income) || income < 0 || !Number.isFinite(expenses) || expenses < 0) throw new Error("Amounts can't be negative.");
+  if (!Number.isFinite(incomeVat) || incomeVat < 0 || !Number.isFinite(expensesVat) || expensesVat < 0) throw new Error("VAT can't be negative.");
+  if (incomeVat > income || expensesVat > expenses) throw new Error("VAT can't be more than the total it's part of.");
+  const vatTreatment = (gross: number, vat: number) => {
+    if (vat <= 0) return { netAmount: gross, vatAmount: 0, vatRate: 0, taxTreatment: "NO_VAT" };
+    const net = Math.round((gross - vat) * 100) / 100;
+    return { netAmount: net, vatAmount: vat, vatRate: net > 0 ? Math.round((vat / net) * 10000) / 100 : 0, taxTreatment: "MIXED" };
+  };
   const taxYear = getCurrentTaxYearStart();
   const from = getTaxYearStartDate(taxYear);
   const to = getTaxYearStartDate(taxYear + 1);
@@ -4842,15 +4854,15 @@ export async function saveOpeningFigures(data: { income: number; expenses: numbe
     const note = "Starting figure: this tax year before using Wyndos";
     if (income > 0) {
       await tx.otherIncome.create({ data: {
-        tenantId, category: "OPENING", source: "Earnings before Wyndos", amount: income, netAmount: income, vatAmount: 0, vatRate: 0,
-        taxTreatment: "NO_VAT", receivedAt: asAt, notes: note,
+        tenantId, category: "OPENING", source: "Earnings before Wyndos", amount: income, ...vatTreatment(income, incomeVat),
+        receivedAt: asAt, notes: note,
       } });
     }
     if (expenses > 0) {
       const cat = getExpenseCategory("OPENING");
       await tx.expense.create({ data: {
-        tenantId, category: "OPENING", hmrcCategory: cat.hmrcCategory, supplier: "Expenses before Wyndos", amount: expenses, netAmount: expenses,
-        vatAmount: 0, vatRate: 0, taxTreatment: "NO_VAT", expenseDate: asAt, notes: note,
+        tenantId, category: "OPENING", hmrcCategory: cat.hmrcCategory, supplier: "Expenses before Wyndos", amount: expenses,
+        ...vatTreatment(expenses, expensesVat), expenseDate: asAt, notes: note,
       } });
     }
   });
