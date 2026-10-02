@@ -44,8 +44,18 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Close account: Settings → Account. `src/lib/close-account.ts` (cancels Stripe, deletes the business).
 - Admin console `/admin` (SUPER_ADMIN): support sessions, billing controls (free forever, extend trial).
 
+## Credit (paid in advance / paid extra)
+- No balance column: credit = the part of a payment not allocated to any job (`Payment.amount` minus its allocations).
+- `applyCredit` (actions.ts) pays unpaid completed cleans oldest-first; runs on `completeJob`, on payments with `extra`, and when a job's price drops (`releaseOverpaid`).
+- Re-opening a job keeps its payment as credit (no more auto-void) and keeps `completedByUserId`.
+
+## Offline
+- Own service worker `public/sw.js` (next-pwa removed). Pages network-first then cached; `/_next/static` cache-first; RSC/API/POST never cached. `public/offline.html` fallback.
+- `OfflineStatus` registers it and pre-saves today's and the next few days' day pages. Sign-out clears saved pages.
+- Taps (done, skip, pay, note, price) queue in `src/lib/offline-queue.ts`; calls give up after 12s on weak signal and queue.
+
 ## Billing (Stripe)
-- £9.99/month, everything included. 15-day trial kept by Wyndos (from `Tenant.createdAt`, or `trialEndsAt`), no card.
+- £9.99 + VAT a month, everything included. New prices are created `tax_behavior: exclusive`; set `STRIPE_AUTOMATIC_TAX=1` (with Stripe Tax set up) for Checkout to add VAT. 15-day trial kept by Wyndos (from `Tenant.createdAt`, or `trialEndsAt`), no card.
 - `src/lib/billing.ts`: price by lookup key `wyndos_monthly_gbp` (created on first checkout, tax code `txcd_10103001` for Managed Payments), Checkout with `trial_end` during the trial, customer portal, `applySubscription` / `syncCustomer`.
 - Routes: `/api/stripe/checkout`, `/api/stripe/portal`, `/api/stripe/webhook` (signature checked; events: checkout.session.completed, customer.subscription.created/updated/deleted, invoice.paid, invoice.payment_failed). `/billing` page syncs on return from Checkout.
 - Gate: in `src/app/layout.tsx`. When the trial/subscription has ended only `/scheduler` and `/days` are locked. Owners see a trial bar. Workers are covered by the business's subscription.

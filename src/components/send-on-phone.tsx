@@ -44,7 +44,7 @@ export function SendOnPhone({ ids, compact = false }: { ids?: number[]; compact?
           <li>Tap the link that pops up. Sign in to Wyndos if it asks.</li>
           <li>Tap <strong>Open in Messages</strong>, press Send, come back. The next one is ready.</li>
           <li className="list-none -ml-4 pt-1 text-blue-800">
-            No camera? On your phone go to <strong>Texts</strong> and tap <strong>Send</strong> on the waiting texts.
+            No camera? On your phone open Wyndos and go to <strong>{typeof window !== "undefined" ? window.location.host : ""}/send</strong>.
           </li>
         </ol>
       </div>

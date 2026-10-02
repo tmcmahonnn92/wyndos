@@ -257,7 +257,7 @@ export function paidCleanedText(vars: MessageVars, creditLeft: number) {
   const extra = creditLeft > 0.005
     ? ` You have ${money(creditLeft)} credit left, so there's nothing to pay.`
     : " It's already paid, so there's nothing to pay.";
-  const sign = vars.businessName ? ` Thanks, ${vars.workerName && vars.workerName !== vars.businessName ? `${vars.workerName}, ` : ""}${vars.businessName}` : " Thanks";
+  const sign = vars.businessName ? ` Thanks, ${vars.businessName}` : " Thanks";
   return `${hi}your windows were cleaned${when}.${extra}${sign}`;
 }
 

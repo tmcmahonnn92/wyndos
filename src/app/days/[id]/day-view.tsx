@@ -102,13 +102,9 @@ function getJobTitle(job: { name?: string | null }) {
 function getPaidAfterCompletion(job: Job) {
   if (job.status !== "COMPLETE" || !job.completedAt) return 0;
 
-  const completedAt = new Date(job.completedAt).getTime();
+  // Everything paid on this clean counts, including credit paid in advance.
   return Number(
     (job.allocations ?? [])
-      .filter((allocation) => {
-        const paidAt = allocation.payment?.paidAt;
-        return paidAt ? new Date(paidAt).getTime() >= completedAt : false;
-      })
       .reduce((sum, allocation) => sum + allocation.amount, 0)
       .toFixed(2)
   );
