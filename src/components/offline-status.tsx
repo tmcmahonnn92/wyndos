@@ -134,11 +134,20 @@ export function OfflineStatus() {
     void sendQueued();
     void syncWorkDays();
     const interval = window.setInterval(() => { void sendQueued(); void syncWorkDays(); }, 60 * 1000);
+    // Phones often don't say when signal comes back, so while changes are waiting
+    // keep trying every 10 seconds, and straight away when the app is opened again.
+    const retry = window.setInterval(() => { if (getQueue().length > 0) void sendQueued(); }, 10 * 1000);
+    const onVisible = () => { if (document.visibilityState === "visible") void sendQueued(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
     return () => {
       window.clearInterval(interval);
+      window.clearInterval(retry);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };

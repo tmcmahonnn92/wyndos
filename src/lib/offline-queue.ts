@@ -141,11 +141,14 @@ export async function flushQueue(handlers: FlushHandlers) {
   try {
     for (const entry of read()) {
       try {
-        if (entry.kind === "complete") await handlers.complete(entry.jobId);
-        else if (entry.kind === "skip") await handlers.skip(entry.jobId);
-        else if (entry.kind === "note") await handlers.note(entry.jobId, entry.notes);
-        else if (entry.kind === "price") await handlers.price(entry.jobId, entry.price);
-        else await handlers.pay(entry);
+        // A weak signal can leave a call hanging for minutes: give up after a few seconds
+        // and try again shortly (every queued change is safe to send twice).
+        const send = entry.kind === "complete" ? handlers.complete(entry.jobId)
+          : entry.kind === "skip" ? handlers.skip(entry.jobId)
+          : entry.kind === "note" ? handlers.note(entry.jobId, entry.notes)
+          : entry.kind === "price" ? handlers.price(entry.jobId, entry.price)
+          : handlers.pay(entry);
+        await withTimeout(send, SLOW_SIGNAL_MS);
         sent++;
       } catch (error) {
         if (isNetworkError(error)) break;
