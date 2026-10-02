@@ -48,7 +48,7 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 ## Credit (paid in advance / paid extra)
 - No balance column: credit = the part of a payment not allocated to any job (`Payment.amount` minus its allocations).
 - `applyCredit` (actions.ts) pays unpaid completed cleans oldest-first; runs on `completeJob`, on payments with `extra`, and when a job's price drops (`releaseOverpaid`).
-- Re-opening a job keeps its payment as credit (no more auto-void) and keeps `completedByUserId`.
+- Undo (re-open) a job is a roll-back: a payment taken when it was ticked is voided whole; earlier credit used on it goes back to credit. `completedByUserId` is kept.
 - Setting `TenantSettings.allowCustomerCredit` (default on): when off, no new credit (overpay / Add credit refused); existing credit still used.
 - Day sheet pay forms take "Amount received": short leaves the rest owing, extra becomes credit.
 

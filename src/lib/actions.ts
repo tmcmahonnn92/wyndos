@@ -2953,14 +2953,42 @@ export async function uncompleteJob(jobId: number) {
   const tenantId = actor.tenantId;
   const job = await prisma.job.findFirst({
     where: { id: jobId, tenantId, ...visibleJobWhere(actor) },
-    include: { allocations: { where: { payment: { voidedAt: null } }, select: { id: true } } },
+    include: {
+      allocations: {
+        where: { payment: { voidedAt: null } },
+        select: {
+          id: true,
+          amount: true,
+          payment: { select: { id: true, amount: true, createdAt: true, allocations: { select: { id: true, jobId: true, amount: true } } } },
+        },
+      },
+    },
   });
   if (!job) throw new Error("Job not found");
 
-  // Money paid for this clean isn't lost: it goes back to the customer as credit
-  // and pays the clean again when it's re-ticked. Who did the job is kept too.
+  // Undo is a roll-back of a mistaken "Done" or "Done & Paid":
+  // - a payment taken when it was ticked is cancelled whole (including any extra, and any
+  //   older cleans it paid off at the same time, which go back to owing);
+  // - credit the customer already had, which was used on this clean, goes back to them as credit.
+  // Who did the job is kept.
+  const tickedAt = job.completedAt ? job.completedAt.getTime() - 5000 : null;
   await prisma.$transaction(async (tx) => {
-    await tx.paymentAllocation.deleteMany({ where: { id: { in: job.allocations.map((a) => a.id) } } });
+    const voided = new Set<number>();
+    for (const allocation of job.allocations) {
+      const payment = allocation.payment;
+      const takenWhenTicked = tickedAt !== null && payment.createdAt.getTime() >= tickedAt;
+      if (!takenWhenTicked) {
+        await tx.paymentAllocation.delete({ where: { id: allocation.id } }); // earlier credit: released
+        continue;
+      }
+      if (voided.has(payment.id)) continue;
+      voided.add(payment.id);
+      await tx.paymentAllocation.deleteMany({ where: { paymentId: payment.id } });
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: { voidedAt: new Date(), voidReason: "Undone: job marked as not done" },
+      });
+    }
     await tx.job.update({
       where: { id: jobId },
       data: { status: "PENDING", completedAt: null },
