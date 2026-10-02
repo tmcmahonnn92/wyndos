@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>No signal · Wyndos</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #f8fafc; color: #1e293b; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+  main { max-width: 22rem; padding: 2rem 1.5rem; text-align: center; }
+  h1 { font-size: 1.25rem; margin: 0.75rem 0 0.5rem; }
+  p { font-size: 0.9rem; color: #475569; line-height: 1.5; margin: 0 0 1rem; }
+  a, button { display: inline-block; margin: 0.25rem; padding: 0.7rem 1.1rem; border-radius: 0.75rem; border: 0; font-size: 0.9rem; font-weight: 600; text-decoration: none; cursor: pointer; }
+  .primary { background: #2563eb; color: #fff; }
+  .plain { background: #e2e8f0; color: #1e293b; }
+  @media (prefers-color-scheme: dark) { body { background: #0b1020; color: #e2e8f0; } p { color: #94a3b8; } .plain { background: #1e2840; color: #e2e8f0; } }
+</style>
+</head>
+<body>
+<main>
+  <div style="font-size:2.5rem">📶</div>
+  <h1>No signal</h1>
+  <p>This page wasn't saved on your phone yet. Days you've opened recently still work: go back to one, keep ticking jobs off, and it all sends when you're back online.</p>
+  <button class="primary" onclick="history.back()">Go back</button>
+  <a class="plain" href="/">Dashboard</a>
+  <button class="plain" onclick="location.reload()">Try again</button>
+</main>
+</body>
+</html>

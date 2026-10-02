@@ -11,6 +11,8 @@
 export type QueuedAction =
   | { id: string; kind: "complete"; jobId: number; workDayId: number; createdAt: number }
   | { id: string; kind: "skip"; jobId: number; workDayId: number; createdAt: number }
+  | { id: string; kind: "note"; jobId: number; workDayId: number; createdAt: number; notes: string }
+  | { id: string; kind: "price"; jobId: number; workDayId: number; createdAt: number; price: number }
   | {
       id: string;
       kind: "pay";
@@ -75,7 +77,23 @@ export function onQueueChange(listener: () => void) {
 export function isNetworkError(error: unknown) {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
   const message = error instanceof Error ? error.message : String(error ?? "");
-  return /failed to fetch|networkerror|network error|load failed|fetch failed|ERR_INTERNET_DISCONNECTED|connection/i.test(message);
+  return /failed to fetch|networkerror|network error|load failed|fetch failed|ERR_INTERNET_DISCONNECTED|connection|unexpected response|timed out|timeout|aborted|offline|network request failed/i.test(message);
+}
+
+/** Weak signal ("one bar"): give up waiting after this long and save the tap on the phone. */
+const SLOW_SIGNAL_MS = 12_000;
+
+class SlowSignalError extends Error {
+  constructor() {
+    super("Connection timed out");
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new SlowSignalError()), ms);
+    promise.then((value) => { clearTimeout(timer); resolve(value); }, (error) => { clearTimeout(timer); reject(error); });
+  });
 }
 
 /**
@@ -91,7 +109,9 @@ export async function runOrQueue(action: NewAction, run: (clientRequestId: strin
     return "queued" as const;
   }
   try {
-    await run(clientRequestId);
+    // Every queued kind is safe to send twice (complete/skip/notes/price are idempotent,
+    // payments carry clientRequestId), so a slow call that later lands does no harm.
+    await withTimeout(run(clientRequestId), SLOW_SIGNAL_MS);
     return "done" as const;
   } catch (error) {
     if (isNetworkError(error)) {
@@ -105,6 +125,8 @@ export async function runOrQueue(action: NewAction, run: (clientRequestId: strin
 export type FlushHandlers = {
   complete: (jobId: number) => Promise<unknown>;
   skip: (jobId: number) => Promise<unknown>;
+  note: (jobId: number, notes: string) => Promise<unknown>;
+  price: (jobId: number, price: number) => Promise<unknown>;
   pay: (entry: Extract<QueuedAction, { kind: "pay" }>) => Promise<unknown>;
 };
 
@@ -121,6 +143,8 @@ export async function flushQueue(handlers: FlushHandlers) {
       try {
         if (entry.kind === "complete") await handlers.complete(entry.jobId);
         else if (entry.kind === "skip") await handlers.skip(entry.jobId);
+        else if (entry.kind === "note") await handlers.note(entry.jobId, entry.notes);
+        else if (entry.kind === "price") await handlers.price(entry.jobId, entry.price);
         else await handlers.pay(entry);
         sent++;
       } catch (error) {
@@ -133,4 +157,11 @@ export async function flushQueue(handlers: FlushHandlers) {
     flushing = false;
   }
   return { sent, failed };
+}
+
+/** Signing out: remove saved pages from this phone. */
+export function clearOfflinePages() {
+  try {
+    navigator.serviceWorker?.controller?.postMessage({ type: "clear" });
+  } catch {}
 }

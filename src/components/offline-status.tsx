@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CloudOff, RefreshCw, Wifi } from "lucide-react";
-import { completeJob, recordPayment, skipJob } from "@/lib/actions";
+import { completeJob, recordPayment, skipJob, updateJobNotes, updateJobPrice } from "@/lib/actions";
 import { flushQueue, getQueue, onQueueChange } from "@/lib/offline-queue";
 
 type OfflineSnapshotMeta = {
@@ -14,7 +14,37 @@ type OfflineSnapshotMeta = {
 const OFFLINE_META_KEY = "wyndos-offline-meta";
 const OFFLINE_WORK_DAYS_KEY = "wyndos-offline-work-days";
 
+/**
+ * Save today's and the next few days' work on the phone (pages and the app files they
+ * need), so they open with no signal even if they haven't been visited yet.
+ */
+let lastWarm = 0;
+function warmPages(workDays: Array<{ id: number; date: string }>) {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+  if (Date.now() - lastWarm < 10 * 60 * 1000) return; // at most every 10 minutes
+  lastWarm = Date.now();
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const from = today.getTime() - 86_400_000;
+  const to = today.getTime() + 4 * 86_400_000;
+  const soon = workDays.filter((d) => {
+    const t = new Date(d.date).getTime();
+    return t >= from && t < to;
+  });
+  const dates = [...new Set(soon.map((d) => new Date(d.date).toISOString().slice(0, 10)))];
+  const urls = ["/", "/days", ...dates.map((iso) => `/days/date/${iso}`), ...soon.map((d) => `/days/${d.id}`)];
+  navigator.serviceWorker.ready
+    .then((registration) => registration.active?.postMessage({ type: "warm", urls }))
+    .catch(() => {});
+}
+
 export function OfflineStatus() {
+  // Offline pages: the service worker keeps recent pages on the phone.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator) || process.env.NODE_ENV !== "production") return;
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+  }, []);
+
   const router = useRouter();
   const [isOnline, setIsOnline] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -60,6 +90,7 @@ export function OfflineStatus() {
         localStorage.setItem(OFFLINE_WORK_DAYS_KEY, JSON.stringify(workDays));
         localStorage.setItem(OFFLINE_META_KEY, JSON.stringify(nextMeta));
         setSnapshotMeta(nextMeta);
+        warmPages(Array.isArray(workDays) ? workDays : []);
       } catch {
         // Offline or server unreachable: keep the last snapshot.
       } finally {
@@ -72,6 +103,8 @@ export function OfflineStatus() {
       const result = await flushQueue({
         complete: (jobId) => completeJob(jobId),
         skip: (jobId) => skipJob(jobId),
+        note: (jobId, notes) => updateJobNotes(jobId, notes),
+        price: (jobId, price) => updateJobPrice(jobId, price),
         pay: (entry) => recordPayment({
           customerId: entry.customerId,
           allocations: entry.allocations,

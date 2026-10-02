@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
+import { clearOfflinePages } from "@/lib/offline-queue";
 import { Bell, CreditCard, Download, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { closeBusiness } from "@/lib/close-account";
@@ -50,6 +51,7 @@ export function AccountTab({ isOwner, businessName }: { isOwner: boolean; busine
                 setError("");
                 try {
                   await closeBusiness(typed);
+                  clearOfflinePages();
                   await signOut({ callbackUrl: "/auth/signin" });
                 } catch (e) {
                   setError(e instanceof Error && e.message ? e.message : "Something went wrong. Nothing was deleted.");

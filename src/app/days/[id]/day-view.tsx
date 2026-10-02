@@ -73,7 +73,7 @@ import { SharePdfButton } from "@/components/share-pdf-button";
 import { hasPin, mapsHref, mapsPoint } from "@/lib/maps-link";
 import { getDayCleanedTextStatus, getPhoneOutbox, textDayCleaned } from "@/lib/text-actions";
 import { QuoteActions, quoteCardClass, quoteSummary } from "./quote-actions";
-import { getQueue, onQueueChange, runOrQueue } from "@/lib/offline-queue";
+import { getQueue, isNetworkError, onQueueChange, runOrQueue } from "@/lib/offline-queue";
 import { expectsPaymentAtDoor, normalisePreference, preferenceLabel } from "@/lib/payment-preference";
 import { fmtDate, fmtShortDate, fmtCurrency, cn } from "@/lib/utils";
 import { addressPartsOf, collectKnownTowns, compareByStreet, composeAddress, withTownFallback } from "@/lib/address";
@@ -368,7 +368,9 @@ export function DayView({
         setActionError(null);
         await fn();
       } catch (issue) {
-        setActionError(issue instanceof Error ? issue.message : "Could not save that change.");
+        setActionError(isNetworkError(issue)
+          ? "No signal for that one. Ticking jobs off and payments still save on the phone; try this again when you're back online."
+          : issue instanceof Error ? issue.message : "Could not save that change.");
       }
     });
   };
@@ -383,6 +385,11 @@ export function DayView({
     const result = await runOrQueue({ kind: "skip", jobId: job.id, workDayId: job.workDayId }, () => skipJob(job.id));
     if (result === "queued") setLocalStatus((prev) => ({ ...prev, [job.id]: "SKIPPED" }));
   };
+  /** Note / price changes made at the door: saved on the phone if there's no signal. */
+  const doNote = (job: Job, notes: string) =>
+    runOrQueue({ kind: "note", jobId: job.id, workDayId: job.workDayId, notes }, () => updateJobNotes(job.id, notes));
+  const doPrice = (job: Job, price: number) =>
+    runOrQueue({ kind: "price", jobId: job.id, workDayId: job.workDayId, price }, () => updateJobPrice(job.id, price));
   const doPay = async (
     job: Job,
     allocations: Array<{ jobId: number; amount: number }>,
@@ -1370,8 +1377,8 @@ export function DayView({
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            if (note.trim()) await updateJobNotes(job.id, note.trim());
-            if (price !== job.price) await updateJobPrice(job.id, price);
+            if (note.trim()) await doNote(job, note.trim());
+            if (price !== job.price) await doPrice(job, price);
             await doComplete(job);
             setSelectedJob(null); setOpenJobInPayMode(false);
             refreshIfOnline();
@@ -1390,18 +1397,18 @@ export function DayView({
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            if (note !== null) await updateJobNotes(job.id, note);
-            if (price !== null) await updateJobPrice(job.id, price);
+            if (note !== null) await doNote(job, note);
+            if (price !== null) await doPrice(job, price);
             setSelectedJob(null); setOpenJobInPayMode(false);
-            router.refresh();
+            refreshIfOnline();
           });
         }}
         onSkip={(price, note) => {
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            if (note.trim()) await updateJobNotes(job.id, note.trim());
-            if (price !== job.price) await updateJobPrice(job.id, price);
+            if (note.trim()) await doNote(job, note.trim());
+            if (price !== job.price) await doPrice(job, price);
             await doSkip(job);
             setSelectedJob(null); setOpenJobInPayMode(false);
             refreshIfOnline();
@@ -1411,8 +1418,8 @@ export function DayView({
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            if (notes?.trim()) await updateJobNotes(job.id, notes.trim());
-            if (visitPrice !== job.price) await updateJobPrice(job.id, visitPrice);
+            if (notes?.trim()) await doNote(job, notes.trim());
+            if (visitPrice !== job.price) await doPrice(job, visitPrice);
             await doComplete(job);
             await doPay(job, allocations, method, notes);
             setSelectedJob(null); setOpenJobInPayMode(false);
@@ -1432,8 +1439,8 @@ export function DayView({
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            if (notes?.trim()) await updateJobNotes(job.id, notes.trim());
-            if (visitPrice !== job.price) await updateJobPrice(job.id, visitPrice);
+            if (notes?.trim()) await doNote(job, notes.trim());
+            if (visitPrice !== job.price) await doPrice(job, visitPrice);
             await doComplete(job);
             await doPay(job, allocations, method, notes);
             setSelectedJob(null); setOpenJobInPayMode(false);
