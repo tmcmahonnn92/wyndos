@@ -77,7 +77,7 @@ export function BillingClient({ state, isOwner, justSubscribed, price, trialDays
           {kind !== "free" && (
             <div className="rounded-xl border border-slate-200 p-4 dark:border-[#1E2840]">
               <p className="text-sm text-slate-500">Wyndos, everything included</p>
-              <p className="mt-1 text-3xl font-bold text-slate-800 dark:text-slate-100">{price}<span className="text-base font-medium text-slate-500"> / month</span></p>
+              <p className="mt-1 text-3xl font-bold text-slate-800 dark:text-slate-100">{price}<span className="text-base font-medium text-slate-500"> + VAT / month</span></p>
               <ul className="mt-3 space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
                 {FEATURES.map((f) => <li key={f} className="flex items-start gap-2"><Check size={15} className="mt-0.5 flex-shrink-0 text-green-600" />{f}</li>)}
               </ul>
@@ -94,7 +94,7 @@ export function BillingClient({ state, isOwner, justSubscribed, price, trialDays
               {!subscribed && (
                 <Button className="flex-1" disabled={busy !== ""} onClick={() => (ready ? go("checkout") : setError("Payments aren't switched on on the server yet (STRIPE_SECRET_KEY missing). Please contact support."))}>
                   {busy === "checkout" ? <Loader2 size={15} className="animate-spin" /> : <CreditCard size={15} />}
-                  Subscribe for {price}/month
+                  Subscribe for {price} + VAT a month
                 </Button>
               )}
               {subscribed && (

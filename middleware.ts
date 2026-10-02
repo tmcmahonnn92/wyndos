@@ -7,7 +7,7 @@ import { normalizeMemberships, resolveActiveMembership } from "@/lib/memberships
 const { auth } = NextAuth(authConfig);
 const ONBOARDING_REFRESH_COOKIE = "wyndos_onboarding_refresh";
 const PUBLIC_ROUTES = new Set(["/auth/signin", "/auth/signup", "/home", "/privacy", "/terms"]);
-const PUBLIC_PREFIXES = ["/auth/invite/", "/screens/"];
+const PUBLIC_PREFIXES = ["/auth/invite/", "/auth/verify-email", "/screens/"];
 
 function parseTenantId(rawValue: string | undefined) {
   const tenantId = rawValue ? Number.parseInt(rawValue, 10) : NaN;
@@ -33,7 +33,7 @@ export default auth((req) => {
 
   if (!isLoggedIn && !PUBLIC_ROUTES.has(pathname)) {
     const url = new URL("/auth/signin", req.nextUrl);
-    url.searchParams.set("callbackUrl", pathname);
+    url.searchParams.set("callbackUrl", pathname + req.nextUrl.search);
     return NextResponse.redirect(url);
   }
 

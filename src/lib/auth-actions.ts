@@ -149,6 +149,13 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
       maxAge: 60 * 60 * 24 * 30,
     });
 
+    try {
+      await sendVerificationEmail(result.userId);
+    } catch (issue) {
+      // A mail problem must never stop a sign-up; they can resend from the banner.
+      console.error("[registerOwner] verification email failed", issue);
+    }
+
     return { ok: true, ...result };
   } catch (err) {
     console.error("[registerOwner]", err);
@@ -507,6 +514,8 @@ export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInvi
         data: {
           name,
           email: invite.email,
+          // They came from the invite link sent to this address, so it's confirmed.
+          emailVerified: new Date(),
           passwordHash,
           role: invite.role,
           tenantId: invite.tenantId,
@@ -969,3 +978,80 @@ export async function listAllTenants(): Promise<TenantSummary[]> {
   }));
 }
 
+
+// -----------------------------------------------------------------------------
+// Email confirmation
+// -----------------------------------------------------------------------------
+
+/** Email a "confirm your email" link (valid for 3 days). Older links stop working. */
+async function sendVerificationEmail(userId: string) {
+  const user = await db.user.findUnique({ where: { id: userId }, select: { email: true, name: true, emailVerified: true } });
+  if (!user || user.emailVerified) return;
+  const raw = randomBytes(32).toString("hex");
+  await db.verificationToken.deleteMany({ where: { identifier: user.email } });
+  await db.verificationToken.create({
+    data: { identifier: user.email, token: hashPasswordResetToken(raw), expires: addDays(new Date(), 3) },
+  });
+  const base = (process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const link = `${base}/auth/verify-email?token=${raw}`;
+  const first = (user.name ?? "").split(" ")[0] || "there";
+  if (!platformEmailConfigured()) {
+    console.error("[verify-email] no email set up; link:", process.env.NODE_ENV === "production" ? "(hidden)" : link);
+    return;
+  }
+  await sendPlatformEmail({
+    to: user.email,
+    subject: "Confirm your email for Wyndos",
+    text: `Hi ${first},\n\nPlease confirm this is your email address:\n${link}\n\nThe link works for 3 days. If you didn't sign up to Wyndos, ignore this email.\n\nWyndos`,
+    html: `<div style="font-family:Arial,sans-serif;font-size:15px;color:#1e293b;line-height:1.5">
+<p>Hi ${escHtml(first)},</p><p>Please confirm this is your email address.</p>
+<p><a href="${escHtml(link)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Confirm my email</a></p>
+<p style="color:#64748b;font-size:13px">The link works for 3 days. If you didn't sign up to Wyndos, ignore this email.</p><p>Wyndos</p></div>`,
+  });
+}
+
+/** Send the confirm link again to the signed-in person. */
+export async function resendVerificationEmail(): Promise<{ ok: boolean; error?: string }> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, error: "Please sign in again." };
+  try {
+    await sendVerificationEmail(userId);
+    return { ok: true };
+  } catch (issue) {
+    console.error("[resendVerificationEmail]", issue);
+    return { ok: false, error: "Couldn't send the email. Please try again in a minute." };
+  }
+}
+
+/** Use a confirm link. Works whether or not they're signed in. */
+export async function verifyEmail(raw: string): Promise<{ ok: boolean; error?: string }> {
+  if (!raw || !/^[a-f0-9]{64}$/.test(raw)) return { ok: false, error: "That link isn't right. Ask for a new one." };
+  const record = await db.verificationToken.findUnique({ where: { token: hashPasswordResetToken(raw) } });
+  if (!record) return { ok: false, error: "That link has been used or replaced. Ask for a new one." };
+  if (record.expires < new Date()) {
+    await db.verificationToken.deleteMany({ where: { identifier: record.identifier } });
+    return { ok: false, error: "That link has run out. Ask for a new one." };
+  }
+  await db.user.updateMany({ where: { email: record.identifier, emailVerified: null }, data: { emailVerified: new Date() } });
+  await db.verificationToken.deleteMany({ where: { identifier: record.identifier } });
+  return { ok: true };
+}
+
+/** Has the signed-in person confirmed their email? Google sign-ins count as confirmed. */
+export async function emailVerificationState(): Promise<{ verified: boolean; email: string }> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId || session.user.role === "SUPER_ADMIN") return { verified: true, email: "" };
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { email: true, emailVerified: true, accounts: { select: { provider: true } } },
+  });
+  if (!user) return { verified: true, email: "" };
+  if (user.emailVerified) return { verified: true, email: user.email };
+  if (user.accounts.some((a: { provider: string }) => a.provider === "google")) {
+    await db.user.update({ where: { id: userId }, data: { emailVerified: new Date() } });
+    return { verified: true, email: user.email };
+  }
+  return { verified: false, email: user.email };
+}

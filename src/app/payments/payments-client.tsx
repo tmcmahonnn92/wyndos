@@ -22,7 +22,8 @@ import { syncGoCardlessPayments } from "@/lib/actions";
 import { LogPaymentForm, type PaymentCustomerOption } from "./log-payment-form";
 import { AddCreditForm, type CreditCustomerOption } from "./add-credit-form";
 import { smsHref } from "@/components/phone-send-queue";
-import { logPhoneText } from "@/lib/text-actions";
+import { logPhoneText, queuePhoneTexts } from "@/lib/text-actions";
+import { SendOnPhone } from "@/components/send-on-phone";
 import { ukMobile } from "@/lib/text-format";
 import { INVOICE_EMAIL_ENABLED } from "@/lib/features";
 
@@ -173,6 +174,9 @@ function SmsModal({
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // On a computer the text is saved for the phone; these are its ids.
+  const [queuedIds, setQueuedIds] = useState<number[] | null>(null);
+  const onComputer = typeof navigator !== "undefined" && !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   const tpl = SMS_TEMPLATES[selected];
   const amount = fmtCurrency(debtor.debt);
@@ -208,6 +212,24 @@ function SmsModal({
     window.location.href = smsHref(to, message);
   };
 
+  const handleQueueForPhone = async () => {
+    const to = ukMobile(debtor.phone?.trim() ?? "");
+    if (!to) { setError("This customer has no UK mobile saved."); return; }
+    setSending(true);
+    setError(null);
+    try {
+      const result = await queuePhoneTexts({
+        items: [{ customerId: debtor.id, body: message }],
+        kind: selected === 0 ? "PAYMENT_REMINDER_1" : selected === 1 ? "PAYMENT_REMINDER_2" : "PAYMENT_CHASE",
+      });
+      setQueuedIds(result.ids);
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : "Couldn't save the text.");
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
@@ -216,7 +238,12 @@ function SmsModal({
           <button onClick={onClose} className="p-1 rounded-full text-slate-400 hover:text-slate-700"><X size={16} /></button>
         </div>
 
-        {done ? (
+        {queuedIds ? (
+          <div className="space-y-3">
+            <SendOnPhone ids={queuedIds} />
+            <button onClick={onClose} className="w-full rounded-lg bg-slate-100 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200">Done</button>
+          </div>
+        ) : done ? (
           <div className="flex flex-col items-center gap-3 py-6">
             <CheckCircle2 size={36} className="text-green-500" />
             <p className="font-semibold text-slate-700">Opened in Messages</p>
@@ -271,6 +298,15 @@ function SmsModal({
                 {sending ? "Opening…" : "Open in Messages"}
               </button>
             </div>
+            {onComputer && (
+              <button
+                onClick={handleQueueForPhone}
+                disabled={sending}
+                className="w-full rounded-lg border border-blue-200 bg-blue-50 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+              >
+                On a computer? Send from my phone instead
+              </button>
+            )}
           </>
         )}
       </div>

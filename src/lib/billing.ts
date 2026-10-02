@@ -109,6 +109,8 @@ export async function monthlyPriceId() {
     currency: "gbp",
     unit_amount: PRICE_PENCE,
     recurring: { interval: "month" },
+    // £9.99 is before VAT: Stripe adds VAT on top when tax is switched on.
+    tax_behavior: "exclusive",
     lookup_key: PRICE_LOOKUP_KEY,
     nickname: "Wyndos monthly",
   });

@@ -11,6 +11,8 @@ import { resolveActiveMembership, resolveActivePermissions } from "@/lib/members
 import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
 import { OfflineStatus } from "@/components/offline-status";
 import { BillingLock, TrialBar } from "@/components/billing-banners";
+import { VerifyEmailBar } from "@/components/verify-email-bar";
+import { emailVerificationState } from "@/lib/auth-actions";
 import { billingStateForTenant, type BillingState } from "@/lib/billing";
 
 // Fonts are bundled in the repo (src/app/fonts) so builds never depend on reaching Google Fonts.
@@ -116,6 +118,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   }
 
   const path = (await headers()).get("x-wyndos-path") ?? "";
+  // Owners who signed up with email and password confirm the address once.
+  const emailCheck = session?.user && activeRole === "OWNER" && !path.startsWith("/auth")
+    ? await emailVerificationState().catch(() => null)
+    : null;
   // When the trial has ended only planning and the day sheets stop; customers, payments,
   // settings, backups and everything else stay open so nobody is cut off from their data.
   const blockedWhenLocked = ["/scheduler", "/days"].some((p) => path === p || path.startsWith(`${p}/`));
@@ -143,6 +149,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           {session?.user?.role === "SUPER_ADMIN" && tenantName && supportSession && (
             <SupportSessionBanner tenantName={tenantName} reason={supportSession.reason} startedAt={supportSession.startedAt} />
           )}
+          {emailCheck && !emailCheck.verified && <VerifyEmailBar email={emailCheck.email} />}
           {showTrialBar && billing && <TrialBar state={billing} />}
           {locked ? <BillingLock isOwner={activeRole === "OWNER"} hadSubscription={billing?.hadSubscription} /> : children}
         </main>

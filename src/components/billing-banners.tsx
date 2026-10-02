@@ -34,7 +34,7 @@ export function BillingLock({ isOwner, hadSubscription = false }: { isOwner: boo
             Subscribe to carry on planning and working your round. Your customers, payments and everything else are still open.
           </p>
           <Link href="/billing" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700">
-            <CreditCard size={16} /> Subscribe for £9.99/month
+            <CreditCard size={16} /> Subscribe for £9.99 + VAT a month
           </Link>
 
         </>

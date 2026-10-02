@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, MessageSquare, SkipForward } from "lucide-react";
 import { markPhoneTextOpened } from "@/lib/text-actions";
 import { AUTO_SMS_ENABLED } from "@/lib/features";
+import { SendOnPhone } from "@/components/send-on-phone";
 
 export type PhoneText = { id: number; name: string; to: string; body: string };
 
@@ -102,11 +103,7 @@ export function PhoneSendQueue({ items, onFinished }: { items: PhoneText[]; onFi
 
   return (
     <div className="space-y-3">
-      {!phone && (
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          This sends from the phone you&apos;re using, so open Wyndos on your phone to send these.
-        </p>
-      )}
+      {!phone && <SendOnPhone ids={items.slice(index).map((item) => item.id)} compact />}
       <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
         <span>{index + 1} of {items.length}</span>
         <span>{openedIds.size} opened</span>
