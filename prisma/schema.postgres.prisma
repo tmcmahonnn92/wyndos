@@ -630,3 +630,46 @@ model NotificationEvent {
   @@index([sentAt, dueAt])
   @@index([tenantId])
 }
+
+// --- Support tickets ----------------------------------------------------------
+
+/// A message sent from the in-app support form. Replies are emailed from the support address.
+model SupportTicket {
+  id         Int       @id @default(autoincrement())
+  tenantId   Int?
+  userId     String?
+  fromName   String    @default("")
+  fromEmail  String    @default("")
+  copyTo     String    @default("")
+  kind       String    @default("")
+  section    String    @default("")
+  subject    String
+  message    String
+  page       String    @default("")
+  browser    String    @default("")
+  /// File names only (the files themselves went by email).
+  files      String    @default("")
+  /// OPEN | CLOSED
+  status     String    @default("OPEN")
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  closedAt   DateTime?
+  replies    SupportReply[]
+
+  @@index([status, createdAt])
+  @@index([tenantId])
+}
+
+model SupportReply {
+  id        Int           @id @default(autoincrement())
+  ticketId  Int
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  /// Who wrote it in the admin console.
+  authorId  String?
+  body      String
+  /// ADMIN (sent from Wyndos) | NOTE (internal, not emailed)
+  kind      String        @default("ADMIN")
+  createdAt DateTime      @default(now())
+
+  @@index([ticketId])
+}

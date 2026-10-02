@@ -160,7 +160,7 @@ export function OfflineStatus() {
 
   if (queueErrors.length > 0) {
     return (
-      <div className="fixed top-16 md:top-4 right-4 z-[70] max-w-sm rounded-2xl border border-red-300 bg-red-50 px-4 py-3 shadow-lg">
+      <div className="border-b border-red-200 bg-red-50 px-4 py-2">
         <p className="text-sm font-semibold text-red-900">Some offline changes couldn&apos;t be saved</p>
         <ul className="mt-1 list-disc pl-4 text-xs text-red-800">
           {queueErrors.slice(0, 3).map((message, index) => <li key={index}>{message}</li>)}
@@ -174,36 +174,23 @@ export function OfflineStatus() {
   // are waiting to send, or just after reconnecting.
   if (isOnline && queued === 0 && !syncRecovered) return null;
 
+  // A slim bar under the top menu (never covering it), stuck to the top while scrolling.
   if (!isOnline) {
     return (
-      <div className="fixed top-16 md:top-4 right-4 z-[70] max-w-sm rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg">
-        <div className="flex items-start gap-2 text-amber-900">
-          <CloudOff size={16} className="mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-semibold">
-              No signal{queued > 0 ? ` · ${queued} change${queued === 1 ? "" : "s"} waiting` : ""}
-            </p>
-            <p className="text-xs text-amber-800/80 mt-0.5">
-              Keep working: taps are saved on this phone and sent when you&apos;re back online.
-              {snapshotMeta ? ` Last synced ${new Date(snapshotMeta.syncedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} with ${snapshotMeta.dayCount} recent work days cached.` : ""}
-            </p>
-          </div>
-        </div>
+      <div className="sticky top-14 md:top-0 z-30 flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
+        <CloudOff size={14} className="flex-shrink-0" />
+        <span className="font-semibold">No signal</span>
+        <span className="truncate text-amber-800/90">
+          {queued > 0 ? `${queued} change${queued === 1 ? "" : "s"} saved on this phone` : "keep working, taps are saved on this phone"}
+        </span>
       </div>
     );
   }
 
   return (
-    <div className="fixed top-16 md:top-4 right-4 z-[70] max-w-sm rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 shadow-lg">
-      <div className="flex items-start gap-2 text-emerald-900">
-        {isSyncing ? <RefreshCw size={16} className="mt-0.5 flex-shrink-0 animate-spin" /> : <Wifi size={16} className="mt-0.5 flex-shrink-0" />}
-        <div>
-          <p className="text-sm font-semibold">{queued > 0 ? `Sending ${queued} saved change${queued === 1 ? "" : "s"}…` : "Back online"}</p>
-          <p className="text-xs text-emerald-800/80 mt-0.5">
-            {queued > 0 ? "Changes made with no signal are being saved." : "Everything is saved."}
-          </p>
-        </div>
-      </div>
+    <div className="sticky top-14 md:top-0 z-30 flex items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-4 py-1.5 text-xs text-emerald-900">
+      {isSyncing || queued > 0 ? <RefreshCw size={14} className="flex-shrink-0 animate-spin" /> : <Wifi size={14} className="flex-shrink-0" />}
+      <span className="font-semibold">{queued > 0 ? `Sending ${queued} saved change${queued === 1 ? "" : "s"}…` : "Back online, everything is saved"}</span>
     </div>
   );
 }

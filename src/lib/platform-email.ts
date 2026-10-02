@@ -16,6 +16,8 @@ export type PlatformEmail = {
   cc?: string | string[];
   bcc?: string;
   replyTo?: string | string[];
+  /** Override the sender, e.g. '"Wyndos Support" <support@wyndos.io>'. */
+  from?: string;
   attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>;
 };
 
@@ -32,7 +34,8 @@ export async function sendPlatformEmail(input: PlatformEmail) {
   });
   const fromName = String(process.env.PLATFORM_SMTP_FROM_NAME ?? "Wyndos").trim() || "Wyndos";
   const fromEmail = String(process.env.PLATFORM_SMTP_FROM_EMAIL ?? user).trim() || user;
-  await transporter.sendMail({ from: `"${fromName}" <${fromEmail}>`, ...input });
+  const { from, ...rest } = input;
+  await transporter.sendMail({ from: from || `"${fromName}" <${fromEmail}>`, ...rest });
 }
 
 /** Where support messages and new sign-ups go, and who gets a copy (Tom). Env overrides. */

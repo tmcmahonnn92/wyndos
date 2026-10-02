@@ -42,7 +42,8 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Onboarding: `src/app/auth/onboarding/` (3 steps; `Tenant.signupInfo`); welcome + "new sign-up" emails.
 - Backups: Settings → Data. `src/lib/backup.ts`, `/api/backup` (download .json.gz), `/api/backup/restore` (same business only, original ids).
 - Close account: Settings → Account. `src/lib/close-account.ts` (cancels Stripe, deletes the business).
-- Admin console `/admin` (SUPER_ADMIN): support sessions, billing controls (free forever, extend trial).
+- Admin console `/admin` (SUPER_ADMIN), tabs: Overview, Support (tickets from `/support`, stored as `SupportTicket`; replies emailed from `SUPPORT_FROM_EMAIL` or `SUPPORT_EMAIL`, `src/lib/admin-tickets.ts`), Businesses, Access log (end sessions; they auto-close after 2h and are checked against the log), Billing.
+- A super admin who has a membership (their own business) opens it from the admin console as themselves, no support session (`/api/admin/own-business`, `superAdminOwnMembership`).
 
 ## Credit (paid in advance / paid extra)
 - No balance column: credit = the part of a payment not allocated to any job (`Payment.amount` minus its allocations).

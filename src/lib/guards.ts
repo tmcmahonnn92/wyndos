@@ -38,7 +38,16 @@ export async function getActor(): Promise<Actor> {
   const tenantId = await getActiveTenantId();
 
   if (session.user.role === "SUPER_ADMIN") {
-    // getActiveTenantId already requires an audited support session.
+    // Their own business: act exactly as their membership there.
+    const own = await prisma.membership.findUnique({
+      where: { userId_tenantId: { userId, tenantId } },
+      select: { role: true, permissions: true },
+    });
+    if (own) {
+      const ownRole = own.role === "OWNER" ? "OWNER" : "WORKER";
+      return { userId, tenantId, role: ownRole, permissions: ownRole === "WORKER" ? parsePermissions(own.permissions) : [], isWorker: ownRole === "WORKER" };
+    }
+    // Anyone else's business: getActiveTenantId already required an audited support session.
     return { userId, tenantId, role: "SUPER_ADMIN", permissions: [], isWorker: false };
   }
 

@@ -1,12 +1,14 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import prisma from "@/lib/db";
 import { ACTIVE_TENANT_COOKIE, SUPPORT_ACCESS_COOKIE } from "@/lib/auth-cookies";
 import {
   normalizeMemberships,
   resolveActiveMembership,
   resolveActivePermissions,
   resolveActiveRole,
+  superAdminOwnMembership,
   type CompanyMembership,
 } from "@/lib/memberships";
 
@@ -39,6 +41,23 @@ async function resolveUserContext(): Promise<ActiveUserContext> {
   const memberships = normalizeMemberships(session.user.memberships);
 
   if (session.user.role === "SUPER_ADMIN") {
+    // Using their own business as themselves (not a support session).
+    const store = await cookies();
+    const own = superAdminOwnMembership(session.user, parseCookieTenantId(store.get(ACTIVE_TENANT_COOKIE)?.value));
+    if (own) {
+      return {
+        id: session.user.id,
+        name: session.user.name,
+        email: session.user.email,
+        image: session.user.image,
+        onboardingComplete: true,
+        memberships,
+        activeMembership: own,
+        role: own.role,
+        tenantId: own.tenantId,
+        permissions: own.role === "WORKER" ? own.permissions : [],
+      };
+    }
     return {
       id: session.user.id,
       name: session.user.name,
@@ -78,6 +97,17 @@ async function resolveUserContext(): Promise<ActiveUserContext> {
   };
 }
 
+/** A support session counts only while it's open in the log and under 2 hours old. */
+async function supportSessionOpen(rawId: string | undefined, adminId: string) {
+  const id = rawId ? Number.parseInt(rawId, 10) : NaN;
+  if (!Number.isInteger(id) || id <= 0) return false;
+  const log = await prisma.supportAccessLog.findFirst({
+    where: { id, superAdminUserId: adminId, endedAt: null, createdAt: { gt: new Date(Date.now() - 2 * 60 * 60 * 1000) } },
+    select: { id: true },
+  });
+  return Boolean(log);
+}
+
 export async function getActiveUserContext() {
   return resolveUserContext();
 }
@@ -90,7 +120,8 @@ export async function requireTenantSelected(): Promise<void> {
     const cookieStore = await cookies();
     const tenantId = cookieStore.get(ACTIVE_TENANT_COOKIE)?.value;
     const supportId = cookieStore.get(SUPPORT_ACCESS_COOKIE)?.value;
-    if (!tenantId || !supportId) {
+    if (superAdminOwnMembership(session.user, parseCookieTenantId(tenantId))) return;
+    if (!tenantId || !supportId || !(await supportSessionOpen(supportId, session.user.id))) {
       redirect("/admin");
     }
     return;
@@ -157,8 +188,9 @@ export async function getActiveTenantId(): Promise<number> {
     const rawSupport = cookieStore.get(SUPPORT_ACCESS_COOKIE)?.value;
     const id = rawTenant ? parseInt(rawTenant, 10) : NaN;
     const supportId = rawSupport ? parseInt(rawSupport, 10) : NaN;
+    if (superAdminOwnMembership(session.user, parseCookieTenantId(rawTenant))) return id;
 
-    if (!id || Number.isNaN(id) || !supportId || Number.isNaN(supportId)) {
+    if (!id || Number.isNaN(id) || !supportId || Number.isNaN(supportId) || !(await supportSessionOpen(rawSupport, session.user.id))) {
       throw new Error(
         "No audited support session is active. Open tenant access from the admin console first.",
       );
@@ -183,7 +215,9 @@ export async function requireAuth() {
 
 export async function requireSuperAdmin() {
   const user = await requireAuth();
-  if (user.role !== "SUPER_ADMIN") {
+  // The account's own role: a super admin using their own business is still a super admin here.
+  const session = await auth();
+  if (session?.user?.role !== "SUPER_ADMIN") {
     throw new Error("Access denied. This area is restricted to super admins.");
   }
   return user;

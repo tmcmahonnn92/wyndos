@@ -55,8 +55,11 @@ export default auth((req) => {
     const hasTenantCookie = Boolean(req.cookies.get(ACTIVE_TENANT_COOKIE)?.value);
     const hasSupportCookie = Boolean(req.cookies.get(SUPPORT_ACCESS_COOKIE)?.value);
 
+    // A super admin may use a business they belong to (their own) without a support session.
+    const ownBusiness = role === "SUPER_ADMIN" && selectedTenantId !== null && memberships.some((m) => m.tenantId === selectedTenantId);
     if (
       role === "SUPER_ADMIN" &&
+      !ownBusiness &&
       !pathname.startsWith("/admin") &&
       !pathname.startsWith("/api/") &&
       (!hasTenantCookie || !hasSupportCookie)
@@ -78,6 +81,7 @@ export default auth((req) => {
 
     if (
       activeRole === "OWNER" &&
+      role !== "SUPER_ADMIN" &&
       !user?.onboardingComplete &&
       !hasOnboardingRefreshCookie &&
       pathname !== "/auth/onboarding" &&

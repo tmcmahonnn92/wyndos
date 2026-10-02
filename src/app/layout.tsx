@@ -83,6 +83,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       const rawSupportId = cookieStore.get(SUPPORT_ACCESS_COOKIE)?.value;
       const tenantId = rawTenantId ? parseInt(rawTenantId, 10) : NaN;
       const supportLogId = rawSupportId ? parseInt(rawSupportId, 10) : NaN;
+      // Their own business, used as themselves (not a support session).
+      const own = Number.isNaN(tenantId) ? null : resolveActiveMembership(session.user, tenantId);
+      if (own) {
+        tenantName = own.tenantName;
+        activeRole = own.role;
+        activePermissions = resolveActivePermissions(session.user, tenantId);
+        billing = await billingStateForTenant(own.tenantId);
+      }
 
       if (!Number.isNaN(tenantId)) {
         const tenant = await prisma.tenant.findUnique({
@@ -150,11 +158,11 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <SupportSessionBanner tenantName={tenantName} reason={supportSession.reason} startedAt={supportSession.startedAt} />
           )}
           {emailCheck && !emailCheck.verified && <VerifyEmailBar email={emailCheck.email} />}
+          {session?.user && <div className="print:hidden"><OfflineStatus /></div>}
           {showTrialBar && billing && <TrialBar state={billing} />}
           {locked ? <BillingLock isOwner={activeRole === "OWNER"} hadSubscription={billing?.hadSubscription} /> : children}
         </main>
         {session?.user && <PWAInstallPrompt />}
-        {session?.user && <div className="print:hidden"><OfflineStatus /></div>}
       </body>
     </html>
   );

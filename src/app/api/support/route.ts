@@ -26,9 +26,6 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ ok: false, error: "Please sign in again." }, { status: 401 });
   }
-  if (!platformEmailConfigured()) {
-    return NextResponse.json({ ok: false, error: `Support email isn't set up yet. Please email ${SUPPORT_TO}.` }, { status: 503 });
-  }
   if (tooMany(actor.userId)) {
     return NextResponse.json({ ok: false, error: "That's a lot of messages in an hour. Please try again later." }, { status: 429 });
   }
@@ -80,6 +77,25 @@ export async function POST(request: Request) {
     ["Browser", browser || "-"],
   ];
 
+  // Kept in the admin console so it can be answered (and tracked) from there.
+  const ticket = await prisma.supportTicket.create({
+    data: {
+      tenantId: tenant?.id ?? actor.tenantId,
+      userId: actor.userId,
+      fromName: user?.name ?? "",
+      fromEmail: user?.email ?? "",
+      copyTo,
+      kind,
+      section,
+      subject,
+      message,
+      page,
+      browser,
+      files: files.map((f) => f.name).join(", "),
+    },
+    select: { id: true },
+  });
+
   const text = `${message}\n\n---\n${details.map(([k, v]) => `${k}: ${v}`).join("\n")}`;
   const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1e293b;line-height:1.5">
 <p style="white-space:pre-wrap">${esc(message)}</p>
@@ -87,21 +103,21 @@ export async function POST(request: Request) {
 ${details.map(([k, v]) => `<tr><td style="padding:2px 12px 2px 0;font-weight:bold;vertical-align:top">${k}</td><td>${esc(v)}</td></tr>`).join("")}
 </table></div>`;
 
-  try {
+  if (platformEmailConfigured()) try {
     await sendPlatformEmail({
       to: SUPPORT_TO,
       // Tom gets a hidden copy; the customer's own extra address is a visible copy.
       bcc: SUPPORT_COPY,
       cc: copyTo ? [copyTo] : undefined,
       replyTo: [user?.email ?? "", copyTo].filter(Boolean),
-      subject: `[Support] ${section ? `${section}: ` : ""}${subject} (${tenant?.name ?? "Wyndos"})`,
+      subject: `[Support #${ticket.id}] ${section ? `${section}: ` : ""}${subject} (${tenant?.name ?? "Wyndos"})`,
       text,
       html,
       attachments,
     });
   } catch (err) {
-    console.error("[support] send failed", err);
-    return NextResponse.json({ ok: false, error: `It didn't send. Please try again, or email ${SUPPORT_TO}.` }, { status: 502 });
+    // The ticket is saved, so it still reaches support in the admin console.
+    console.error("[support] email failed (ticket saved)", ticket.id, err);
   }
   return NextResponse.json({ ok: true, replyTo: [user?.email, copyTo].filter(Boolean).join(" and ") });
 }

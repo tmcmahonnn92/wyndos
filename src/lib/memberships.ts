@@ -80,8 +80,17 @@ export function getDefaultMembership(memberships: CompanyMembership[]): CompanyM
   return memberships[0] ?? null;
 }
 
+/**
+ * A super admin who also belongs to a business (e.g. owns one) and has picked it:
+ * they use it as themselves, like any owner. Anything else is a support session.
+ */
+export function superAdminOwnMembership(user: UserLike, preferredTenantId?: number | null): CompanyMembership | null {
+  if (user.role !== "SUPER_ADMIN" || !preferredTenantId) return null;
+  return normalizeMemberships(user.memberships).find((membership) => membership.tenantId === preferredTenantId) ?? null;
+}
+
 export function resolveActiveMembership(user: UserLike, preferredTenantId?: number | null): CompanyMembership | null {
-  if (user.role === "SUPER_ADMIN") return null;
+  if (user.role === "SUPER_ADMIN") return superAdminOwnMembership(user, preferredTenantId);
 
   const memberships = normalizeMemberships(user.memberships);
   if (memberships.length > 0) {
@@ -105,12 +114,15 @@ export function resolveActiveMembership(user: UserLike, preferredTenantId?: numb
 }
 
 export function resolveActiveRole(user: UserLike, preferredTenantId?: number | null): AppRole | undefined {
-  if (user.role === "SUPER_ADMIN") return "SUPER_ADMIN";
+  if (user.role === "SUPER_ADMIN") return superAdminOwnMembership(user, preferredTenantId)?.role ?? "SUPER_ADMIN";
   return resolveActiveMembership(user, preferredTenantId)?.role;
 }
 
 export function resolveActivePermissions(user: UserLike, preferredTenantId?: number | null): string[] {
-  if (user.role === "SUPER_ADMIN") return [];
+  if (user.role === "SUPER_ADMIN") {
+    const own = superAdminOwnMembership(user, preferredTenantId);
+    return own?.role === "WORKER" ? own.permissions : [];
+  }
   const membership = resolveActiveMembership(user, preferredTenantId);
   if (!membership || membership.role !== "WORKER") return [];
   return membership.permissions;
