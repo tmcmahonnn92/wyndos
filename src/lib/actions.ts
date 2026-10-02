@@ -21,7 +21,7 @@ import {
   type Actor,
 } from "@/lib/guards";
 import { decryptSettingsSecrets, encryptSecret } from "@/lib/secrets";
-import { queueCleanedTexts } from "@/lib/texts";
+import { creditFor, queueCleanedTexts } from "@/lib/texts";
 import {
   EMPTY_ADDRESS,
   addressPartsOf,
@@ -270,6 +270,8 @@ async function createAllocatedPayment(data: {
   goCardlessReference?: string;
   collectedByUserId?: string | null;
   clientRequestId?: string | null;
+  /** Paid on top of the jobs above: kept as credit for the next cleans. */
+  extra?: number;
 }) {
   await requireTenantCustomer(data.tenantId, data.customerId);
 
@@ -282,12 +284,15 @@ async function createAllocatedPayment(data: {
     }
   }
 
-  const allocationData = data.allocations.filter((allocation) => allocation.amount > 0.005);
-  if (allocationData.length === 0) {
-    throw new Error("At least one allocation with amount > 0 is required");
+  let allocationData = data.allocations
+    .filter((allocation) => allocation.amount > 0.005)
+    .map((allocation) => ({ ...allocation }));
+  let extra = Number(Math.max(0, data.extra ?? 0).toFixed(2));
+  if (allocationData.length === 0 && extra <= 0) {
+    throw new Error("Enter an amount to record");
   }
 
-  const totalAmount = Number(allocationData.reduce((sum, allocation) => sum + allocation.amount, 0).toFixed(2));
+  const totalAmount = Number((allocationData.reduce((sum, allocation) => sum + allocation.amount, 0) + extra).toFixed(2));
   const jobIds = allocationData.map((allocation) => allocation.jobId);
   // A payer can settle their own jobs and the jobs of customers they pay for ("paid by").
   const jobs = await prisma.job.findMany({
@@ -306,16 +311,23 @@ async function createAllocatedPayment(data: {
     throw new Error("One or more jobs not found or do not belong to this customer");
   }
   const jobById = new Map(jobs.map((job) => [job.id, job]));
+  // More than a job still owes (e.g. credit already paid part of it): the rest is kept as credit.
+  let overflow = 0;
   for (const allocation of allocationData) {
     const job = jobById.get(allocation.jobId)!;
     const paid = job.allocations.reduce((sum, entry) => sum + entry.amount, 0);
-    const due = Number((job.price - paid).toFixed(2));
+    const due = Math.max(0, Number((job.price - paid).toFixed(2)));
     if (allocation.amount - due > 0.005) {
-      throw new Error("Payment is more than the amount owed on that job");
+      overflow += allocation.amount - due;
+      allocation.amount = due;
     }
   }
+  if (overflow > 0) {
+    extra = Number((extra + overflow).toFixed(2));
+    allocationData = allocationData.filter((allocation) => allocation.amount > 0.005);
+  }
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const payment = await tx.payment.create({
       data: {
         tenantId: data.tenantId,
@@ -332,17 +344,128 @@ async function createAllocatedPayment(data: {
       },
     });
 
-    await tx.paymentAllocation.createMany({
-      data: allocationData.map((allocation) => ({
-        tenantId: data.tenantId,
-        paymentId: payment.id,
-        jobId: allocation.jobId,
-        amount: Number(allocation.amount.toFixed(2)),
-      })),
-    });
+    if (allocationData.length > 0) {
+      await tx.paymentAllocation.createMany({
+        data: allocationData.map((allocation) => ({
+          tenantId: data.tenantId,
+          paymentId: payment.id,
+          jobId: allocation.jobId,
+          amount: Number(allocation.amount.toFixed(2)),
+        })),
+      });
+    }
 
     return payment;
   });
+  if (extra > 0) await applyCredit(data.tenantId, [data.customerId]);
+  return created;
+}
+
+const round2 = (n: number) => Number(n.toFixed(2));
+
+/**
+ * Credit = money paid that isn't on a clean yet (paid extra, or paid in advance).
+ * It lives on the payment itself: the part of a payment not allocated to any job.
+ */
+async function sparePayments(tenantId: number, customerIds: number[]) {
+  const payments = await prisma.payment.findMany({
+    where: { tenantId, customerId: { in: customerIds }, voidedAt: null },
+    select: { id: true, customerId: true, amount: true, allocations: { select: { amount: true } } },
+    orderBy: [{ paidAt: "asc" }, { id: "asc" }],
+  });
+  return payments
+    .map((p) => ({ id: p.id, customerId: p.customerId, spare: round2(p.amount - p.allocations.reduce((s, a) => s + a.amount, 0)) }))
+    .filter((p) => p.spare > 0.005);
+}
+
+/**
+ * Use any credit to pay completed cleans that aren't paid yet, oldest first. A payer's
+ * credit also covers the customers they pay for. Part-covered cleans keep the rest owing.
+ */
+async function applyCredit(tenantId: number, payerIds: Array<number | null | undefined>) {
+  const ids = [...new Set(payerIds.filter((id): id is number => typeof id === "number"))];
+  for (const payerId of ids) {
+    const spare = await sparePayments(tenantId, [payerId]);
+    if (spare.length === 0) continue;
+    const jobs = await prisma.job.findMany({
+      where: {
+        tenantId, status: "COMPLETE", isQuote: false,
+        OR: [{ customerId: payerId }, { customer: { paidByCustomerId: payerId } }],
+      },
+      select: { id: true, price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
+      orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
+    });
+    const rows: Array<{ tenantId: number; paymentId: number; jobId: number; amount: number }> = [];
+    let p = 0;
+    for (const job of jobs) {
+      if (p >= spare.length) break;
+      let due = round2(job.price - job.allocations.reduce((s, a) => s + a.amount, 0));
+      while (due > 0.005 && p < spare.length) {
+        const take = round2(Math.min(due, spare[p].spare));
+        rows.push({ tenantId, paymentId: spare[p].id, jobId: job.id, amount: take });
+        spare[p].spare = round2(spare[p].spare - take);
+        due = round2(due - take);
+        if (spare[p].spare <= 0.005) p++;
+      }
+    }
+    if (rows.length > 0) await prisma.paymentAllocation.createMany({ data: rows });
+  }
+}
+
+/** A job's price went down below what's been paid on it: the extra goes back to credit. */
+async function releaseOverpaid(tenantId: number, jobId: number) {
+  const job = await prisma.job.findFirst({
+    where: { id: jobId, tenantId },
+    select: {
+      price: true, customerId: true, customer: { select: { paidByCustomerId: true } },
+      allocations: { where: { payment: { voidedAt: null } }, select: { id: true, amount: true }, orderBy: { id: "desc" } },
+    },
+  });
+  if (!job) return;
+  let over = round2(job.allocations.reduce((s, a) => s + a.amount, 0) - job.price);
+  for (const allocation of job.allocations) {
+    if (over <= 0.005) break;
+    if (allocation.amount <= over + 0.005) {
+      await prisma.paymentAllocation.delete({ where: { id: allocation.id } });
+      over = round2(over - allocation.amount);
+    } else {
+      await prisma.paymentAllocation.update({ where: { id: allocation.id }, data: { amount: round2(allocation.amount - over) } });
+      over = 0;
+    }
+  }
+  await applyCredit(tenantId, [job.customerId, job.customer.paidByCustomerId]);
+}
+
+/** Record money paid in advance (or extra) as credit. It pays any cleans owing first. */
+export async function addCustomerCredit(data: {
+  customerId: number;
+  amount: number;
+  method: PaymentMethodValue;
+  notes?: string;
+  paidAt?: Date;
+}) {
+  const actor = await requirePerm("payments");
+  const amount = round2(Number(data.amount));
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter an amount above zero.");
+  await createAllocatedPayment({
+    tenantId: actor.tenantId,
+    customerId: data.customerId,
+    allocations: [],
+    extra: amount,
+    method: data.method,
+    notes: data.notes?.trim() || "Paid in advance",
+    paidAt: data.paidAt,
+    collectedByUserId: actor.userId,
+  });
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${data.customerId}`);
+}
+
+/** Credit a customer holds right now. */
+export async function getCustomerCredit(customerId: number) {
+  const actor = await requireMember();
+  if (!hasPermission(actor, "customers") && !hasPermission(actor, "payments")) throw new AccessDeniedError();
+  return (await creditFor(actor.tenantId, [customerId])).get(customerId) ?? 0;
 }
 
 /** Validate a "paid by" customer link. undefined = leave unchanged, null = clear. */
@@ -2780,8 +2903,11 @@ export async function completeJob(jobId: number) {
   const now = new Date();
   await prisma.job.update({
     where: { id: jobId },
-    data: { status: "COMPLETE", completedAt: now, completedByUserId: actor.userId },
+    // A job that was re-opened keeps the person who actually did it.
+    data: { status: "COMPLETE", completedAt: now, completedByUserId: job.completedByUserId ?? actor.userId },
   });
+  // Credit (paid in advance / paid extra) pays this clean straight away, in full or part.
+  await applyCredit(tenantId, [job.customerId, job.customer.paidByCustomerId]);
 
   // Auto-start the work day if still PLANNED — removes the need to tap "Start Area" separately
   const autoStarted = await prisma.workDay.updateMany({
@@ -2814,51 +2940,17 @@ export async function uncompleteJob(jobId: number) {
   const tenantId = actor.tenantId;
   const job = await prisma.job.findFirst({
     where: { id: jobId, tenantId, ...visibleJobWhere(actor) },
-    include: {
-      allocations: {
-        where: { payment: { voidedAt: null } },
-        include: {
-          payment: {
-            include: {
-              allocations: true,
-            },
-          },
-        },
-      },
-    },
+    include: { allocations: { where: { payment: { voidedAt: null } }, select: { id: true } } },
   });
   if (!job) throw new Error("Job not found");
 
+  // Money paid for this clean isn't lost: it goes back to the customer as credit
+  // and pays the clean again when it's re-ticked. Who did the job is kept too.
   await prisma.$transaction(async (tx) => {
-    for (const allocation of job.allocations) {
-      const payment = allocation.payment;
-      const remainingAllocations = payment.allocations.filter((entry) => entry.id !== allocation.id);
-
-      await tx.paymentAllocation.delete({ where: { id: allocation.id } });
-
-      if (remainingAllocations.length === 0) {
-        await tx.payment.update({
-          where: { id: payment.id },
-          data: {
-            amount: 0,
-            voidedAt: new Date(),
-            voidReason: "Auto-voided when job was reopened",
-          },
-        });
-      } else {
-        const nextAmount = Number(
-          remainingAllocations.reduce((sum, entry) => sum + entry.amount, 0).toFixed(2)
-        );
-        await tx.payment.update({
-          where: { id: payment.id },
-          data: { amount: nextAmount },
-        });
-      }
-    }
-
+    await tx.paymentAllocation.deleteMany({ where: { id: { in: job.allocations.map((a) => a.id) } } });
     await tx.job.update({
       where: { id: jobId },
-      data: { status: "PENDING", completedAt: null, completedByUserId: null },
+      data: { status: "PENDING", completedAt: null },
     });
   });
 
@@ -3536,12 +3628,15 @@ export async function recordPayment(data: {
   notes?: string;
   paidAt?: Date;
   clientRequestId?: string;
+  /** Paid on top of the selected jobs: kept as credit. */
+  extra?: number;
 }) {
   const actor = await requirePerm("schedule").catch(() => requirePerm("payments"));
   const tenantId = actor.tenantId;
   // Workers without the Payments permission can still take payment for jobs on their own round.
   if (!hasPermission(actor, "payments")) {
     const jobIds = data.allocations.map((allocation) => allocation.jobId);
+    if (jobIds.length === 0) throw new AccessDeniedError();
     const visible = await prisma.job.count({ where: { tenantId, id: { in: jobIds }, ...visibleJobWhere(actor) } });
     if (visible !== new Set(jobIds).size) throw new AccessDeniedError();
   }
@@ -3952,7 +4047,9 @@ async function getWorkerDashboardData(actor: Actor) {
   const tenantId = actor.tenantId;
   const today = utcDay(new Date());
   const weekStart = addUtcDays(today, -((today.getUTCDay() + 6) % 7)); // Monday
-  const [upcomingDays, doneThisWeek, cashThisWeek] = await Promise.all([
+  const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+  const mine = { tenantId, completedByUserId: actor.userId, status: "COMPLETE" as const, isQuote: false };
+  const [upcomingDays, doneThisWeek, doneThisMonth, doneAllTime, cashThisWeek, recentJobs, businesses] = await Promise.all([
     prisma.workDay.findMany({
       where: { tenantId, date: { gte: today }, ...visibleWorkDayWhere(actor) },
       include: {
@@ -3962,22 +4059,42 @@ async function getWorkerDashboardData(actor: Actor) {
       orderBy: { date: "asc" },
       take: 7,
     }),
-    prisma.job.aggregate({
-      where: { tenantId, completedByUserId: actor.userId, completedAt: { gte: weekStart } },
-      _count: { _all: true },
-      _sum: { price: true },
-    }),
+    prisma.job.aggregate({ where: { ...mine, completedAt: { gte: weekStart } }, _count: { _all: true }, _sum: { price: true } }),
+    prisma.job.aggregate({ where: { ...mine, completedAt: { gte: monthStart } }, _count: { _all: true }, _sum: { price: true } }),
+    prisma.job.aggregate({ where: mine, _count: { _all: true }, _sum: { price: true } }),
     prisma.payment.aggregate({
       where: { tenantId, collectedByUserId: actor.userId, method: "CASH", voidedAt: null, paidAt: { gte: weekStart } },
       _sum: { amount: true },
     }),
+    prisma.job.findMany({
+      where: mine,
+      select: { id: true, price: true, name: true, completedAt: true, workDayId: true, customer: { select: { name: true, address: true } } },
+      orderBy: { completedAt: "desc" },
+      take: 10,
+    }),
+    prisma.membership.findMany({
+      where: { userId: actor.userId },
+      select: { tenantId: true, role: true, tenant: { select: { name: true } } },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
+  const upcomingJobs = upcomingDays.flatMap((d) => d.jobs).filter((j) => j.status === "PENDING" && !j.isQuote);
   return {
     isWorker: true as const,
     upcomingDays,
     jobsDoneThisWeek: doneThisWeek._count._all,
     valueDoneThisWeek: Number(doneThisWeek._sum.price ?? 0),
     cashCollectedThisWeek: Number(cashThisWeek._sum.amount ?? 0),
+    worker: {
+      monthJobs: doneThisMonth._count._all,
+      monthValue: Number(doneThisMonth._sum.price ?? 0),
+      allJobs: doneAllTime._count._all,
+      allValue: Number(doneAllTime._sum.price ?? 0),
+      upcomingJobs: upcomingJobs.length,
+      upcomingValue: Number(upcomingJobs.reduce((s, j) => s + j.price, 0).toFixed(2)),
+      recentJobs,
+      businesses: businesses.map((b) => ({ tenantId: b.tenantId, name: b.tenant.name, role: b.role, current: b.tenantId === tenantId })),
+    },
     totalRoundValue: 0,
     totalEarnings: 0,
     customerCount: 0,
@@ -4056,11 +4173,12 @@ export async function getDashboardData() {
       ),
     }))
     .filter((customer) => customer.debt > 0.005)
-    .sort((a, b) => b.debt - a.debt)
-    .slice(0, 10);
+    .sort((a, b) => b.debt - a.debt);
+  const owingTotal = customersWithDebt.reduce((sum, customer) => sum + customer.debt, 0);
 
   return {
     isWorker: false as const,
+    worker: null,
     jobsDoneThisWeek: 0,
     valueDoneThisWeek: 0,
     cashCollectedThisWeek: 0,
@@ -4069,9 +4187,9 @@ export async function getDashboardData() {
     totalEarnings: Number(totalEarnings._sum.amount ?? 0),
     customerCount,
     overdueCount,
-    totalOwing: Number(((completedJobs._sum.price ?? 0) - (totalEarnings._sum.amount ?? 0)).toFixed(2)),
+    totalOwing: Number(owingTotal.toFixed(2)),
     recentPayments,
-    customersWithDebt,
+    customersWithDebt: customersWithDebt.slice(0, 10),
   };
 }
 
@@ -4247,6 +4365,7 @@ export async function getPaymentsPage() {
       orderBy: { name: "asc" },
     }),
   ]);
+  const credit = await creditFor(tenantId, customers.map((customer) => customer.id));
 
   const debtors = customers
     .map((customer) => {
@@ -4262,6 +4381,7 @@ export async function getPaymentsPage() {
             due,
             isOneOff: j.isOneOff,
             date: j.workDay?.date,
+            notes: j.notes ?? "",
           };
         })
         .filter((j) => j.due > 0.005);
@@ -4279,12 +4399,23 @@ export async function getPaymentsPage() {
         debt,
         jobIds: unpaidJobs.map((j) => j.id),
         unpaidJobs,
+        credit: credit.get(customer.id) ?? 0,
       };
-    })
-    .filter((customer) => customer.debt > 0.005)
-    .sort((a, b) => b.debt - a.debt);
+    });
 
-  return { payments, customersWithDebt: debtors };
+  const withCredit = debtors
+    .filter((customer) => customer.credit > 0.005)
+    .map((customer) => ({ id: customer.id, name: customer.name, address: customer.address, areaName: customer.areaName, credit: customer.credit }))
+    .sort((a, b) => b.credit - a.credit);
+  // Everyone, for "Add credit" (paid in advance) — the customer may owe nothing.
+  const allCustomers = debtors.map((customer) => ({ id: customer.id, name: customer.name, address: customer.address, credit: customer.credit }));
+
+  return {
+    payments,
+    customersWithDebt: debtors.filter((customer) => customer.debt > 0.005).sort((a, b) => b.debt - a.debt),
+    customersWithCredit: withCredit,
+    allCustomers,
+  };
 }
 
 const ACCOUNTING_MONTHS = 12;
@@ -5487,6 +5618,8 @@ export async function updateJobNotes(jobId: number, notes: string) {
   });
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath("/scheduler");
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${job.customerId}`);
 }
 
 export async function updateJobPrice(jobId: number, price: number) {
@@ -5499,6 +5632,7 @@ export async function updateJobPrice(jobId: number, price: number) {
     where: { id: jobId },
     data: { price },
   });
+  if (job.status === "COMPLETE") await releaseOverpaid(tenantId, jobId);
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath("/scheduler");
   revalidatePath(`/customers/${job.customerId}`);
@@ -5532,6 +5666,7 @@ export async function updateJobDetails(
     where: { id: jobId },
     data: updates,
   });
+  if (data.price !== undefined && job.status === "COMPLETE") await releaseOverpaid(tenantId, jobId);
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath("/scheduler");
   revalidatePath(`/customers/${job.customerId}`);
@@ -5732,3 +5867,20 @@ export async function deleteHoliday(id: number) {
 }
 
 
+
+/** Pin a customer to a map position (overrides the address lookup), or clear it with null. */
+export async function setCustomerPin(customerId: number, pin: { latitude: number; longitude: number } | null) {
+  const actor = await requirePerm("customers");
+  await requireTenantCustomer(actor.tenantId, customerId);
+  if (pin) {
+    const { latitude, longitude } = pin;
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+      throw new Error("That isn't a valid map position.");
+    }
+  }
+  await prisma.customer.update({
+    where: { id: customerId },
+    data: { latitude: pin?.latitude ?? null, longitude: pin?.longitude ?? null },
+  });
+  revalidatePath(`/customers/${customerId}`);
+}

@@ -70,7 +70,8 @@ import { DayTeamBar, type TeamMember } from "./day-team-bar";
 import { TextRemindersModal } from "./text-reminders-modal";
 import { PhoneOutboxModal } from "@/components/phone-outbox-modal";
 import { SharePdfButton } from "@/components/share-pdf-button";
-import { getPhoneOutbox } from "@/lib/text-actions";
+import { hasPin, mapsHref, mapsPoint } from "@/lib/maps-link";
+import { getDayCleanedTextStatus, getPhoneOutbox, textDayCleaned } from "@/lib/text-actions";
 import { QuoteActions, quoteCardClass, quoteSummary } from "./quote-actions";
 import { getQueue, onQueueChange, runOrQueue } from "@/lib/offline-queue";
 import { expectsPaymentAtDoor, normalisePreference, preferenceLabel } from "@/lib/payment-preference";
@@ -225,6 +226,38 @@ export function DayView({
       .catch(() => {});
     return () => { cancelled = true; };
   }, [canText, dayIdKey, nextRuns, outboxOpen]);
+  // Finished days: "your windows were cleaned" to everyone (how to pay if they haven't).
+  const completeDayIds = days.filter((d) => d.status === "COMPLETE").map((d) => d.id);
+  const completeKey = completeDayIds.join(",");
+  const [cleanedStatus, setCleanedStatus] = useState<{ textable: number; notSent: number } | null>(null);
+  const [cleanedBusy, setCleanedBusy] = useState(false);
+  const [cleanedError, setCleanedError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!canText || !completeKey) { setCleanedStatus(null); return; }
+    let cancelled = false;
+    getDayCleanedTextStatus(completeKey.split(",").map(Number))
+      .then((status) => !cancelled && setCleanedStatus(status))
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [canText, completeKey, outboxOpen]);
+  const textEveryoneCleaned = async () => {
+    setCleanedBusy(true);
+    setCleanedError(null);
+    try {
+      await textDayCleaned(completeKey.split(",").map(Number));
+      setOutboxOpen(true);
+    } catch (issue) {
+      setCleanedError(issue instanceof Error ? issue.message : "Couldn't make the texts.");
+    } finally {
+      setCleanedBusy(false);
+    }
+  };
+  // Opened from the dashboard to-do list.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("remind") === "1" && canText) setTextsOpen(true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const ids = new Set(dayIdKey.split(",").map(Number));
     const load = () => {
@@ -304,7 +337,7 @@ export function DayView({
   const routeStops: RouteStop[] = pendingJobs.map((job) => {
     const parts = streetKey.get(job.id) ?? addressPartsOf(job.customer);
     return {
-      address: composeAddress(parts) || job.customer.address,
+      address: hasPin(job.customer) ? mapsPoint(job.customer) : composeAddress(parts) || job.customer.address,
       street: parts.street.trim(),
       town: parts.town.trim(),
       postcode: parts.postcode.trim(),
@@ -791,6 +824,29 @@ export function DayView({
             </div>
           );
         })}
+
+        {canText && cleanedStatus && cleanedStatus.textable > 0 && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-blue-900">
+                  {cleanedStatus.notSent > 0
+                    ? `Tell ${cleanedStatus.notSent} customer${cleanedStatus.notSent === 1 ? "" : "s"} their windows are clean`
+                    : "Everyone has been told their windows are clean"}
+                </p>
+                <p className="text-[11px] text-blue-800">
+                  Says the price, and how to pay if they haven&apos;t. Paid or in credit: says nothing to pay.
+                </p>
+              </div>
+              {cleanedStatus.notSent > 0 && (
+                <Button size="sm" onClick={textEveryoneCleaned} disabled={cleanedBusy}>
+                  {cleanedBusy ? "Making…" : "Text everyone"}
+                </Button>
+              )}
+            </div>
+            {cleanedError && <p className="mt-1 text-xs text-red-600">{cleanedError}</p>}
+          </div>
+        )}
 
         {canText && outboxCount > 0 && (
           <div className="flex items-center justify-between gap-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5">
@@ -1330,6 +1386,16 @@ export function DayView({
             router.refresh();
           });
         }}
+        onSaveEdit={(price, note) => {
+          if (!selectedJob) return;
+          const job = selectedJob;
+          safely(async () => {
+            if (note !== null) await updateJobNotes(job.id, note);
+            if (price !== null) await updateJobPrice(job.id, price);
+            setSelectedJob(null); setOpenJobInPayMode(false);
+            router.refresh();
+          });
+        }}
         onSkip={(price, note) => {
           if (!selectedJob) return;
           const job = selectedJob;
@@ -1413,6 +1479,7 @@ function JobActionModal({
   onMarkPaidJobs,
   onUndo,
   onSkip,
+  onSaveEdit,
   isPending,
   hidePrices = false,
   openInPayFormMode = false,
@@ -1426,6 +1493,8 @@ function JobActionModal({
   onMarkPaidJobs: (allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string) => void;
   onUndo: () => void;
   onSkip: (price: number, note: string) => void;
+  /** Change a finished job: null = leave as it is. */
+  onSaveEdit: (price: number | null, note: string | null) => void;
   isPending: boolean;
   hidePrices?: boolean;
   openInPayFormMode?: boolean;
@@ -1573,6 +1642,49 @@ function JobActionModal({
                   >Cancel</button>
                 </div>
               )}
+
+              {/* Edit a finished job: price and note */}
+              <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                  <Pencil size={12} /> Edit this job
+                </p>
+                {!hidePrices && (
+                  <label className="flex items-center gap-2 text-xs text-slate-600">
+                    <span className="w-12">Price £</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      value={priceInput}
+                      onChange={(e) => setPriceInput(e.target.value)}
+                      className="w-28 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                    />
+                  </label>
+                )}
+                <textarea
+                  value={workerNote}
+                  onChange={(e) => setWorkerNote(e.target.value)}
+                  rows={2}
+                  placeholder="Note for this job (shows on Payments too)"
+                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
+                />
+                {(() => {
+                  const nextPrice = parseFloat(priceInput);
+                  const priceChanged = !hidePrices && Number.isFinite(nextPrice) && Math.abs(nextPrice - job.price) > 0.004;
+                  const noteChanged = workerNote.trim() !== (job.notes ?? "").trim();
+                  return (
+                    <button
+                      type="button"
+                      disabled={isPending || (!priceChanged && !noteChanged) || (priceChanged && nextPrice < 0)}
+                      onClick={() => onSaveEdit(priceChanged ? nextPrice : null, noteChanged ? workerNote : null)}
+                      className="w-full rounded-lg bg-slate-800 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-40"
+                    >
+                      Save changes
+                    </button>
+                  );
+                })()}
+              </div>
 
               {/* Mark as Paid inline form */}
               {isSettled ? (
@@ -1974,7 +2086,10 @@ function RouteOptimiserModal({
     const coords: Array<[number, number] | null> = [];
     for (let i = 0; i < jobs.length; i++) {
       setProgress(`Locating ${i + 1}/${jobs.length}: ${jobs[i].customer?.name ?? ""}`);
-      const c = await geocodeAddress(jobs[i].customer?.address ?? "");
+      const customer = jobs[i].customer;
+      // A pinned house needs no lookup.
+      if (customer && hasPin(customer)) { coords.push([customer.latitude!, customer.longitude!]); continue; }
+      const c = await geocodeAddress(customer?.address ?? "");
       coords.push(c);
       if (i < jobs.length - 1) await new Promise((r) => setTimeout(r, 1100));
     }
@@ -2172,7 +2287,7 @@ function JobCard({
               {job.customer.address}
             </p>
             <a
-              href={`https://maps.google.com/?q=${encodeURIComponent(job.customer.address)}`}
+              href={mapsHref(job.customer)}
               target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
@@ -2228,6 +2343,11 @@ function JobCard({
           <span className={cn("text-sm font-bold", isDone ? "text-green-700" : "text-slate-700")}>
             {hidePrices || isQuote ? null : fmtCurrency(job.price)}
           </span>
+          {isClickable && (
+            <span className="flex items-center gap-0.5 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+              <Pencil size={9} /> Edit
+            </span>
+          )}
           {(() => {
             const debt = (job.customer.jobs ?? []).reduce((sum, j) => {
               const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
@@ -2334,19 +2454,32 @@ function JobCard({
         </>
       )}
       {!isQuote && job.status === "COMPLETE" && (() => {
-        const totalPaid = getPaidAfterCompletion(job);
-        return totalPaid < job.price - 0.005 ? (
-          <div className="border-t border-amber-100">
+        const unpaid = getPaidAfterCompletion(job) < job.price - 0.005;
+        return (
+          <div className="flex border-t border-green-100">
             <button
               onClick={(e) => { e.stopPropagation(); onToggle(); }}
               disabled={isPending}
-              className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50 active:bg-amber-100 transition-colors disabled:opacity-50 touch-manipulation"
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-colors disabled:opacity-50 touch-manipulation"
             >
-              <Banknote size={15} />
-              Mark as Paid
+              <Pencil size={14} />
+              {hidePrices ? "Edit note" : "Edit price or note"}
             </button>
+            {unpaid && (
+              <>
+                <div className="w-px bg-green-100" />
+                <button
+                  onClick={(e) => { e.stopPropagation(); onToggle(); }}
+                  disabled={isPending}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50 active:bg-amber-100 transition-colors disabled:opacity-50 touch-manipulation"
+                >
+                  <Banknote size={15} />
+                  Mark as Paid
+                </button>
+              </>
+            )}
           </div>
-        ) : null;
+        );
       })()}
     </div>
   );

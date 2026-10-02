@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { getCustomer, getAreas, getBusinessSettings, getCustomerBalance, getCustomerPickList, getTags } from "@/lib/actions";
+import { getCustomer, getAreas, getBusinessSettings, getCustomerBalance, getCustomerCredit, getCustomerPickList, getTags } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { CustomerDetail } from "./customer-detail";
 import { getCustomerTexts } from "@/lib/text-actions";
@@ -21,9 +21,10 @@ export default async function CustomerPage({ params }: Props) {
   const customer = await getCustomer(customerId);
   if (!customer) notFound();
 
-  const [areas, balance, allTags, settings, pickList, texts] = await Promise.all([
+  const [areas, balance, credit, allTags, settings, pickList, texts] = await Promise.all([
     getAreas(),
     getCustomerBalance(customerId),
+    getCustomerCredit(customerId).catch(() => 0),
     getTags(),
     getBusinessSettings(),
     getCustomerPickList(),
@@ -37,6 +38,8 @@ export default async function CustomerPage({ params }: Props) {
         customer={customer}
         areas={areas}
         balance={balance}
+        credit={credit}
+        canPay={user.role !== "WORKER" || (user.permissions ?? []).includes("payments")}
         allTags={allTags}
         hidePrices={hidePrices}
         goCardlessReferencePrefix={settings.goCardlessReferencePrefix || "WD"}

@@ -14,11 +14,13 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
+  StickyNote,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fmtCurrency } from "@/lib/utils";
+import { fmtCurrency, fmtDate } from "@/lib/utils";
 import { syncGoCardlessPayments } from "@/lib/actions";
 import { LogPaymentForm, type PaymentCustomerOption } from "./log-payment-form";
+import { AddCreditForm, type CreditCustomerOption } from "./add-credit-form";
 import { smsHref } from "@/components/phone-send-queue";
 import { logPhoneText } from "@/lib/text-actions";
 import { ukMobile } from "@/lib/text-format";
@@ -28,6 +30,9 @@ export type Debtor = PaymentCustomerOption & {
   email: string;
   phone: string;
   jobIds: number[];
+  credit?: number;
+  daysOwing?: number;
+  late?: boolean;
 };
 
 type AreaFilter = {
@@ -38,10 +43,12 @@ type AreaFilter = {
 
 export function PaymentsToolbar({
   customers,
+  allCustomers,
   goCardlessConfigured,
   goCardlessLastSyncedAt,
 }: {
   customers: Debtor[];
+  allCustomers: CreditCustomerOption[];
   goCardlessConfigured: boolean;
   goCardlessLastSyncedAt: string | null;
 }) {
@@ -70,11 +77,11 @@ export function PaymentsToolbar({
 
   return (
     <div className="flex items-center gap-2">
-      <div className="text-right hidden sm:block">
+      {goCardlessConfigured && <div className="text-right hidden sm:block">
         <p className="text-[11px] font-medium text-slate-500">GoCardless</p>
         <p className="text-[11px] text-slate-400">{goCardlessLastSyncedAt ? `Last sync ${new Date(goCardlessLastSyncedAt).toLocaleString("en-GB")}` : "Not synced yet"}</p>
-      </div>
-      <button
+      </div>}
+      {goCardlessConfigured && <button
         type="button"
         onClick={handleSync}
         disabled={!goCardlessConfigured || isSyncing}
@@ -83,7 +90,8 @@ export function PaymentsToolbar({
       >
         <RefreshCw size={14} className={cn(isSyncing && "animate-spin")} />
         {isSyncing ? "Syncing..." : "Sync GoCardless"}
-      </button>
+      </button>}
+      <AddCreditForm customers={allCustomers} />
       <LogPaymentForm customers={customers} />
 
       {(syncError || syncResult) && (
@@ -305,12 +313,14 @@ export function DebtorsPanel({
   businessName,
   smsTemplates,
   query = "",
+  onlyLate = false,
 }: {
   debtors: Debtor[];
   areas: AreaFilter[];
   businessName: string;
   smsTemplates?: string[];
   query?: string;
+  onlyLate?: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -326,8 +336,9 @@ export function DebtorsPanel({
 
   const filteredDebtors = useMemo(
     () => (selectedAreaId ? debtors.filter((debtor) => debtor.areaId === selectedAreaId) : debtors)
-      .filter((debtor) => matchesPaymentSearch(query, [debtor.name, debtor.address, debtor.areaName ?? ""], [Number(debtor.debt)])),
-    [debtors, selectedAreaId, query]
+      .filter((debtor) => !onlyLate || debtor.late)
+      .filter((debtor) => matchesPaymentSearch(query, [debtor.name, debtor.address, debtor.areaName ?? "", ...debtor.unpaidJobs.map((j) => j.notes ?? "")], [Number(debtor.debt)])),
+    [debtors, selectedAreaId, query, onlyLate]
   );
 
   const totalDebt = filteredDebtors.reduce((sum, customer) => sum + Number(customer.debt), 0);
@@ -471,82 +482,90 @@ export function DebtorsPanel({
 
 
       {/* Debtor rows */}
-      <div className="divide-y divide-slate-100">
+      <ul className="divide-y divide-slate-100 dark:divide-[#1E2840]">
         {filteredDebtors.map((c) => (
-          <div key={c.id} className={cn(
-            "px-1 py-3 transition-colors",
-            selected.has(c.id) && "bg-blue-50/60"
-          )}>
-            <div className="flex items-start gap-2 sm:items-center">
-              <button onClick={() => toggleSelect(c.id)} className="p-0.5 text-slate-300 hover:text-blue-600 flex-shrink-0 mt-0.5 sm:mt-0">
-                {selected.has(c.id)
-                  ? <CheckSquare size={15} className="text-blue-600" />
-                  : <Square size={15} />}
+          <li key={c.id} className={cn("py-3 transition-colors", selected.has(c.id) && "bg-blue-50/60")}>
+            <div className="flex items-start gap-2.5">
+              <button onClick={() => toggleSelect(c.id)} className="mt-0.5 flex-shrink-0 p-0.5 text-slate-300 hover:text-blue-600" aria-label="Select">
+                {selected.has(c.id) ? <CheckSquare size={15} className="text-blue-600" /> : <Square size={15} />}
               </button>
-              <div className="min-w-0 flex-1 space-y-2">
-                <div className="flex items-start justify-between gap-3">
-                  <Link href={`/customers/${c.id}`} className="min-w-0 flex-1 group">
-                    <p className="text-sm font-medium text-slate-800 group-hover:text-blue-600 truncate">{c.name}</p>
-                    <p className="text-xs text-slate-500 leading-snug break-words sm:truncate">{c.address}</p>
-                    <p className="text-[11px] text-slate-400 leading-snug">
-                      {c.areaName ? `${c.areaName} · ` : ""}{c.unpaidJobs.length} unpaid job{c.unpaidJobs.length !== 1 ? "s" : ""}
-                    </p>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-3">
+                  <Link href={`/customers/${c.id}`} className="min-w-0 truncate text-[15px] font-semibold text-slate-800 hover:text-blue-600 dark:text-slate-100">
+                    {c.name}
                   </Link>
-                  <span className="text-sm font-bold text-red-600 flex-shrink-0 whitespace-nowrap">{fmtCurrency(Number(c.debt))}</span>
+                  <span className="flex-shrink-0 text-sm font-bold tabular-nums text-red-600">{fmtCurrency(Number(c.debt))}</span>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-                  {emailInvoicingEnabled && <button
-                    onClick={() => sendInvoice(c)}
-                    disabled={!emailInvoicingEnabled || invoicing.has(c.id)}
-                    title={emailInvoicingEnabled ? (c.email ? `Invoice ${c.email}` : "No email — add one to their profile") : "Email invoicing is disabled for this rollout pass"}
-                    className={cn(
-                      "flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border text-xs font-semibold transition-colors",
-                      emailInvoicingEnabled && c.email
-                        ? "border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white hover:border-blue-600"
-                        : "border-slate-200 text-slate-400 cursor-not-allowed",
-                      "disabled:opacity-60"
-                    )}
-                  >
-                    {invoicing.has(c.id)
-                      ? <Loader2 size={11} className="animate-spin" />
-                      : <Receipt size={11} />}
-                    Invoice
-                  </button>}
-
+                {c.address && c.address !== c.name && <p className="truncate text-xs text-slate-500">{c.address}</p>}
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  {c.areaName && <span className="font-medium text-slate-600">{c.areaName}</span>}
+                  <span className="text-slate-400">{c.unpaidJobs.length} unpaid</span>
+                  {c.late && (
+                    <span className="rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-600 ring-1 ring-red-200">
+                      {c.daysOwing} days
+                    </span>
+                  )}
+                  {(c.credit ?? 0) > 0.005 && (
+                    <span className="rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-700 ring-1 ring-green-200">
+                      {fmtCurrency(c.credit ?? 0)} credit
+                    </span>
+                  )}
+                </div>
+                <ul className="mt-2 space-y-1">
+                  {c.unpaidJobs.map((job) => (
+                    <li key={job.id} className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs dark:bg-[#131929]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-slate-600">{job.name || "Window Cleaning"} · {fmtDate(job.date ?? null)}</span>
+                        <span className="flex-shrink-0 font-semibold tabular-nums text-slate-700">{fmtCurrency(job.due)}</span>
+                      </div>
+                      {job.notes && (
+                        <p className="mt-0.5 flex items-start gap-1 text-[11px] text-amber-800">
+                          <StickyNote size={10} className="mt-0.5 flex-shrink-0" />
+                          <span>{job.notes}</span>
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {emailInvoicingEnabled && (
+                    <button
+                      onClick={() => sendInvoice(c)}
+                      disabled={invoicing.has(c.id)}
+                      className="flex items-center gap-1 rounded-lg border border-blue-200 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+                    >
+                      {invoicing.has(c.id) ? <Loader2 size={11} className="animate-spin" /> : <Receipt size={11} />}
+                      Invoice
+                    </button>
+                  )}
                   <button
                     onClick={() => smsRemindersEnabled && setSmsDebtor(c)}
-                    title={smsRemindersEnabled ? (c.phone ? `Text ${c.phone}` : "No phone — add one to their profile") : "SMS reminders are disabled for this rollout pass"}
+                    title={c.phone ? `Text ${c.phone}` : "No phone — add one to their profile"}
                     className={cn(
-                      "flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border text-xs font-semibold transition-colors",
-                      smsRemindersEnabled && c.phone
-                        ? "border-slate-200 text-slate-600 hover:bg-slate-700 hover:text-white hover:border-slate-700"
-                        : "border-slate-200 text-slate-400 cursor-not-allowed"
+                      "flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors",
+                      c.phone ? "border-slate-200 text-slate-600 hover:bg-slate-100" : "border-slate-200 text-slate-400 cursor-not-allowed",
                     )}
                   >
                     <MessageSquare size={11} />
                     Remind
                   </button>
-
-                  <div className="col-span-2 sm:col-span-1">
-                    <LogPaymentForm
-                      customers={debtors}
-                      initialCustomerId={c.id}
-                      buttonLabel="Log Payment"
-                      buttonVariant="outline"
-                      buttonClassName="w-full justify-center text-xs"
-                    />
-                  </div>
+                  <LogPaymentForm
+                    customers={debtors}
+                    initialCustomerId={c.id}
+                    buttonLabel="Log payment"
+                    buttonVariant="outline"
+                    buttonClassName="text-xs"
+                  />
                 </div>
               </div>
             </div>
-          </div>
+          </li>
         ))}
-      </div>
+      </ul>
 
       {filteredDebtors.length === 0 && (
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-          No customers owing in this area.
+          {onlyLate ? "Nobody is late paying." : "No customers owing here."}
         </div>
       )}
 

@@ -9,10 +9,13 @@ import {
   Users,
   AlertTriangle,
   RotateCcw,
+  ListTodo,
+  Building2,
 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { getDashboardData } from "@/lib/actions";
+import { getAdminTodo, type TodoItem } from "@/lib/todo-actions";
 import { getDashboardInsights } from "@/lib/insights";
 import { DashboardInsights } from "./dashboard-insights";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,7 +56,9 @@ export default async function DashboardPage() {
     totalOwing,
     recentPayments,
     customersWithDebt,
+    worker,
   } = await getDashboardData();
+  const todo = isWorker && !(user.permissions ?? []).includes("scheduler") ? [] : await getAdminTodo().catch(() => [] as TodoItem[]);
   // Business numbers: owner, or anyone with the Accounting permission.
   const insights = hidePrices ? null : await getDashboardInsights().catch(() => null);
 
@@ -124,6 +129,10 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      {todo.length > 0 && <TodoCard items={todo} />}
+
+      {isWorker && worker && <WorkerSummary worker={worker} hidePrices={hidePrices} />}
 
       {isWorker && (
         <div className="grid grid-cols-2 gap-3">
@@ -314,6 +323,119 @@ export default async function DashboardPage() {
                     <p className="text-xs text-slate-500">{p.method} · {fmtDate(p.paidAt)}</p>
                   </div>
                   <span className="text-sm font-semibold text-green-700">+{fmtCurrency(p.amount)}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+const TONES: Record<TodoItem["tone"], string> = {
+  red: "bg-red-500",
+  amber: "bg-amber-500",
+  blue: "bg-blue-500",
+  green: "bg-green-500",
+};
+
+/** What needs doing today: reminders, chasing, "cleaned" texts, overdue areas. */
+function TodoCard({ items }: { items: TodoItem[] }) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="flex items-center gap-1.5">
+          <ListTodo size={14} className="text-blue-500" />
+          To do
+        </CardTitle>
+        <span className="text-xs text-slate-400">{items.length} thing{items.length === 1 ? "" : "s"}</span>
+      </CardHeader>
+      <CardContent className="p-0">
+        <ul className="divide-y divide-slate-100">
+          {items.map((item) => (
+            <li key={item.key}>
+              <Link href={item.href} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors">
+                <span className={`h-2 w-2 flex-shrink-0 rounded-full ${TONES[item.tone]}`} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-slate-800">{item.title}</p>
+                  <p className="truncate text-xs text-slate-500">{item.detail}</p>
+                </div>
+                <span className="flex-shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                  {item.action}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+type WorkerData = NonNullable<Awaited<ReturnType<typeof getDashboardData>>["worker"]>;
+
+/** A team member's own numbers: who they work for, what they've done and what's coming up. */
+function WorkerSummary({ worker, hidePrices }: { worker: WorkerData; hidePrices: boolean }) {
+  const tile = (label: string, value: string, detail: string) => (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-xl font-bold text-slate-900">{value}</p>
+      <p className="text-[11px] text-slate-500">{detail}</p>
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        {tile("This month", String(worker.monthJobs), hidePrices ? "jobs done" : `${fmtCurrency(worker.monthValue)} of work`)}
+        {tile("Coming up", String(worker.upcomingJobs), hidePrices ? "jobs booked for you" : `${fmtCurrency(worker.upcomingValue)} booked`)}
+        {tile("All time", String(worker.allJobs), hidePrices ? "jobs done" : `${fmtCurrency(worker.allValue)} of work`)}
+        {tile("Working for", String(worker.businesses.length), worker.businesses.map((b) => b.name).join(", "))}
+      </div>
+
+      {worker.businesses.length > 1 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              <Building2 size={14} className="text-indigo-500" />
+              Businesses you work for
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ul className="divide-y divide-slate-100">
+              {worker.businesses.map((b) => (
+                <li key={b.tenantId} className="flex items-center justify-between px-4 py-3">
+                  <span className="text-sm font-medium text-slate-700">{b.name}</span>
+                  {b.current ? (
+                    <Badge variant="info">Viewing</Badge>
+                  ) : (
+                    <Link href="/auth/company-select" className="text-xs text-blue-600 hover:underline">Switch</Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {worker.recentJobs.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              <CheckCircle2 size={14} className="text-green-500" />
+              Recently done by you
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ul className="divide-y divide-slate-100">
+              {worker.recentJobs.map((job) => (
+                <li key={job.id}>
+                  <Link href={`/days/${job.workDayId}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-700">{job.customer.name}</p>
+                      <p className="truncate text-xs text-slate-500">{job.name} · {fmtDate(job.completedAt)}</p>
+                    </div>
+                    {!hidePrices && <span className="flex-shrink-0 text-sm font-semibold text-slate-700">{fmtCurrency(job.price)}</span>}
+                  </Link>
                 </li>
               ))}
             </ul>

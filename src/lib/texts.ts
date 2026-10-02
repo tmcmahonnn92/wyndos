@@ -184,9 +184,16 @@ export async function deliverTexts(
  * "Your windows have been cleaned, here's how to pay" — run when an area day is completed,
  * so anyone who paid on the doorstep that day is already marked paid and can be skipped.
  */
-export async function queueCleanedTexts(tenantId: number, workDayId: number, sentByUserId: string | null) {
+export async function queueCleanedTexts(
+  tenantId: number,
+  workDayId: number,
+  sentByUserId: string | null,
+  options: { manual?: boolean } = {},
+) {
   const settings = await loadTextSettings(tenantId);
-  if (!settings?.textCleanedEnabled) return null;
+  if (!settings) return null;
+  // Automatic texts follow the setting; "Text everyone" on a finished day always works.
+  if (!options.manual && !settings.textCleanedEnabled) return null;
 
   const jobs = await prisma.job.findMany({
     where: { tenantId, workDayId, status: "COMPLETE", isQuote: false },
@@ -197,6 +204,7 @@ export async function queueCleanedTexts(tenantId: number, workDayId: number, sen
       assignedUser: { select: { name: true, email: true } },
       workDay: { select: { assignedUser: { select: { name: true, email: true } } } },
       allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
+      completedAt: true,
       customer: {
         select: { id: true, name: true, address: true, phone: true, preferredPaymentMethod: true, paidByCustomerId: true, area: { select: { name: true } } },
       },
@@ -209,6 +217,7 @@ export async function queueCleanedTexts(tenantId: number, workDayId: number, sen
     })).map((m) => m.jobId),
   );
   const { balance } = await balancesFor(tenantId, jobs.map((j) => j.customer.id));
+  const credit = await creditFor(tenantId, jobs.map((j) => j.customer.id));
 
   const texts: OutgoingText[] = [];
   for (const job of jobs) {
@@ -218,21 +227,52 @@ export async function queueCleanedTexts(tenantId: number, workDayId: number, sen
     if (!to) continue;
     if (c.preferredPaymentMethod === "DD" || c.paidByCustomerId) continue; // paid by Direct Debit or by someone else
     const paidToday = job.price - job.allocations.reduce((s, a) => s + a.amount, 0) <= 0.005;
-    if (paidToday && settings.textSkipCleanedIfPaid) continue;
+    if (paidToday && settings.textSkipCleanedIfPaid && !options.manual) continue;
     const owed = balance.get(c.id) ?? 0;
+    const left = credit.get(c.id) ?? 0;
+    const vars = varsFor(c, settings, {
+      amountDue: money(owed),
+      jobPrice: money(job.price),
+      jobDate: job.completedAt ? textDate(job.completedAt) : "",
+      workerName: workerFirstName(job.completedBy ?? job.assignedUser ?? job.workDay.assignedUser, settings),
+    });
     texts.push({
       customerId: c.id,
       jobId: job.id,
       workDayId,
       to,
-      body: renderText(settings.tmplCleanedBank, varsFor(c, settings, {
-        amountDue: money(owed),
-        jobPrice: money(job.price),
-        workerName: workerFirstName(job.completedBy ?? job.assignedUser ?? job.workDay.assignedUser, settings),
-      })),
+      // Nothing owing (paid at the door, or paid in advance): say so, don't ask for money.
+      body: owed <= 0.005
+        ? paidCleanedText(vars, left)
+        : renderText(settings.tmplCleanedBank, vars),
     });
   }
   return deliverTexts(tenantId, settings, "CLEANED", texts, sentByUserId);
+}
+
+/** "Cleaned, nothing to pay" text, with any credit left for next time. */
+export function paidCleanedText(vars: MessageVars, creditLeft: number) {
+  const hi = vars.customerFirstName ? `Hi ${vars.customerFirstName}, ` : "Hi, ";
+  const when = vars.jobDate ? ` on ${vars.jobDate}` : " today";
+  const extra = creditLeft > 0.005
+    ? ` You have ${money(creditLeft)} credit left, so there's nothing to pay.`
+    : " It's already paid, so there's nothing to pay.";
+  const sign = vars.businessName ? ` Thanks, ${vars.workerName && vars.workerName !== vars.businessName ? `${vars.workerName}, ` : ""}${vars.businessName}` : " Thanks";
+  return `${hi}your windows were cleaned${when}.${extra}${sign}`;
+}
+
+/** Credit per customer: money paid that isn't on a clean yet. */
+export async function creditFor(tenantId: number, customerIds: number[]) {
+  const payments = await prisma.payment.findMany({
+    where: { tenantId, voidedAt: null, customerId: { in: customerIds } },
+    select: { customerId: true, amount: true, allocations: { select: { amount: true } } },
+  });
+  const credit = new Map<number, number>();
+  for (const p of payments) {
+    const spare = p.amount - p.allocations.reduce((s, a) => s + a.amount, 0);
+    if (spare > 0.005) credit.set(p.customerId, Number(((credit.get(p.customerId) ?? 0) + spare).toFixed(2)));
+  }
+  return credit;
 }
 
 /**

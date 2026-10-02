@@ -1220,7 +1220,10 @@ function SchedulerRouteOptimiserModal({
     for (let i = 0; i < jobs.length; i++) {
       setProgress(`Locating ${i + 1}/${jobs.length}: ${jobs[i].customer?.name ?? ""}`);
       const addr = jobs[i].customer?.address ?? null;
-      const result = addr ? await geocodeAddress(addr) : null;
+      const pinned = jobs[i].customer as { latitude?: number | null; longitude?: number | null } | undefined;
+      const result = pinned && typeof pinned.latitude === "number" && typeof pinned.longitude === "number"
+        ? { lat: pinned.latitude, lon: pinned.longitude, warning: null, needsReview: false, normalizedQuery: addr ?? "", matchedAddress: "Map pin", confidence: "high" as const }
+        : addr ? await geocodeAddress(addr) : null;
       geocodeMap[jobs[i].id] = result;
       coords.push(result ? [result.lat, result.lon] : null);
       if (i < jobs.length - 1) await new Promise((r) => setTimeout(r, 1100));

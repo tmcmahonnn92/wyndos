@@ -1,5 +1,8 @@
 ﻿"use client";
 
+import { AddCreditForm } from "@/app/payments/add-credit-form";
+import { MapPinEditor } from "@/components/map-pin-editor";
+import { mapsHref } from "@/lib/maps-link";
 import { PAYMENT_PREFERENCES } from "@/lib/payment-preference";
 import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
@@ -41,6 +44,9 @@ interface Props {
   customer: Customer;
   areas: Area[];
   balance: number;
+  /** Paid in advance / paid extra, not used yet. */
+  credit?: number;
+  canPay?: boolean;
   allTags: TagRow[];
   hidePrices?: boolean;
   goCardlessReferencePrefix?: string;
@@ -74,7 +80,7 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", payerOptions = [], texts = [] }: Props) {
+export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", payerOptions = [], texts = [] }: Props) {
   const [showAllTexts, setShowAllTexts] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [bookDate, setBookDate] = useState("");
@@ -437,11 +443,11 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
               )}
             </CardContent>
           </Card>
-          <Card className={balance > 0 ? "border-red-200" : balance < 0 ? "border-green-200" : ""}>
+          <Card className={balance > 0 ? "border-red-200" : credit > 0.005 ? "border-green-200" : ""}>
             <CardContent className="py-3">
               <p className="text-xs text-slate-500 mb-0.5">Balance</p>
-              <p className={`text-lg font-bold ${balance > 0 ? "text-red-600" : balance < 0 ? "text-green-600" : "text-slate-800"}`}>
-                {hidePrices ? "–" : (balance > 0 ? `Owes ${fmtCurrency(balance)}` : balance < 0 ? `Credit ${fmtCurrency(-balance)}` : "Settled")}
+              <p className={`text-lg font-bold ${balance > 0 ? "text-red-600" : credit > 0.005 ? "text-green-600" : "text-slate-800"}`}>
+                {hidePrices ? "–" : (balance > 0 ? `Owes ${fmtCurrency(balance)}` : credit > 0.005 ? `Credit ${fmtCurrency(credit)}` : "Settled")}
               </p>
               {balance > 0 && (
                 <div className="space-y-1">
@@ -449,6 +455,21 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                     {unpaidJobs.length} unpaid job{unpaidJobs.length !== 1 ? "s" : ""}
                   </p>
                   <button onClick={() => { setLogPayJobIds(new Set(unpaidJobIds)); setPayOpen(true); }} className="text-xs text-blue-600 hover:underline">Log payment</button>
+                </div>
+              )}
+              {!hidePrices && credit > 0.005 && (
+                <p className="mt-1 rounded-md bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">
+                  {fmtCurrency(credit)} credit: no need to pay, it comes off the next clean
+                </p>
+              )}
+              {!hidePrices && canPay && (
+                <div className="mt-1.5">
+                  <AddCreditForm
+                    customers={[{ id: customer.id, name: customer.name, address: customer.address, credit }]}
+                    initialCustomerId={customer.id}
+                    buttonLabel="Paid in advance"
+                    buttonClassName="h-7 px-2 text-xs"
+                  />
                 </div>
               )}
             </CardContent>
@@ -534,7 +555,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-500">Address</span>
               <a
-                href={`https://maps.google.com/?q=${encodeURIComponent(customer.address)}`}
+                href={mapsHref(customer)}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
@@ -543,6 +564,7 @@ export function CustomerDetail({ customer, areas, balance, allTags, hidePrices =
                 Open in Maps
               </a>
             </div>
+            <MapPinEditor customerId={customer.id} latitude={customer.latitude ?? null} longitude={customer.longitude ?? null} />
             {customer.notes && (
               <div>
                 <span className="text-xs text-slate-500 block mb-0.5">Notes</span>

@@ -16,6 +16,7 @@ export type PaymentJobOption = {
   due: number;
   isOneOff?: boolean;
   date?: Date | string | null;
+  notes?: string;
 };
 
 export type PaymentCustomerOption = {
@@ -53,6 +54,8 @@ export function LogPaymentForm({
   const [notes, setNotes] = useState("");
   const [paidAt, setPaidAt] = useState(today);
   const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set());
+  // Amount actually handed over. Blank = exactly what the selected jobs owe.
+  const [received, setReceived] = useState("");
 
   // Inline job editing (descriptor + amount) from within the payment screen.
   const [editingJobId, setEditingJobId] = useState<number | null>(null);
@@ -84,6 +87,7 @@ export function LogPaymentForm({
     setPaidAt(today);
     setSelectedJobIds(new Set(customer?.unpaidJobs.map((job) => job.id) ?? []));
     setEditingJobId(null);
+    setReceived("");
   };
 
   const handleOpen = () => {
@@ -129,14 +133,24 @@ export function LogPaymentForm({
     });
   };
 
+  const receivedAmount = received.trim() === "" ? selectedJobTotal : Math.max(0, Number(received) || 0);
+  const extraCredit = Number(Math.max(0, receivedAmount - selectedJobTotal).toFixed(2));
+  const shortBy = Number(Math.max(0, selectedJobTotal - receivedAmount).toFixed(2));
+
   const handleSubmit = () => {
     if (!selectedCustomer) return;
     startTransition(async () => {
+      // Oldest selected jobs are paid first; a short payment leaves the rest owing.
+      let left = Math.min(receivedAmount, selectedJobTotal);
       const allocations = selectedCustomer.unpaidJobs
         .filter((job) => selectedJobIds.has(job.id))
-        .map((job) => ({ jobId: job.id, amount: job.due }))
+        .map((job) => {
+          const amount = Number(Math.min(job.due, left).toFixed(2));
+          left = Number((left - amount).toFixed(2));
+          return { jobId: job.id, amount };
+        })
         .filter((allocation) => allocation.amount > 0);
-      if (allocations.length === 0) return;
+      if (allocations.length === 0 && extraCredit <= 0) return;
 
       await recordPayment({
         customerId: selectedCustomer.id,
@@ -144,6 +158,7 @@ export function LogPaymentForm({
         method,
         notes: notes || undefined,
         paidAt: new Date(paidAt),
+        extra: extraCredit,
       });
 
       setOpen(false);
@@ -156,7 +171,7 @@ export function LogPaymentForm({
   const submitDisabled =
     isPending ||
     !selectedCustomer ||
-    jobsSelected === 0 || selectedJobTotal <= 0;
+    receivedAmount <= 0;
 
   return (
     <>
@@ -306,6 +321,7 @@ export function LogPaymentForm({
                                   {job.isOneOff ? " · one-off" : ""}
                                   {job.paid > 0 ? ` · paid ${fmtCurrency(job.paid)}` : ""}
                                 </p>
+                                {job.notes && <p className="text-[11px] text-amber-800 truncate">Note: {job.notes}</p>}
                               </div>
                               <div className="text-right flex-shrink-0">
                                 <p className="text-xs text-slate-400">{fmtCurrency(job.price)}</p>
@@ -330,6 +346,26 @@ export function LogPaymentForm({
                     <p className="text-sm text-slate-600">{jobsSelected} job{jobsSelected !== 1 ? "s" : ""} selected</p>
                     <p className="text-sm font-bold text-slate-800">{fmtCurrency(selectedJobTotal)}</p>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Amount received (£)</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0"
+                    value={received}
+                    placeholder={selectedJobTotal.toFixed(2)}
+                    onChange={(e) => setReceived(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  {extraCredit > 0 && (
+                    <p className="mt-1 text-xs font-medium text-green-700">{fmtCurrency(extraCredit)} extra is kept as credit and comes off their next clean.</p>
+                  )}
+                  {shortBy > 0 && (
+                    <p className="mt-1 text-xs font-medium text-amber-700">{fmtCurrency(shortBy)} will still be owing.</p>
+                  )}
                 </div>
             </>
           )}
@@ -379,7 +415,7 @@ export function LogPaymentForm({
           <div className="flex gap-2 pt-1">
             <Button onClick={handleSubmit} disabled={submitDisabled} className="flex-1">
               <Banknote size={14} />
-              {isPending ? "Logging..." : `Mark Paid · ${fmtCurrency(selectedJobTotal)}`}
+              {isPending ? "Logging..." : `Record ${fmtCurrency(receivedAmount)}`}
             </Button>
             <Button variant="outline" onClick={() => setOpen(false)} className="flex-1">
               Cancel

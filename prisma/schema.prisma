@@ -348,6 +348,9 @@ model Customer {
   paidByCustomerId       Int?
   paidBy                 Customer?     @relation("PaidBy", fields: [paidByCustomerId], references: [id], onDelete: SetNull)
   paysFor                Customer[]    @relation("PaidBy")
+  /// Map pin set by hand. When set, maps and routes use these instead of the address.
+  latitude               Float?
+  longitude              Float?
   createdAt              DateTime      @default(now())
   jobs                   Job[]
   payments               Payment[]

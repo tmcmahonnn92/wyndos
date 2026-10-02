@@ -12,6 +12,7 @@ import {
   type SendMethod,
   loadTextSettings,
   money,
+  queueCleanedTexts,
   renderText,
   runPaymentReminders,
   textDate,
@@ -421,4 +422,60 @@ export async function discardPhoneTexts(ids: number[]) {
   const actor = await requirePerm("messaging");
   await prisma.messageLog.deleteMany({ where: { tenantId: actor.tenantId, status: "TO_SEND", id: { in: ids } } });
   revalidatePath("/messages");
+}
+
+/**
+ * "Your windows were cleaned" to everyone on finished days: what it cost, and how to pay
+ * if they haven't (nothing to pay if they paid or have credit). Each customer gets it once per clean.
+ */
+export async function textDayCleaned(workDayIds: number[]) {
+  const actor = await requirePerm("messaging");
+  const tenantId = actor.tenantId;
+  const days = await prisma.workDay.findMany({
+    where: { tenantId, id: { in: workDayIds }, status: "COMPLETE", ...visibleWorkDayWhere(actor) },
+    select: { id: true },
+  });
+  if (days.length === 0) throw new Error("Finish the day first.");
+  const ids: number[] = [];
+  for (const day of days) {
+    const result = await queueCleanedTexts(tenantId, day.id, actor.userId, { manual: true });
+    if (result) ids.push(...result.ids);
+  }
+  revalidatePath("/messages");
+  return { ids, count: ids.length };
+}
+
+/** How many cleans on these finished days haven't had their "cleaned" text yet. */
+export async function getDayCleanedTextStatus(workDayIds: number[]) {
+  const actor = await requirePerm("messaging");
+  const tenantId = actor.tenantId;
+  const jobs = await prisma.job.findMany({
+    where: { tenantId, workDayId: { in: workDayIds }, status: "COMPLETE", isQuote: false },
+    select: { id: true, customer: { select: { phone: true, preferredPaymentMethod: true, paidByCustomerId: true } } },
+  });
+  const textable = jobs.filter((j) => ukMobile(j.customer.phone) && j.customer.preferredPaymentMethod !== "DD" && !j.customer.paidByCustomerId);
+  const sent = await prisma.messageLog.count({ where: { tenantId, kind: "CLEANED", jobId: { in: textable.map((j) => j.id) } } });
+  return { textable: textable.length, notSent: Math.max(0, textable.length - sent) };
+}
+
+/** Save texts to send later from a phone (e.g. picked on a computer). Returns their ids. */
+export async function queuePhoneTexts(input: { items: Array<{ customerId: number; body: string }>; kind?: "PAYMENT_REMINDER_1" | "PAYMENT_REMINDER_2" | "PAYMENT_CHASE" | "BULK" }) {
+  const actor = await requirePerm("messaging");
+  const customers = await prisma.customer.findMany({
+    where: { tenantId: actor.tenantId, id: { in: input.items.map((i) => i.customerId) } },
+    select: { id: true, phone: true },
+  });
+  const phoneOf = new Map(customers.map((c) => [c.id, ukMobile(c.phone)]));
+  const ids: number[] = [];
+  for (const item of input.items) {
+    const to = phoneOf.get(item.customerId);
+    if (!to || !item.body.trim()) continue;
+    const log = await prisma.messageLog.create({
+      data: { tenantId: actor.tenantId, customerId: item.customerId, kind: input.kind ?? "BULK", toNumber: to, body: item.body.slice(0, 2000), status: "TO_SEND", sentByUserId: actor.userId },
+      select: { id: true },
+    });
+    ids.push(log.id);
+  }
+  revalidatePath("/messages");
+  return { ids };
 }
