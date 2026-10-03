@@ -21,6 +21,7 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Email (Brevo SMTP): `PLATFORM_SMTP_HOST/PORT/USER/PASS/FROM_NAME/FROM_EMAIL`.
 - Support: `SUPPORT_EMAIL` (support@wyndos.io), `SUPPORT_COPY_EMAIL` or `SUPPORT_BCC_EMAIL` (Tom's BCC copy).
 - Stripe: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, optional `STRIPE_PRICE_ID`, `STRIPE_TAX_CODE`.
+- AI (optional): `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`.
 - Texts: `MESSAGING_LIVE` (server-sent SMS is switched off, see Feature flags).
 - Legal pages (build-time, so redeploy after changing): `NEXT_PUBLIC_LEGAL_NAME`, `NEXT_PUBLIC_LEGAL_ADDRESS`, `NEXT_PUBLIC_ICO_NUMBER`, `NEXT_PUBLIC_HOSTING_LOCATION`.
 
@@ -83,6 +84,12 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Owners tick two boxes at onboarding (terms + "I have the right to store and use my customers' details"). Stored on `Tenant.termsVersion/termsAcceptedAt/termsAcceptedByUserId/dataPermissionAcceptedAt`.
 - Layout shows `LegalAcceptGate` to owners until the current `TERMS_VERSION` is accepted (workers aren't blocked). Bump `TERMS_VERSION` to ask everyone again.
 - Data protection to-do list: `docs/DATA_PROTECTION.md`.
+
+## Sort into areas (`/customers/organise`, owner only)
+- `src/lib/area-planner.ts`. Questions (all optional): working days, customers or £ per day, days early (saved as each new area's `dueWindowDays`), free notes.
+- Quick sort (no AI): postcode sector + street, packed to the day's capacity, frequencies kept apart.
+- AI sort only when `ANTHROPIC_API_KEY` is set. Model `ANTHROPIC_MODEL` (default `claude-sonnet-5-5`), optional `ANTHROPIC_BASE_URL`. Sends street/town/postcode/price/frequency/due only, numbered (no names, house numbers, contacts). Result is checked: each customer once, missing ones go in "Check these". Nothing is saved until the owner presses Save.
+- Save makes areas (or reuses same-name ones), moves customers with `bulkMoveCustomersToArea`, removes old areas left empty with nothing booked. Anthropic is listed as a sub-processor in `src/lib/legal.ts`.
 
 ## Bank statement import (security)
 - The file never leaves the browser: CSV is read in the page, spreadsheets in a throwaway Web Worker (`src/lib/bank-import/sheet.worker.ts`, bytes transferred then the worker is ended). Only the rows the user ticks are sent (date, amount, up to 140 chars of text). Nothing goes in browser storage.

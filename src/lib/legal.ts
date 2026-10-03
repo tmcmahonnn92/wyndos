@@ -38,4 +38,5 @@ export const SUB_PROCESSORS: Array<{ name: string; purpose: string; location: st
   { name: "Stripe", purpose: "Wyndos subscription billing (business owners only, not your customers)", location: "EU / US" },
   { name: "Google", purpose: "Optional 'Sign in with Google'", location: "EU / US" },
   { name: "OpenStreetMap (Nominatim)", purpose: "Turning addresses into map positions", location: "EU / UK" },
+  { name: "Anthropic (Claude)", purpose: "Optional 'Sort into areas with AI': streets, towns, postcodes, prices and due dates only (no names or contact details)", location: "US" },
 ];

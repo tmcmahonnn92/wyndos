@@ -1685,6 +1685,11 @@ export function ImportClient({ areas }: { areas: Area[] }) {
             </div>
           </div>
 
+          <a href="/customers/organise" className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:bg-blue-100">
+            <span><b>Sort them into areas</b> · a few quick questions and we&apos;ll suggest a day&apos;s work for each area</span>
+            <span className="font-semibold">Go →</span>
+          </a>
+
           {importResult.errors.length > 0 && (
             <div className="border border-red-200 rounded-xl overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border-b border-red-200">
