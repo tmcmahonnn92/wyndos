@@ -599,10 +599,13 @@ async function syncAreaScheduleAfterCompletion(
     ? (await prisma.job.findMany({ where: { tenantId, workDayId: { in: splitRun.runDayIds }, status: "COMPLETE" }, select: { customerId: true } })).map((j) => j.customerId)
     : [];
 
+  // Setting: the next run goes to the same worker (default), or is left for the owner to give out.
+  const keepWorker = (await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { keepWorkerOnNextRun: true } }))?.keepWorkerOnNextRun ?? true;
+  const nextWorker = keepWorker ? workDay.assignedUserId ?? null : null;
   const targetNextWorkDay = await prisma.workDay.upsert({
     where: { tenantId_date_areaId: { tenantId, date: nextDue, areaId: workDay.area.id } },
-    update: { assignedUserId: workDay.assignedUserId ?? null },
-    create: { tenantId, date: nextDue, areaId: workDay.area.id, assignedUserId: workDay.assignedUserId ?? undefined },
+    update: keepWorker ? { assignedUserId: nextWorker } : {},
+    create: { tenantId, date: nextDue, areaId: workDay.area.id, assignedUserId: nextWorker ?? undefined },
   });
 
   const sourceNextWorkDay = await prisma.workDay.findFirst({
@@ -5287,6 +5290,7 @@ export async function getBusinessSettingsForClient() {
     invoiceNumbersStarted: settings.invoiceNumbersStarted,
     invoiceVatEnabled: settings.invoiceVatEnabled,
     allowCustomerCredit: settings.allowCustomerCredit,
+    keepWorkerOnNextRun: settings.keepWorkerOnNextRun,
     invoiceVatRate: settings.invoiceVatRate,
     invoicePaymentTerms: settings.invoicePaymentTerms,
     logoBase64: settings.logoBase64,
@@ -5343,6 +5347,7 @@ export async function updateBusinessSettings(data: {
   nextInvoiceNum?: number;
   invoiceVatEnabled?: boolean;
   allowCustomerCredit?: boolean;
+  keepWorkerOnNextRun?: boolean;
   invoiceVatRate?: number;
   invoicePaymentTerms?: string;
   logoBase64?: string | null;
