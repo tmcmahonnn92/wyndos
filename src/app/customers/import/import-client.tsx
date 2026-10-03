@@ -764,6 +764,11 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         </button>
       </div>
 
+      <Link href="/customers/import/guided" className="flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:bg-blue-100">
+        <span><b>Messy spreadsheet?</b> Try the guided import: we work out your columns, tidy the data and suggest areas.</span>
+        <span className="flex-shrink-0 font-semibold">Try it →</span>
+      </Link>
+
       {/* Step indicator */}
       <div className="flex items-center gap-0">
         {["Upload", "Map Columns", "Preview", "Done"].map((label, i) => (
