@@ -26,7 +26,7 @@ interface Settings {
   businessName: string; ownerName: string; phone: string; email: string;
   address: string; bankDetails: string; vatNumber: string;
   invoicePrefix: string; nextInvoiceNum: number; invoiceNumbersStarted: boolean;
-  invoiceVatEnabled: boolean; invoiceVatRate: number; allowCustomerCredit?: boolean; invoicePaymentTerms: string; logoBase64: string | null;
+  invoiceVatEnabled: boolean; invoiceVatRate: number; allowCustomerCredit?: boolean; keepWorkerOnNextRun?: boolean; invoicePaymentTerms: string; logoBase64: string | null;
   goCardlessEnvironment: string; goCardlessReferencePrefix: string;
   goCardlessAccessTokenConfigured: boolean; goCardlessLastSyncedAt: string | null;
   smtpProvider: string; smtpHost: string; smtpPort: number;
@@ -184,6 +184,7 @@ export function SettingsClient({
     nextInvoiceNum: String(settings.nextInvoiceNum),
     invoiceVatEnabled: settings.invoiceVatEnabled ?? false,
     allowCustomerCredit: settings.allowCustomerCredit ?? true,
+    keepWorkerOnNextRun: settings.keepWorkerOnNextRun ?? true,
     invoiceVatRate: String(settings.invoiceVatRate ?? 20),
     invoicePaymentTerms: settings.invoicePaymentTerms ?? "",
     runDueWindowDays: settings.runDueWindowDays == null ? "" : String(settings.runDueWindowDays),
@@ -602,6 +603,13 @@ export function SettingsClient({
                 means nobody waits an extra cycle (at most they&apos;re cleaned a little early). Leave blank for half the
                 area&apos;s frequency, e.g. 14 days for 4-weekly. Each area can have its own number in Areas.
               </p>
+              <label className="mt-3 flex items-start gap-3 rounded-lg border border-slate-200 p-3">
+                <input type="checkbox" className="mt-1" checked={form.keepWorkerOnNextRun} onChange={(e) => setForm((f) => ({ ...f, keepWorkerOnNextRun: e.target.checked }))} />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-800">Same worker next time</span>
+                  <span className="block text-xs text-slate-500">When an area&apos;s run is finished, its next run goes to whoever did it. Untick to leave the next run unassigned so you can give it out yourself.</span>
+                </span>
+              </label>
             </CardContent>
           </Card>
 

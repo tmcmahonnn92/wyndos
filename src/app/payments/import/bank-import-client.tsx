@@ -244,7 +244,7 @@ export function BankImportClient({
           </div>
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
             <p className="font-semibold">Your statement stays on this device</p>
-            <p className="mt-1">The file is read on your phone or computer. It is never uploaded or saved. Only the payments you tick are recorded.</p>
+            <p className="mt-1">The file is read on your phone or computer. It is never uploaded or saved. Only the payments you confirm are recorded.</p>
           </div>
           {recent.length > 0 && <RecentImports recent={recent} onUndo={undo} busy={busy} />}
         </div>
@@ -259,7 +259,7 @@ export function BankImportClient({
               onChange={(v) => setMapping(mapping.moneyOut >= 0 || mapping.moneyIn >= 0 ? { ...mapping, moneyIn: v, amount: -1 } : { ...mapping, amount: v })} />
           </div>
           <div>
-            <p className="text-xs font-semibold text-slate-500 mb-1.5">Who paid / reference (tick any that help)</p>
+            <p className="text-xs font-semibold text-slate-500 mb-1.5">Who paid / reference (choose any that help)</p>
             <div className="flex flex-wrap gap-2">
               {headers.map((h, i) => (
                 <button key={i} type="button"
@@ -298,7 +298,7 @@ export function BankImportClient({
               ["suggested", `Suggested ${rows.filter((r) => r.suggestion.status === "suggested").length}`],
               ["check", `Check ${rows.filter((r) => r.suggestion.status === "check").length}`],
               ["unmatched", `Not matched ${rows.filter((r) => r.suggestion.status === "unmatched" || r.suggestion.status === "ignore").length}`],
-              ["ready", `Ticked ${ready.length}`],
+              ["ready", `Done ${ready.length}`],
             ] as const).map(([key, label]) => (
               <button key={key} type="button" onClick={() => setFilter(key)}
                 className={cn("rounded-full px-3 py-1 text-xs font-medium border", filter === key ? "bg-slate-800 text-white border-slate-800 dark:bg-slate-100 dark:text-slate-900" : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300")}>
@@ -306,6 +306,16 @@ export function BankImportClient({
               </button>
             ))}
           </div>
+          {(() => {
+            const sure = rows.filter((r) => r.decision === "none" && r.suggestion.status === "suggested" && r.customerId !== null
+              && (allowCredit || splitAmount(r.line.amount, customerById.get(r.customerId), r.jobIds).extra <= 0.005));
+            return sure.length > 0 ? (
+              <button type="button" onClick={() => setRows((all) => all.map((r) => (sure.includes(r) ? { ...r, decision: "pay" } : r)))}
+                className="w-full rounded-xl border border-green-600 bg-green-50 px-4 py-2.5 text-sm font-semibold text-green-800 hover:bg-green-100 dark:bg-green-950/40 dark:text-green-200">
+                Accept all {sure.length} good matches
+              </button>
+            ) : null;
+          })()}
           {alreadyCount > 0 && <p className="text-xs text-slate-500">{alreadyCount} line{alreadyCount === 1 ? " was" : "s were"} already imported before and {alreadyCount === 1 ? "is" : "are"} hidden.</p>}
           {rows.length === 0 && <p className="text-sm text-slate-500">Nothing new to match in this file.</p>}
           {shown.map((row) => (
@@ -315,10 +325,10 @@ export function BankImportClient({
           <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
             <div className="mx-auto flex max-w-3xl items-center gap-3">
               <button type="button" onClick={() => { forget(); setStep(0); }} className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">Cancel</button>
-              <p className="flex-1 text-xs text-slate-500">{ready.length} ticked · {fmtCurrency(readyTotal)}</p>
+              <p className="flex-1 text-xs text-slate-500">{ready.filter((r) => r.decision === "pay").length} to save · {fmtCurrency(readyTotal)}</p>
               <button type="button" disabled={ready.length === 0 || busy} onClick={save}
                 className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                {busy ? "Saving…" : `Save ${ready.length}`}
+                {busy ? "Saving…" : "Save"}
               </button>
             </div>
           </div>
@@ -414,6 +424,7 @@ function RowCard({ row, customers, customer, allowCredit, onChange }: {
           {customer && (
             <div className="space-y-1.5">
               {customer.unpaid.length === 0 && <p className="text-xs text-slate-500">Nothing owing.{allowCredit ? " This will be kept as credit." : ""}</p>}
+              {customer.unpaid.length > 0 && <p className="text-[11px] font-semibold text-slate-500">Pays for</p>}
               <div className="flex flex-wrap gap-1.5">
                 {customer.unpaid.map((job) => {
                   const on = row.jobIds.includes(job.jobId);
@@ -428,7 +439,7 @@ function RowCard({ row, customers, customer, allowCredit, onChange }: {
               </div>
               {split.extra > 0.005 && (
                 <p className={cn("text-xs", creditBlocked ? "text-red-600" : "text-slate-500")}>
-                  {creditBlocked ? `${fmtCurrency(split.extra)} more than the ticked jobs, and customer credit is off. Tick more jobs.` : `${fmtCurrency(split.extra)} kept as credit`}
+                  {creditBlocked ? `${fmtCurrency(split.extra)} more than the cleans chosen, and customer credit is off. Choose more cleans.` : `${fmtCurrency(split.extra)} kept as credit`}
                 </p>
               )}
             </div>
@@ -441,12 +452,12 @@ function RowCard({ row, customers, customer, allowCredit, onChange }: {
           onClick={() => onChange((r) => ({ ...r, decision: r.decision === "pay" ? "none" : "pay" }))}
           className={cn("inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-semibold disabled:opacity-40",
             row.decision === "pay" ? "bg-green-600 text-white" : "border border-green-600 text-green-700 dark:text-green-300")}>
-          <Check size={14} /> {row.decision === "pay" ? "Ticked" : "Tick"}
+          <Check size={14} /> {row.decision === "pay" ? "Matched" : customer ? `Yes, ${customer.name.split(" ")[0] || customer.name} paid this` : "Choose who paid"}
         </button>
         <button type="button" onClick={() => onChange((r) => ({ ...r, decision: r.decision === "ignore" ? "none" : "ignore" }))}
           className={cn("inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm",
             row.decision === "ignore" ? "bg-slate-700 text-white" : "border border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300")}>
-          <EyeOff size={14} /> {row.decision === "ignore" ? "Ignored" : "Ignore"}
+          <EyeOff size={14} /> {row.decision === "ignore" ? "Skipped" : "Not a customer"}
         </button>
         {row.line.text && (
           <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-500">

@@ -81,6 +81,8 @@ model TenantSettings {
   invoiceVatRate    Float   @default(20)
   /// Keep money paid in advance or paid extra as credit for the next cleans.
   allowCustomerCredit Boolean @default(true)
+  /// When an area's run is finished, give its next run to the same worker. Off: next run is unassigned.
+  keepWorkerOnNextRun Boolean @default(true)
   /// Payment terms / how to pay, printed on every invoice.
   invoicePaymentTerms String @default("")
   logoBase64      String? // base64 data URL
