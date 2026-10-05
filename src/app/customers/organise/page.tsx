@@ -3,12 +3,14 @@ import { ChevronLeft } from "lucide-react";
 import { redirect } from "next/navigation";
 import { plannerAvailable } from "@/lib/area-planner";
 import { requirePermission } from "@/lib/tenant-context";
+import { AREA_SORT_ENABLED } from "@/lib/features";
 import { OrganiseClient } from "./organise-client";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Sort into areas" };
 
 export default async function OrganisePage() {
+  if (!AREA_SORT_ENABLED) redirect("/customers");
   await requirePermission("customers");
   const available = await plannerAvailable().catch(() => null);
   if (!available) redirect("/customers"); // owner only

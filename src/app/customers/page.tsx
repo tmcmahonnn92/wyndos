@@ -1,6 +1,7 @@
 ﻿import Link from "next/link";
 import { TableProperties, Sparkles, Upload, MapPin } from "lucide-react";
 import { getCustomers, getAreas, getTags } from "@/lib/actions";
+import { AREA_SORT_ENABLED } from "@/lib/features";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -69,10 +70,10 @@ export default async function CustomersPage({ searchParams }: Props) {
             <TableProperties size={14} />
             Bulk Edit
           </Link>
-          <Link href="/customers/organise" className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors">
+          {AREA_SORT_ENABLED && <Link href="/customers/organise" className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors">
             <Sparkles size={14} />
             Sort into areas
-          </Link>
+          </Link>}
           <Link href="/customers/addresses" className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors">
             <MapPin size={14} />
             Tidy addresses

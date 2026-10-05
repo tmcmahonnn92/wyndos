@@ -10,3 +10,6 @@ export const INVOICE_EMAIL_ENABLED = false;
 
 /** GoCardless (Direct Debit) sync and settings. Off until the second stage. */
 export const GOCARDLESS_ENABLED = false;
+
+/** Sorting customers into areas (quick sort and AI). Off: the guided import keeps the sheet's areas or puts everyone in "Imported". */
+export const AREA_SORT_ENABLED = false;
