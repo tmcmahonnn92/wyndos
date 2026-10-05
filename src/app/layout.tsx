@@ -169,7 +169,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             needsLegal={needsLegal}
             legalGate={<LegalAcceptGate />}
             billingEnded={billingEnded}
-            lockScreen={<BillingLock isOwner={activeRole === "OWNER"} hadSubscription={billing?.hadSubscription} />}
+            lockScreen={<BillingLock isOwner={activeRole === "OWNER"} hadSubscription={billing?.hadSubscription} priceLabel={billing?.priceLabel} />}
             trialBar={showTrialBar && billing ? <TrialBar state={billing} /> : null}
             verifyBar={emailCheck && !emailCheck.verified ? <VerifyEmailBar email={emailCheck.email} /> : null}
           >

@@ -7,8 +7,8 @@
  *
  * Fill in OPERATOR before going live (see HANDOFF.md).
  */
-export const TERMS_VERSION = "2026-10-02";
-export const TERMS_UPDATED = "2 October 2026";
+export const TERMS_VERSION = "2026-10-05";
+export const TERMS_UPDATED = "5 October 2026";
 
 export const OPERATOR = {
   /** Your legal name, as a sole trader: e.g. "Thomas McMahon trading as Wyndos". */

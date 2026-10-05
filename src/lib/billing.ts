@@ -1,8 +1,11 @@
 import Stripe from "stripe";
 import prisma from "@/lib/db";
+import { INTRO_PENCE, STANDARD_PENCE, priceLabelFor, tenantOnIntro } from "@/lib/pricing";
 
 /**
- * Wyndos subscriptions: £9.99 a month for everything, 15-day free trial with no card.
+ * Wyndos subscriptions: one monthly price for everything, 15-day free trial with no card.
+ * Price: £9.99 for life for businesses that joined during the introductory offer, then £14.99
+ * (see pricing.ts).
  *
  * The trial is kept by Wyndos (from when the business signed up), so nobody needs a card
  * to start. Subscribing during the trial uses Stripe Checkout with trial_end set to the
@@ -12,9 +15,9 @@ import prisma from "@/lib/db";
  */
 
 export const TRIAL_DAYS = 15;
-export const PRICE_PENCE = 999;
-export const PRICE_LABEL = "£9.99";
-const PRICE_LOOKUP_KEY = "wyndos_monthly_gbp";
+/** Stripe lookup keys. The £9.99 one keeps its original key so existing prices are found. */
+const INTRO_LOOKUP_KEY = "wyndos_monthly_gbp";
+const STANDARD_LOOKUP_KEY = "wyndos_monthly_gbp_1499";
 /** Software as a service, business use. Override with STRIPE_TAX_CODE if needed. */
 const TAX_CODE = process.env.STRIPE_TAX_CODE?.trim() || "txcd_10103001";
 
@@ -51,6 +54,8 @@ export type BillingState = {
   cancelAtPeriodEnd: boolean;
   /** Has paid before (so "subscription ended" rather than "trial ended"). */
   hadSubscription: boolean;
+  /** What this business pays a month, e.g. "£9.99". */
+  priceLabel: string;
 };
 
 const PAID = new Set(["active", "trialing"]);
@@ -68,6 +73,7 @@ export function billingStateOf(t: TenantBilling, now = new Date()): BillingState
     currentPeriodEnd: t.currentPeriodEnd?.toISOString() ?? null,
     cancelAtPeriodEnd: t.cancelAtPeriodEnd,
     hadSubscription: Boolean(t.subscriptionStatus),
+    priceLabel: priceLabelFor(t.createdAt),
   };
   if (t.billingExempt) return { ...base, access: true, kind: "free" };
   if (PAID.has(t.subscriptionStatus)) return { ...base, access: true, kind: "subscribed" };
@@ -85,12 +91,18 @@ export async function billingStateForTenant(tenantId: number) {
   return t ? billingStateOf(t) : null;
 }
 
-/** The £9.99/month price, found by lookup key (made the first time if it doesn't exist). */
-export async function monthlyPriceId() {
-  const fixed = process.env.STRIPE_PRICE_ID?.trim();
+/**
+ * The monthly price for this business: £9.99 if it joined during the introductory offer, else £14.99.
+ * Set STRIPE_PRICE_ID (£9.99) / STRIPE_PRICE_ID_STANDARD (£14.99) to pin them, otherwise they're
+ * found by lookup key (and made the first time).
+ */
+export async function monthlyPriceId(tenantCreatedAt: Date) {
+  const intro = tenantOnIntro(tenantCreatedAt);
+  const fixed = (intro ? process.env.STRIPE_PRICE_ID : process.env.STRIPE_PRICE_ID_STANDARD)?.trim();
   if (fixed) return fixed;
+  const lookupKey = intro ? INTRO_LOOKUP_KEY : STANDARD_LOOKUP_KEY;
   const s = stripe();
-  const found = await s.prices.list({ lookup_keys: [PRICE_LOOKUP_KEY], active: true, limit: 1, expand: ["data.product"] });
+  const found = await s.prices.list({ lookup_keys: [lookupKey], active: true, limit: 1, expand: ["data.product"] });
   if (found.data[0]) {
     // Stripe needs a tax code on the product (e.g. for Managed Payments). Add it to older products.
     const product = found.data[0].product;
@@ -99,7 +111,10 @@ export async function monthlyPriceId() {
     }
     return found.data[0].id;
   }
-  const product = await s.products.create({
+  // Both prices hang off one "Wyndos" product.
+  const other = await s.prices.list({ lookup_keys: [intro ? STANDARD_LOOKUP_KEY : INTRO_LOOKUP_KEY], active: true, limit: 1 });
+  const existingProduct = other.data[0] ? (typeof other.data[0].product === "string" ? other.data[0].product : other.data[0].product.id) : null;
+  const product = existingProduct ? { id: existingProduct } : await s.products.create({
     name: "Wyndos",
     description: "Round planner for window cleaners: scheduling, customers, payments, texts and accounts.",
     tax_code: TAX_CODE,
@@ -107,10 +122,10 @@ export async function monthlyPriceId() {
   const price = await s.prices.create({
     product: product.id,
     currency: "gbp",
-    unit_amount: PRICE_PENCE,
+    unit_amount: intro ? INTRO_PENCE : STANDARD_PENCE,
     recurring: { interval: "month" },
-    lookup_key: PRICE_LOOKUP_KEY,
-    nickname: "Wyndos monthly",
+    lookup_key: lookupKey,
+    nickname: intro ? "Wyndos monthly (introductory, for life)" : "Wyndos monthly",
   });
   return price.id;
 }
@@ -118,7 +133,19 @@ export async function monthlyPriceId() {
 /** The business's Stripe customer, made on first use. */
 export async function ensureStripeCustomer(tenantId: number, email: string) {
   const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { name: true, stripeCustomerId: true } });
-  if (tenant.stripeCustomerId) return tenant.stripeCustomerId;
+  if (tenant.stripeCustomerId) {
+    // A customer saved in test mode doesn't exist in live mode (and vice versa): start fresh then.
+    try {
+      const existing = await stripe().customers.retrieve(tenant.stripeCustomerId);
+      if (!("deleted" in existing && existing.deleted)) return tenant.stripeCustomerId;
+    } catch (e) {
+      if (!(e && typeof e === "object" && "code" in e && (e as { code?: string }).code === "resource_missing")) throw e;
+    }
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { stripeCustomerId: null, stripeSubscriptionId: null, subscriptionStatus: "", currentPeriodEnd: null, cancelAtPeriodEnd: false },
+    });
+  }
   const customer = await stripe().customers.create({
     email: email || undefined,
     name: tenant.name,

@@ -6,7 +6,7 @@ import { ensureStripeCustomer, monthlyPriceId, stripe, stripeConfigured, trialEn
 
 export const runtime = "nodejs";
 
-/** Start Stripe Checkout for the £9.99/month subscription (owner only). */
+/** Start Stripe Checkout for the monthly subscription (owner only): £9.99 or £14.99, see pricing.ts. */
 export async function POST() {
   let actor;
   try {
@@ -25,7 +25,7 @@ export async function POST() {
       return NextResponse.json({ error: "You're already subscribed. Use Manage billing to change it." }, { status: 400 });
     }
     const customer = await ensureStripeCustomer(actor.tenantId, user?.email ?? "");
-    const price = await monthlyPriceId();
+    const price = await monthlyPriceId(tenant.createdAt);
     // Still in the free trial: first payment when the trial ends (Stripe needs 2+ days' notice).
     const trialEnd = trialEndOf(tenant);
     const keepTrial = trialEnd.getTime() - Date.now() > 2 * 86_400_000 + 60_000;
