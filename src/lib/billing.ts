@@ -109,7 +109,27 @@ export async function monthlyPriceId(tenantCreatedAt: Date) {
     if (product && typeof product === "object" && !("deleted" in product && product.deleted) && !(product as Stripe.Product).tax_code) {
       await s.products.update((product as Stripe.Product).id, { tax_code: TAX_CODE });
     }
-    return found.data[0].id;
+    // The price must include any tax Stripe adds, so customers always pay a flat £9.99 / £14.99.
+    const current = found.data[0];
+    if (current.tax_behavior === "inclusive") return current.id;
+    if (current.tax_behavior === "unspecified" || !current.tax_behavior) {
+      await s.prices.update(current.id, { tax_behavior: "inclusive" });
+      return current.id;
+    }
+    // Was set to "exclusive" (VAT on top): that can't be changed, so make an inclusive one and move the key to it.
+    const productId = typeof current.product === "string" ? current.product : current.product.id;
+    const replacement = await s.prices.create({
+      product: productId,
+      currency: "gbp",
+      unit_amount: intro ? INTRO_PENCE : STANDARD_PENCE,
+      recurring: { interval: "month" },
+      tax_behavior: "inclusive",
+      lookup_key: lookupKey,
+      transfer_lookup_key: true,
+      nickname: current.nickname ?? undefined,
+    });
+    await s.prices.update(current.id, { active: false });
+    return replacement.id;
   }
   // Both prices hang off one "Wyndos" product.
   const other = await s.prices.list({ lookup_keys: [intro ? STANDARD_LOOKUP_KEY : INTRO_LOOKUP_KEY], active: true, limit: 1 });
@@ -124,6 +144,7 @@ export async function monthlyPriceId(tenantCreatedAt: Date) {
     currency: "gbp",
     unit_amount: intro ? INTRO_PENCE : STANDARD_PENCE,
     recurring: { interval: "month" },
+    tax_behavior: "inclusive", // any tax comes out of the price, never on top
     lookup_key: lookupKey,
     nickname: intro ? "Wyndos monthly (introductory, for life)" : "Wyndos monthly",
   });
