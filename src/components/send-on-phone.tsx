@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { encodeIdRanges } from "@/lib/id-ranges";
 import QRCode from "qrcode";
 import { Copy, Smartphone } from "lucide-react";
 
-/** Link a phone opens to send these texts (no ids = everything waiting). */
+/**
+ * Link a phone opens to send these texts (no ids = everything waiting).
+ * Kept short so the QR code stays simple: ids go as base-36 ranges ("r=2s-3d.40").
+ */
 export function sendLink(ids?: number[]) {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  return ids && ids.length > 0 ? `${origin}/send?ids=${ids.join(",")}` : `${origin}/send`;
+  return ids && ids.length > 0 ? `${origin}/send?r=${encodeIdRanges(ids)}` : `${origin}/send`;
 }
 
 /**
@@ -17,11 +21,13 @@ export function sendLink(ids?: number[]) {
 export function SendOnPhone({ ids, compact = false }: { ids?: number[]; compact?: boolean }) {
   const [qr, setQr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [big, setBig] = useState(false);
   const link = sendLink(ids);
 
   useEffect(() => {
     let cancelled = false;
-    QRCode.toDataURL(link, { margin: 1, width: 220 })
+    // Low error correction = fewer, bigger squares. Drawn at 600px and shown smaller, so it stays sharp.
+    QRCode.toDataURL(link, { errorCorrectionLevel: "L", margin: 2, width: 600, color: { dark: "#000000", light: "#ffffff" } })
       .then((url) => !cancelled && setQr(url))
       .catch(() => {});
     return () => { cancelled = true; };
@@ -34,10 +40,20 @@ export function SendOnPhone({ ids, compact = false }: { ids?: number[]; compact?
       </p>
       <div className={compact ? "mt-2 flex items-start gap-3" : "mt-2 flex flex-col items-center gap-3 sm:flex-row sm:items-start"}>
         {qr ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={qr} alt="Code to open these texts on your phone" width={compact ? 110 : 150} height={compact ? 110 : 150} className="flex-shrink-0 rounded-lg bg-white p-1" />
+          <button type="button" onClick={() => setBig(true)} title="Tap to make it bigger" className="flex-shrink-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qr} alt="Code to open these texts on your phone" width={compact ? 170 : 210} height={compact ? 170 : 210} className="rounded-lg bg-white [image-rendering:pixelated]" />
+            <span className="mt-1 block text-center text-[11px] font-semibold text-blue-700">Tap to make bigger</span>
+          </button>
         ) : (
-          <div className="h-[110px] w-[110px] flex-shrink-0 rounded-lg bg-white" />
+          <div className={compact ? "h-[170px] w-[170px] flex-shrink-0 rounded-lg bg-white" : "h-[210px] w-[210px] flex-shrink-0 rounded-lg bg-white"} />
+        )}
+        {big && qr && (
+          <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-white p-6" onClick={() => setBig(false)}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qr} alt="Code to open these texts on your phone" className="aspect-square w-full max-w-[min(80vh,520px)] [image-rendering:pixelated]" />
+            <p className="text-sm text-slate-600">Point your phone camera at this. Tap anywhere to close.</p>
+          </div>
         )}
         <ol className="list-decimal space-y-1 pl-4 text-xs leading-snug">
           <li>Open the camera on your phone and point it at the code.</li>

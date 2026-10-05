@@ -3,16 +3,18 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarPlus, ChevronDown, ChevronUp, Monitor } from "lucide-react";
+import { CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Monitor } from "lucide-react";
 import { assignWorkDayWorker, moveJobsToDate, rescheduleWorkDay, scheduleAreaRun } from "@/lib/actions";
-import { getMobileSchedule, type MobileArea, type MobileDay } from "@/lib/mobile-schedule";
+import { getMobileMonth, getMobileSchedule, type MobileArea, type MobileDay } from "@/lib/mobile-schedule";
 import { cn, fmtCurrency } from "@/lib/utils";
 
 type Data = Awaited<ReturnType<typeof getMobileSchedule>>;
+type MonthData = Awaited<ReturnType<typeof getMobileMonth>>;
 type TeamMember = { id: string; name: string; isMe?: boolean };
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 /** "Sat 3 Oct". Built by hand so server and phone show exactly the same text. */
 const dayLabel = (iso: string) => {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -40,10 +42,19 @@ function groupLabel(day: MobileDay, today: string) {
   return `Week of ${dayLabel(w)}`;
 }
 
-export function MobileScheduler({ initial, team }: { initial: Data; team: TeamMember[] | null }) {
+const shiftMonth = (month: string, n: number) => {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + n, 1));
+  return d.toISOString().slice(0, 7);
+};
+
+export function MobileScheduler({ initial, initialMonth, team }: { initial: Data; initialMonth: MonthData; team: TeamMember[] | null }) {
   const router = useRouter();
   const [data, setData] = useState(initial);
-  const [tab, setTab] = useState<"runs" | "book">("runs");
+  const [month, setMonth] = useState(initial.today.slice(0, 7));
+  const [monthData, setMonthData] = useState(initialMonth);
+  const [picked, setPicked] = useState(initial.today);
+  const [tab, setTab] = useState<"calendar" | "runs" | "book">("calendar");
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
@@ -64,7 +75,9 @@ export function MobileScheduler({ initial, team }: { initial: Data; team: TeamMe
     start(async () => {
       try {
         await fn();
-        setData(await getMobileSchedule());
+        const [fresh, freshMonth] = await Promise.all([getMobileSchedule(), getMobileMonth(month)]);
+        setData(fresh);
+        setMonthData(freshMonth);
         setOpen(null);
         router.refresh();
       } catch (issue) {
@@ -85,16 +98,55 @@ export function MobileScheduler({ initial, team }: { initial: Data; team: TeamMe
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 text-sm font-semibold">
+      <div className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1 text-sm font-semibold">
+        <button type="button" onClick={() => setTab("calendar")} className={cn("rounded-lg py-2", tab === "calendar" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500")}>
+          Calendar
+        </button>
         <button type="button" onClick={() => setTab("runs")} className={cn("rounded-lg py-2", tab === "runs" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500")}>
-          Booked runs
+          List
         </button>
         <button type="button" onClick={() => setTab("book")} className={cn("rounded-lg py-2", tab === "book" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500")}>
-          Needs booking{data.unbooked.length ? ` (${data.unbooked.length})` : ""}
+          To book{data.unbooked.length ? ` (${data.unbooked.length})` : ""}
         </button>
       </div>
 
       {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+
+      {tab === "calendar" && (
+        <MonthCalendar
+          month={month}
+          today={data.today}
+          picked={picked}
+          data={monthData}
+          pending={pending}
+          onMonth={(n) => {
+            const next = shiftMonth(month, n);
+            setMonth(next);
+            setError("");
+            start(async () => {
+              try { setMonthData(await getMobileMonth(next)); } catch { setError("Couldn't load that month."); }
+            });
+          }}
+          onPick={(d) => { setPicked(d); setOpen(null); }}
+        >
+          {monthData.days.filter((d) => d.date === picked).map((d) => (
+            <DayCard
+              key={d.id}
+              day={d}
+              today={data.today}
+              open={open === `c${d.id}`}
+              onToggle={() => setOpen(open === `c${d.id}` ? null : `c${d.id}`)}
+              team={data.canAssign ? team : null}
+              pending={pending}
+              onMove={(date) => run(() => (d.done > 0 ? moveJobsToDate(d.leftIds, date) : rescheduleWorkDay(d.id, date, "one-off")))}
+              onAssign={(worker) => run(() => assignWorkDayWorker(d.id, worker))}
+            />
+          ))}
+          {picked >= data.today && data.unbooked.length > 0 && (
+            <BookOnDay areas={data.unbooked} date={picked} pending={pending} onBook={(areaId) => run(() => scheduleAreaRun(areaId, picked))} />
+          )}
+        </MonthCalendar>
+      )}
 
       {tab === "runs" && (
         groups.length === 0 ? (
@@ -257,6 +309,105 @@ function AreaCard({ area, today, open, onToggle, team, pending, onBook }: {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Month grid: coloured bars for each run, tap a day to see and change it. */
+function MonthCalendar({ month, today, picked, data, pending, onMonth, onPick, children }: {
+  month: string;
+  today: string;
+  picked: string;
+  data: MonthData;
+  pending: boolean;
+  onMonth: (n: number) => void;
+  onPick: (iso: string) => void;
+  children: React.ReactNode;
+}) {
+  const first = `${month}-01`;
+  const start = weekStart(first);
+  const cells = Array.from({ length: 42 }, (_, i) => addDays(start, i));
+  // Drop a last row that's all next month.
+  const shown = cells[35].slice(0, 7) !== month ? cells.slice(0, 35) : cells;
+  const byDate = new Map<string, MobileDay[]>();
+  for (const d of data.days) byDate.set(d.date, [...(byDate.get(d.date) ?? []), d]);
+  const holidayOn = (iso: string) => data.holidays.find((h) => h.start <= iso && iso <= h.end);
+  const [y, m] = month.split("-").map(Number);
+  const pickedDays = byDate.get(picked) ?? [];
+  const pickedHoliday = holidayOn(picked);
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+        <div className="mb-2 flex items-center justify-between px-1">
+          <button type="button" onClick={() => onMonth(-1)} aria-label="Previous month" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><ChevronLeft size={18} /></button>
+          <p className="text-sm font-bold text-slate-800">{MONTH_NAMES[m - 1]} {y}{pending ? " …" : ""}</p>
+          <button type="button" onClick={() => onMonth(1)} aria-label="Next month" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><ChevronRight size={18} /></button>
+        </div>
+        <div className="grid grid-cols-7 text-center text-[10px] font-semibold uppercase text-slate-400">
+          {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <span key={i} className="py-1">{d}</span>)}
+        </div>
+        <div className="grid grid-cols-7 gap-0.5">
+          {shown.map((iso) => {
+            const runs = byDate.get(iso) ?? [];
+            const inMonth = iso.slice(0, 7) === month;
+            const hol = holidayOn(iso);
+            const late = iso < today && runs.some((r) => r.status !== "COMPLETE");
+            return (
+              <button
+                key={iso}
+                type="button"
+                onClick={() => onPick(iso)}
+                className={cn(
+                  "flex min-h-[3.25rem] min-w-0 flex-col items-stretch rounded-lg p-1 text-left",
+                  hol ? "bg-amber-50" : "",
+                  iso === picked ? "ring-2 ring-blue-500" : "",
+                  !inMonth && "opacity-40",
+                )}
+              >
+                <span className={cn(
+                  "mx-auto flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold",
+                  iso === today ? "bg-blue-600 text-white" : late ? "text-red-600" : iso < today ? "text-slate-400" : "text-slate-700",
+                )}>
+                  {Number(iso.slice(8))}
+                </span>
+                <span className="mt-0.5 space-y-0.5">
+                  {runs.slice(0, 3).map((r) => (
+                    <span key={r.id} className={cn("block h-1.5 rounded-full", r.status === "COMPLETE" && "opacity-40")} style={{ background: r.color }} />
+                  ))}
+                  {runs.length > 3 && <span className="block text-center text-[9px] leading-none text-slate-500">+{runs.length - 3}</span>}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          {picked === today ? "Today" : dayLabel(picked)}
+          {pickedHoliday ? ` · ${pickedHoliday.label || "Holiday"}` : ""}
+        </h2>
+        {pickedDays.length === 0 && <p className="rounded-xl border border-dashed border-slate-200 p-3 text-sm text-slate-400">Nothing booked.</p>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** Put an area that has nothing booked onto the picked day. */
+function BookOnDay({ areas, date, pending, onBook }: { areas: MobileArea[]; date: string; pending: boolean; onBook: (areaId: number) => void }) {
+  const [areaId, setAreaId] = useState("");
+  return (
+    <div className="flex gap-2 rounded-xl border border-slate-200 bg-white p-2">
+      <select value={areaId} onChange={(e) => setAreaId(e.target.value)} className={inputClass} aria-label={`Book an area on ${dayLabel(date)}`}>
+        <option value="">Book an area on this day…</option>
+        {areas.map((a) => <option key={a.id} value={a.id}>{a.name}{a.nextDue ? ` (due ${dayLabel(a.nextDue)})` : ""}</option>)}
+      </select>
+      <button type="button" disabled={pending || !areaId} onClick={() => { onBook(Number(areaId)); setAreaId(""); }}
+        className="flex-shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+        Book
+      </button>
     </div>
   );
 }
