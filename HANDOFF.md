@@ -20,7 +20,8 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Auth/app: `AUTH_SECRET`, `NEXTAUTH_URL` / `APP_URL`, `DATABASE_URL`, `CRON_SECRET`, `SUPER_ADMIN_EMAIL`.
 - Email (Brevo SMTP): `PLATFORM_SMTP_HOST/PORT/USER/PASS/FROM_NAME/FROM_EMAIL`.
 - Support: `SUPPORT_EMAIL` (support@wyndos.io), `SUPPORT_COPY_EMAIL` or `SUPPORT_BCC_EMAIL` (Tom's BCC copy).
-- Stripe: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, optional `STRIPE_PRICE_ID`, `STRIPE_TAX_CODE`.
+- Stripe: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, optional `STRIPE_PRICE_ID` (£9.99 intro), `STRIPE_PRICE_ID_STANDARD` (£14.99), `STRIPE_TAX_CODE`.
+- Price: `INTRO_OFFER_ENDS=YYYY-MM-DD` closes the £9.99-for-life offer (unset = open). Businesses created on or before it pay £9.99 for life, later ones £14.99. See `src/lib/pricing.ts`.
 - AI (optional): `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`.
 - Texts: `MESSAGING_LIVE` (server-sent SMS is switched off, see Feature flags).
 - Legal pages (build-time, so redeploy after changing): `NEXT_PUBLIC_LEGAL_NAME`, `NEXT_PUBLIC_LEGAL_ADDRESS`, `NEXT_PUBLIC_ICO_NUMBER`, `NEXT_PUBLIC_HOSTING_LOCATION`.

@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { introOfferOpen, INTRO_LABEL, STANDARD_LABEL } from "@/lib/pricing";
 import { SignUpForm } from "./sign-up-form";
 
 export const dynamic = "force-dynamic";
 
 export default function SignUpPage() {
+  const intro = introOfferOpen();
   // Google sign-in is switched off for now (email and password only).
   const googleEnabled = false;
 
@@ -32,7 +34,7 @@ export default function SignUpPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 text-blue-400">✓</span>
-                  Then £9.99/month for everything, cancel any time
+                  Then {intro ? `${INTRO_LABEL}/month for life (early joiner price)` : `${STANDARD_LABEL}/month`} for everything, cancel any time
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 text-blue-400">✓</span>

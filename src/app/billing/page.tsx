@@ -1,6 +1,6 @@
 import prisma from "@/lib/db";
 import { requireMember } from "@/lib/guards";
-import { billingStateForTenant, stripe, stripeConfigured, syncCustomer, PRICE_LABEL, TRIAL_DAYS } from "@/lib/billing";
+import { billingStateForTenant, stripe, stripeConfigured, syncCustomer, TRIAL_DAYS } from "@/lib/billing";
 import { BillingClient } from "./billing-client";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
       state={state}
       isOwner={actor.role === "OWNER"}
       justSubscribed={Boolean(session_id)}
-      price={PRICE_LABEL}
+      price={state?.priceLabel ?? "£14.99"}
       trialDays={TRIAL_DAYS}
       ready={stripeConfigured()}
     />

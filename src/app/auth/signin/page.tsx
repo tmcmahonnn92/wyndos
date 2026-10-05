@@ -5,12 +5,13 @@ import {
 } from "lucide-react";
 import { WyndosLogo } from "@/components/nav";
 import { SignInForm } from "./sign-in-form";
+import { introOfferOpen, INTRO_LABEL, STANDARD_LABEL } from "@/lib/pricing";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Wyndos | Round management for window cleaners",
-  description: "Plan by area, work from your phone and keep track of who's paid. Designed by window cleaners. £9.99 a month, 15-day free trial, no card needed.",
+  description: "Plan by area, work from your phone and keep track of who's paid. Designed by window cleaners. 15-day free trial, no card needed.",
 };
 
 // The four things that make Wyndos different.
@@ -77,6 +78,8 @@ const FAQ = [
 ];
 
 export default function SignInPage() {
+  const intro = introOfferOpen();
+  const price = intro ? INTRO_LABEL : STANDARD_LABEL;
   // Google sign-in is switched off for now (email and password only).
   const googleEnabled = false;
 
@@ -113,7 +116,7 @@ export default function SignInPage() {
               <Link href="/auth/signup" className="rounded-xl bg-blue-600 px-6 py-3.5 text-sm font-semibold text-white hover:bg-blue-500">
                 Start a 15-day free trial
               </Link>
-              <span className="text-sm text-slate-400">No card needed. £9.99 a month after.</span>
+              <span className="text-sm text-slate-400">No card needed. {price} a month after{intro ? ", locked in for life" : ""}.</span>
             </div>
             <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300">
               {["Set up in an evening", "Works on any phone", "Unlimited customers and staff", "Support from real people"].map((t) => (
@@ -244,7 +247,8 @@ export default function SignInPage() {
         <div className="mx-auto max-w-6xl px-4">
           <div className="mx-auto max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-8 text-center">
             <h2 className="text-lg font-semibold text-slate-300">One price, everything included</h2>
-            <p className="mt-3 text-5xl font-bold text-white">£9.99<span className="text-lg font-medium text-slate-400"> / month</span></p>
+            <p className="mt-3 text-5xl font-bold text-white">{price}<span className="text-lg font-medium text-slate-400"> / month</span></p>
+            {intro && <p className="mt-2 text-sm font-semibold text-emerald-400">Early joiner price, yours for life. It goes up to {STANDARD_LABEL} for new sign-ups later.</p>}
             <p className="mt-2 text-sm text-slate-400">No add-ons, no per-user charges, no contract.</p>
             <ul className="mt-6 space-y-2 text-left text-sm text-slate-300">
               {[
