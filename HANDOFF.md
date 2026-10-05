@@ -131,3 +131,9 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Needs booking: areas with customers and no open run; pick date (and worker) → `scheduleAreaRun`.
 - Calendar tab (default): month grid with a coloured bar per run (faded = done, red date = unfinished, amber = holiday). Tap a day to see its runs (same move/worker/open controls) and book an unbooked area onto it. `getMobileMonth("YYYY-MM")` loads 6 weeks.
 - Data: `getMobileSchedule()` in `src/lib/mobile-schedule.ts`. Scheduler now shows in the phone "More" menu.
+
+## Getting started guide
+- `/guide` (open to everyone, like /terms): `src/app/guide/page.tsx`, linked from Help & support, the desktop sidebar and the phone + menu.
+- Screenshots in `public/screens/guide/*.webp`, from a made-up business. To refresh after UI changes:
+  `DATABASE_URL=… npx tsx scripts/seed-guide-demo.ts` → run the app → `node scripts/guide-screenshots.mjs` → `python3 scripts/guide-compress.py`.
+  Demo logins: sam@example.com / jamie@example.com, password GuideDemo123! (local/staging only, never production).

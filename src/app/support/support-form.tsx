@@ -82,6 +82,10 @@ export function SupportForm({ from }: { from: string }) {
       <div>
         <h1 className="flex items-center gap-2 text-xl font-bold text-slate-800 dark:text-slate-100"><LifeBuoy size={20} className="text-blue-600" /> Help &amp; support</h1>
         <p className="mt-1 text-sm text-slate-500">Tell us what&apos;s up and we&apos;ll reply by email.</p>
+        <a href="/guide" className="mt-3 flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:bg-blue-100">
+          <span><b>New to Wyndos?</b> The getting started guide walks through setup step by step.</span>
+          <span className="font-semibold">Open →</span>
+        </a>
       </div>
 
       {sentTo ? (

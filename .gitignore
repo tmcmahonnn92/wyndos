@@ -78,3 +78,6 @@ key.pub
 .tmp-*
 .~lock.*
 *.bundle
+
+# Local test scripts and screenshots
+.tmp-test/

@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
-const LEGAL_EXEMPT = ["/auth", "/terms", "/privacy", "/cookies", "/support"];
+const LEGAL_EXEMPT = ["/auth", "/terms", "/privacy", "/cookies", "/support", "/guide"];
 const LOCKED_WHEN_ENDED = ["/scheduler", "/days"];
 const under = (path: string, roots: string[]) => roots.some((p) => path === p || path.startsWith(`${p}/`));
 

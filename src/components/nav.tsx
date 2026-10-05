@@ -28,6 +28,7 @@ import {
   X,
   MessageSquare,
   Download,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { OneOffJobModal } from "@/app/days/one-off-job-modal";
@@ -230,7 +231,7 @@ export function Nav({
   return (
     <>
       {/* ── Desktop sidebar ─────────────────────────────────── */}
-      <aside className="print:hidden hidden md:flex flex-col w-56 min-h-screen bg-[#0A0E1A] fixed left-0 top-0 z-40">
+      <aside className="print:hidden hidden md:flex flex-col w-56 h-screen overflow-y-auto bg-[#0A0E1A] fixed left-0 top-0 z-40">
         <div className="px-4 py-6 border-b border-[#1E2840] flex justify-center">
           <WyndosLogo variant="stacked" pinHeight={56} />
         </div>
@@ -295,6 +296,9 @@ export function Nav({
           </div>
           <Link href={`/support?from=${encodeURIComponent(pathname)}`} className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium", pathname.startsWith("/support") ? "bg-[#131929] text-white" : "text-[#94a3b8] hover:bg-[#131929] hover:text-white")}>
             <LifeBuoy size={15} /> Help &amp; support
+          </Link>
+          <Link href="/guide" className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium", pathname.startsWith("/guide") ? "bg-[#131929] text-white" : "text-[#94a3b8] hover:bg-[#131929] hover:text-white")}>
+            <BookOpen size={15} /> Getting started
           </Link>
           {showInstall && (
             <button type="button" onClick={installApp} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[#94a3b8] hover:bg-[#131929] hover:text-white">
@@ -415,6 +419,9 @@ export function Nav({
               )}
               <Link href={`/support?from=${encodeURIComponent(pathname)}`} onClick={() => setMobileMenuOpen(false)} className={menuRow}>
                 <LifeBuoy size={16} /><span className="truncate">Help</span>
+              </Link>
+              <Link href="/guide" onClick={() => setMobileMenuOpen(false)} className={menuRow}>
+                <BookOpen size={16} /><span className="truncate">Guide</span>
               </Link>
               <ThemeToggle row className={menuRow} />
               <button type="button" onClick={handleSignOut} className={menuRow}>
