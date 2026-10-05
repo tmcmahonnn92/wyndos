@@ -27,9 +27,12 @@ import {
   Plus,
   X,
   MessageSquare,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { OneOffJobModal } from "@/app/days/one-off-job-modal";
+import { useInstallApp } from "@/lib/install-app";
+import { InstallSteps } from "@/components/pwa-install-prompt";
 
 const navItems = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard, desktopOnly: false, permission: "dashboard"  },
@@ -174,6 +177,13 @@ export function Nav({
   const isWorker = currentRole === "WORKER";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quickModal, setQuickModal] = useState<"search" | "quote" | null>(null);
+  const app = useInstallApp();
+  const [installSteps, setInstallSteps] = useState(false);
+  const installApp = async () => {
+    setMobileMenuOpen(false);
+    if (!(await app.install())) setInstallSteps(true);
+  };
+  const showInstall = app.ready && !app.installed;
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -286,6 +296,11 @@ export function Nav({
           <Link href={`/support?from=${encodeURIComponent(pathname)}`} className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium", pathname.startsWith("/support") ? "bg-[#131929] text-white" : "text-[#94a3b8] hover:bg-[#131929] hover:text-white")}>
             <LifeBuoy size={15} /> Help &amp; support
           </Link>
+          {showInstall && (
+            <button type="button" onClick={installApp} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[#94a3b8] hover:bg-[#131929] hover:text-white">
+              <Download size={15} /> Install app
+            </button>
+          )}
           <div className="flex items-center justify-between">
             <ThemeToggle />
             <button
@@ -393,6 +408,11 @@ export function Nav({
                   <Settings size={16} /><span className="truncate">Finish setup</span>
                 </Link>
               )}
+              {showInstall && (
+                <button type="button" onClick={installApp} className={menuRow}>
+                  <Download size={16} /><span className="truncate">Install app</span>
+                </button>
+              )}
               <Link href={`/support?from=${encodeURIComponent(pathname)}`} onClick={() => setMobileMenuOpen(false)} className={menuRow}>
                 <LifeBuoy size={16} /><span className="truncate">Help</span>
               </Link>
@@ -450,6 +470,7 @@ export function Nav({
       {quickModal && (
         <OneOffJobModal key={quickModal} open initialMode={quickModal} onClose={() => setQuickModal(null)} />
       )}
+      {installSteps && <InstallSteps ios={app.ios} onClose={() => setInstallSteps(false)} />}
     </>
   );
 }
