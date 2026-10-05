@@ -133,7 +133,19 @@ export async function monthlyPriceId(tenantCreatedAt: Date) {
 /** The business's Stripe customer, made on first use. */
 export async function ensureStripeCustomer(tenantId: number, email: string) {
   const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { name: true, stripeCustomerId: true } });
-  if (tenant.stripeCustomerId) return tenant.stripeCustomerId;
+  if (tenant.stripeCustomerId) {
+    // A customer saved in test mode doesn't exist in live mode (and vice versa): start fresh then.
+    try {
+      const existing = await stripe().customers.retrieve(tenant.stripeCustomerId);
+      if (!("deleted" in existing && existing.deleted)) return tenant.stripeCustomerId;
+    } catch (e) {
+      if (!(e && typeof e === "object" && "code" in e && (e as { code?: string }).code === "resource_missing")) throw e;
+    }
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { stripeCustomerId: null, stripeSubscriptionId: null, subscriptionStatus: "", currentPeriodEnd: null, cancelAtPeriodEnd: false },
+    });
+  }
   const customer = await stripe().customers.create({
     email: email || undefined,
     name: tenant.name,
