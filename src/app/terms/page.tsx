@@ -25,7 +25,7 @@ export default function TermsPage() {
       <ul>
         <li>New accounts get a free trial (15 days unless we tell you otherwise). No card is needed for the trial.</li>
         <li>After the trial Wyndos costs the monthly price shown on your Billing page, billed monthly in advance by our payment provider, Stripe. Your team&apos;s logins are included.</li>
-        <li>Businesses that signed up during our introductory offer pay £9.99 a month for life: that price won&apos;t go up for them. New sign-ups after the offer pay £14.99 a month.</li>
+        <li>Businesses that signed up during our introductory offer keep the £9.99 a month price for as long as they use Wyndos: it won&apos;t go up for them. They can still cancel at any time. New sign-ups after the offer pay £14.99 a month.</li>
         <li>You can cancel at any time from the Billing page. You keep access until the end of the month you have paid for. We don&apos;t refund part months.</li>
         <li>If a payment fails or you cancel, planning and day sheets are locked, but you can still see, export and back up your data.</li>
         <li>We will give you at least 30 days&apos; notice by email of any price change.</li>
