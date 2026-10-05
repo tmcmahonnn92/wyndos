@@ -574,16 +574,16 @@ export function AccountingClient({
   );
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5 px-4 py-5 pb-28 xl:pb-5">
+    <div className="mx-auto max-w-6xl min-w-0 space-y-5 overflow-x-hidden px-4 py-5 pb-28 xl:pb-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-800">Accounting</h1>
           <p className="mt-1 text-sm text-slate-500">Track profit by UK tax year and use quick add for recurring expenses or other income.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex min-w-0 flex-wrap gap-2">
           <select value={selectedTaxYearStart} onChange={(event) => updateTaxYear(Number(event.target.value))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">{availableTaxYears.map((option) => <option key={option.value} value={option.value}>Tax year {option.label}</option>)}</select>
-          <input type="date" value={dateRange.start} onChange={(event) => setDateRange((prev) => ({ ...prev, start: event.target.value }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" />
-          <input type="date" value={dateRange.end} onChange={(event) => setDateRange((prev) => ({ ...prev, end: event.target.value }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" />
+          <input type="date" value={dateRange.start} onChange={(event) => setDateRange((prev) => ({ ...prev, start: event.target.value }))} className="min-w-0 flex-1 basis-[9rem] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 sm:flex-none" />
+          <input type="date" value={dateRange.end} onChange={(event) => setDateRange((prev) => ({ ...prev, end: event.target.value }))} className="min-w-0 flex-1 basis-[9rem] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 sm:flex-none" />
           <button type="button" onClick={applyDateRange} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Apply range</button>
           <button type="button" onClick={clearDateRange} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Reset range</button>
           <button type="button" onClick={exportMonthlySummary} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><Download size={14} />Export summary CSV</button>

@@ -34,7 +34,9 @@ body {
 /* Phones: no double-tap zoom on buttons, and no sideways wobble. */
 html { touch-action: manipulation; }
 @media (max-width: 767px) {
-  body { overflow-x: clip; }
+  html, body { overflow-x: clip; max-width: 100%; }
+  /* iPhone Safari gives date boxes a wide built-in size that pushes the page sideways. */
+  input[type="date"], input[type="month"], input[type="time"] { -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; }
   /* iPhone zooms the whole page into any box with text under 16px, then it scrolls
      left and right. 16px stops that. */
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: 16px !important; }
