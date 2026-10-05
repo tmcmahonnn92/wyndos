@@ -34,7 +34,7 @@ export default function SignUpPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 text-blue-400">✓</span>
-                  Then {intro ? `${INTRO_LABEL}/month for life (early joiner price)` : `${STANDARD_LABEL}/month`} for everything, cancel any time
+                  Then {intro ? INTRO_LABEL : STANDARD_LABEL}/month for everything, cancel any time{intro ? ". Early joiner price: yours never goes up" : ""}
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 text-blue-400">✓</span>

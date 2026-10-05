@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
 import { clearOfflinePages } from "@/lib/offline-queue";
 import {
-  Bell,
+  UserCircle,
   LifeBuoy,
   LayoutDashboard,
   CalendarDays,
@@ -114,7 +114,7 @@ export function WyndosLogo({
   );
 }
 
-function ThemeToggle() {
+function ThemeToggle({ row = false, className }: { row?: boolean; className?: string }) {
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
@@ -127,6 +127,15 @@ function ThemeToggle() {
     document.documentElement.classList.toggle("dark", next);
     localStorage.setItem("wyndos-theme", next ? "dark" : "light");
   };
+
+  if (row) {
+    return (
+      <button type="button" onClick={toggle} className={className}>
+        {dark ? <Sun size={16} /> : <Moon size={16} />}
+        <span className="truncate">{dark ? "Light mode" : "Dark mode"}</span>
+      </button>
+    );
+  }
 
   return (
     <button
@@ -205,6 +214,8 @@ export function Nav({
     { mode: "search" as const, label: "One-off Job", icon: Zap, ok: can("schedule") },
     { mode: "quote" as const, label: "Book Quote", icon: ClipboardList, ok: can("schedule") },
   ].filter((action) => action.ok);
+
+  const menuRow = "flex w-full min-w-0 items-center gap-2.5 rounded-2xl border px-3 py-2.5 text-sm font-medium transition-colors border-[#1E2840] bg-[#131929] text-[#cbd5e1] hover:bg-[#16233D] hover:text-[#F8FAFF] text-left";
 
   return (
     <>
@@ -289,37 +300,22 @@ export function Nav({
       </aside>
 
       {/* ── Mobile top header ─────────────────────────────────── */}
-      <header className="print:hidden md:hidden fixed top-0 left-0 right-0 z-40 bg-[#0A0E1A] border-b border-[#1E2840] flex items-center justify-between px-4 h-14">
-        <WyndosLogo variant="horizontal" pinHeight={32} />
-        <div className="flex items-center gap-2">
-          {isSuperAdmin && tenantName && (
-            <Link href="/admin" className="text-[10px] font-semibold uppercase tracking-[0.15em] text-blue-400">
-              {tenantName}
-            </Link>
-          )}
-          {!isSuperAdmin && companyCount > 1 && (
-            <Link href="/auth/company-select" className="text-[10px] font-semibold uppercase tracking-[0.15em] text-blue-400">
-              Switch
-            </Link>
-          )}
-          {!user.onboardingComplete && !isSuperAdmin && (
-            <Link href="/auth/onboarding" className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#3D8EF5]">
-              Setup
-            </Link>
-          )}
-          {!isSuperAdmin && (
-            <Link href="/account" className="p-1.5 rounded-lg text-[#4A5568] hover:text-[#F8FAFF] hover:bg-[#131929]" aria-label="My account and notifications">
-              <Bell size={14} />
-            </Link>
-          )}
-          <Link href={`/support?from=${encodeURIComponent(pathname)}`} className="p-1.5 rounded-lg text-[#4A5568] hover:text-[#F8FAFF] hover:bg-[#131929]" aria-label="Help and support">
-            <LifeBuoy size={14} />
+      <header className="print:hidden md:hidden fixed top-0 left-0 right-0 z-40 bg-[#0A0E1A] border-b border-[#1E2840] flex items-center justify-between gap-3 px-4 h-14">
+        <div className="flex-shrink-0"><WyndosLogo variant="horizontal" pinHeight={32} /></div>
+        {/* Whose account this is, always on show. Tap for account details. */}
+        {tenantName ? (
+          <Link
+            href={isSuperAdmin ? "/admin" : "/account"}
+            className="min-w-0 max-w-max flex-1 rounded-xl border border-[#1E2840] bg-[#131929] px-3 py-1.5 text-right"
+          >
+            <span className="block truncate text-[13px] font-semibold leading-tight text-white">{tenantName}</span>
+            <span className="block truncate text-[10px] leading-tight text-[#94a3b8]">
+              {isSuperAdmin ? "Viewing as super admin" : user.name || user.email || "My account"}
+            </span>
           </Link>
-          <button onClick={handleSignOut} className="p-1.5 rounded-lg text-[#4A5568] hover:text-[#F8FAFF] hover:bg-[#131929]" aria-label="Sign out">
-            <LogOut size={14} />
-          </button>
-          <ThemeToggle />
-        </div>
+        ) : !isSuperAdmin ? (
+          <Link href="/account" className="rounded-xl border border-[#1E2840] bg-[#131929] px-3 py-1.5 text-[13px] font-semibold text-white">My account</Link>
+        ) : null}
       </header>
 
       {/* ── Mobile bottom tab bar ────────────────────────────── */}
@@ -327,7 +323,7 @@ export function Nav({
 
       <nav className="print:hidden md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0A0E1A] border-t border-[#1E2840]">
         {mobileMenuOpen && (
-          <div className="absolute bottom-20 left-4 right-4 rounded-3xl border border-[#1E2840] bg-[#0F1626] p-3 shadow-2xl">
+          <div className="absolute bottom-20 left-4 right-4 max-h-[75vh] overflow-y-auto rounded-3xl border border-[#1E2840] bg-[#0F1626] p-3 shadow-2xl">
             <div className="mb-2 flex items-center justify-between px-1">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#4A5568]">Quick Add</p>
@@ -359,13 +355,13 @@ export function Nav({
               <>
                 <div className="my-2 h-px bg-[#1E2840]" />
                 <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#4A5568]">More</p>
-                <div className="grid grid-cols-1 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {mobileMoreItems.map(({ href, label, icon: Icon }) => (
                     <Link
                       key={href}
                       href={href}
                       onClick={() => setMobileMenuOpen(false)}
-                      className="flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-medium transition-colors border-[#1E2840] bg-[#131929] text-[#cbd5e1] hover:bg-[#16233D] hover:text-[#F8FAFF]"
+                      className={menuRow}
                     >
                       <Icon size={16} />
                       <span className="truncate">{label}</span>
@@ -374,6 +370,37 @@ export function Nav({
                 </div>
               </>
             )}
+            <div className="my-2 h-px bg-[#1E2840]" />
+            <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#4A5568]">Account</p>
+            <div className="grid grid-cols-2 gap-2">
+              {!isSuperAdmin && (
+                <Link href="/account" onClick={() => setMobileMenuOpen(false)} className={menuRow}>
+                  <UserCircle size={16} /><span className="truncate">My account</span>
+                </Link>
+              )}
+              {!isSuperAdmin && showBilling && (
+                <Link href="/billing" onClick={() => setMobileMenuOpen(false)} className={menuRow}>
+                  <CreditCard size={16} /><span className="truncate">Billing</span>
+                </Link>
+              )}
+              {!isSuperAdmin && companyCount > 1 && (
+                <Link href="/auth/company-select" onClick={() => setMobileMenuOpen(false)} className={menuRow}>
+                  <ArrowLeftRight size={16} /><span className="truncate">Switch business</span>
+                </Link>
+              )}
+              {!user.onboardingComplete && !isSuperAdmin && (
+                <Link href="/auth/onboarding" onClick={() => setMobileMenuOpen(false)} className={menuRow}>
+                  <Settings size={16} /><span className="truncate">Finish setup</span>
+                </Link>
+              )}
+              <Link href={`/support?from=${encodeURIComponent(pathname)}`} onClick={() => setMobileMenuOpen(false)} className={menuRow}>
+                <LifeBuoy size={16} /><span className="truncate">Help</span>
+              </Link>
+              <ThemeToggle row className={menuRow} />
+              <button type="button" onClick={handleSignOut} className={menuRow}>
+                <LogOut size={16} /><span className="truncate">Sign out</span>
+              </button>
+            </div>
           </div>
         )}
         <div className="relative flex items-center h-16 px-1">
