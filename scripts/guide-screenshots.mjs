@@ -41,7 +41,7 @@ const oakfield = `/days/${ids.oakfield}`;
 
 // ── Desktop, owner ─────────────────────────────────────────────
 let browser = await launch();
-const desk = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-GB", timezoneId: "Europe/London" });
+const desk = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-GB", timezoneId: "UTC" });
 const d = await desk.newPage();
 await login(d, "sam@example.com");
 
@@ -91,7 +91,7 @@ await attempt("d-payments", async () => { await go(d, "/payments"); await shot(d
 await browser.close();
 
 // ── Phone, owner ───────────────────────────────────────────────
-const phoneOpts = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: "en-GB", timezoneId: "Europe/London" };
+const phoneOpts = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: "en-GB", timezoneId: "UTC" };
 browser = await launch();
 const pc = await browser.newContext(phoneOpts);
 const p = await pc.newPage();

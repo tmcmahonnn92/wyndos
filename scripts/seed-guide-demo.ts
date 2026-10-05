@@ -15,6 +15,7 @@ import { TERMS_VERSION } from "../src/lib/legal";
 const PASSWORD = "GuideDemo123!";
 const SLUG = "brightside-demo";
 
+/** Today's date as the server sees it (UTC), plus offset days. The screenshot scripts use UTC too. */
 const day = (offset: number) => {
   const n = new Date();
   return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() + offset));
@@ -184,7 +185,9 @@ async function main() {
 
   const fs = await import("node:fs");
   fs.mkdirSync(".tmp-test", { recursive: true });
-  fs.writeFileSync(".tmp-test/guide-ids.json", JSON.stringify({ oakfield: oak.id, riverside: river.id }));
+  // A customer who still owes from last month's run, for the "customer at a glance" screenshot.
+  const owing = await prisma.customer.findFirst({ where: { tenantId, areaId: areaIds["Station Road"], payments: { none: {} } }, orderBy: { sortOrder: "asc" }, select: { id: true } });
+  fs.writeFileSync(".tmp-test/guide-ids.json", JSON.stringify({ oakfield: oak.id, riverside: river.id, owingCustomer: owing?.id }));
   console.log(`Demo business ${tenantId} ready. Owner sam@example.com, worker jamie@example.com, password ${PASSWORD}`);
 }
 

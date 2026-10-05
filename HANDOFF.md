@@ -137,3 +137,4 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Screenshots in `public/screens/guide/*.webp`, from a made-up business. To refresh after UI changes:
   `DATABASE_URL=… npx tsx scripts/seed-guide-demo.ts` → run the app → `node scripts/guide-screenshots.mjs` → `python3 scripts/guide-compress.py`.
   Demo logins: sam@example.com / jamie@example.com, password GuideDemo123! (local/staging only, never production).
+- Landing page screenshots (`public/screens/*.jpg`) come from the same demo business: `node scripts/landing-screenshots.mjs` then `python3 scripts/landing-compress.py`. Run the app with TZ=UTC so server and browser agree on today.
