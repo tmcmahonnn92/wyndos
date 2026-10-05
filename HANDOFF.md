@@ -123,3 +123,9 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Check phone texting (`sms:` links, auto-advance) on a real iPhone and Android.
 - Invoice emailing and server-sent SMS are built but switched off (feature flags).
 - Possible: Capacitor/Play Store wrapper, push notifications.
+
+## Phone scheduler
+- `/scheduler` on phones (under md) shows `src/app/scheduler/mobile-scheduler.tsx` instead of "desktop only". Note at top points to a bigger screen for drag and drop.
+- Booked runs (unfinished from last 4 weeks + next 8 weeks): move date, change worker (owner), open day. A started day with jobs done moves only the jobs left (`moveJobsToDate`); otherwise `rescheduleWorkDay(..., "one-off")` like desktop.
+- Needs booking: areas with customers and no open run; pick date (and worker) → `scheduleAreaRun`.
+- Data: `getMobileSchedule()` in `src/lib/mobile-schedule.ts`. Scheduler now shows in the phone "More" menu.

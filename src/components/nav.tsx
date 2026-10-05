@@ -34,7 +34,7 @@ import { OneOffJobModal } from "@/app/days/one-off-job-modal";
 const navItems = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard, desktopOnly: false, permission: "dashboard"  },
   { href: "/days",      label: "Schedule",  icon: CalendarDays,   desktopOnly: false, permission: "schedule"   },
-  { href: "/scheduler", label: "Scheduler", icon: CalendarClock,  desktopOnly: true,  permission: "scheduler"  },
+  { href: "/scheduler", label: "Scheduler", icon: CalendarClock,  desktopOnly: false, permission: "scheduler"  },
   { href: "/customers", label: "Customers", icon: Users,          desktopOnly: false, permission: "customers"  },
   { href: "/quotes",    label: "Quotes",    icon: ClipboardList,  desktopOnly: false, permission: "customers"  },
   { href: "/areas",     label: "Areas",     icon: Layers,         desktopOnly: false, permission: "areas"      },

@@ -8,6 +8,7 @@ import { parseSpreadsheetFile, parsePrice, parseUkDate } from "@/lib/import-pars
 import { collectKnownTowns, composeAddress, splitAddress } from "@/lib/address";
 import { AreaPlanReview, emptyQuestions, inputClass, PlannerQuestions, toAnswers, type ReviewCustomer } from "@/components/area-plan";
 import { PlanButtons } from "@/app/customers/organise/organise-client";
+import { AREA_SORT_ENABLED } from "@/lib/features";
 import { cn, fmtCurrency } from "@/lib/utils";
 
 type Step = "upload" | "check" | "areas" | "review" | "done";
@@ -178,7 +179,8 @@ export function GuidedImportClient() {
     setError("");
     const areaOf = new Map<number, string>();
     const freqOfArea = new Map<string, number>();
-    if (!useSheetAreas && plan) {
+    const sheetAreas = useSheetAreas || !AREA_SORT_ENABLED;
+    if (!sheetAreas && plan) {
       for (const a of plan) {
         for (const id of a.customerIds) areaOf.set(id, a.name.trim());
         const counts = new Map<number, number>();
@@ -187,10 +189,10 @@ export function GuidedImportClient() {
       }
     }
     const records = ready.map((c, i) => {
-      let areaName = useSheetAreas ? c.area || "Imported" : areaOf.get(i) || "Imported";
+      let areaName = sheetAreas ? c.area || "Imported" : areaOf.get(i) || "Imported";
       // Everyone in an area shares its cycle: someone on a different frequency gets "<area> N weekly".
       const areaFreq = freqOfArea.get(areaName);
-      if (!useSheetAreas && areaFreq && c.frequencyWeeks && c.frequencyWeeks !== areaFreq) {
+      if (!sheetAreas && areaFreq && c.frequencyWeeks && c.frequencyWeeks !== areaFreq) {
         areaName = `${areaName} ${c.frequencyWeeks} weekly`;
         freqOfArea.set(areaName, c.frequencyWeeks);
       }
@@ -329,7 +331,12 @@ export function GuidedImportClient() {
     return (
       <div className="space-y-4">
         {errorBox}
-        {layout && layout.columns.area >= 0 && (
+        {!AREA_SORT_ENABLED && (
+          <p className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+            {layout && layout.columns.area >= 0 ? "We'll use the areas in your sheet." : "Everyone goes into one area called \"Imported\". You can move them into your own areas after."}
+          </p>
+        )}
+        {AREA_SORT_ENABLED && layout && layout.columns.area >= 0 && (
           <section className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-sm font-semibold text-slate-800">Your sheet already has areas. What would you like?</p>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -342,7 +349,7 @@ export function GuidedImportClient() {
             </div>
           </section>
         )}
-        {useSheetAreas ? (
+        {useSheetAreas || !AREA_SORT_ENABLED ? (
           <ImportBar pending={pending} count={ready.length} bookRuns={bookRuns} setBookRuns={setBookRuns} onBack={() => setStep("check")} onImport={doImport} />
         ) : (
           <>

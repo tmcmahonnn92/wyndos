@@ -16,6 +16,7 @@
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
 import { requireOwner } from "@/lib/guards";
+import { AREA_SORT_ENABLED } from "@/lib/features";
 import { addressPartsOf, collectKnownTowns } from "@/lib/address";
 import { bulkImportCustomers, bulkMoveCustomersToArea } from "@/lib/actions";
 
@@ -293,6 +294,7 @@ Call save_area_plan with your areas.`;
 
 /** Make a plan. Nothing is saved: the owner checks it first. */
 export async function planAreas(input: { scope: "unsorted" | "all"; answers: PlannerAnswers; useAi: boolean }) {
+  if (!AREA_SORT_ENABLED) throw new Error("Sorting into areas is switched off for now.");
   const actor = await requireOwner();
   const answers: PlannerAnswers = {
     workDays: (input.answers.workDays ?? []).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6),
@@ -482,6 +484,7 @@ export type PlanRow = { street: string; town: string; postcode: string; price: n
 
 /** Plan areas for rows that aren't saved yet (customer ids in the result are row numbers). */
 export async function planRows(input: { rows: PlanRow[]; answers: PlannerAnswers; useAi: boolean }) {
+  if (!AREA_SORT_ENABLED) throw new Error("Sorting into areas is switched off for now.");
   await requireOwner();
   const rows = (input.rows ?? []).slice(0, 3000);
   if (rows.length === 0) throw new Error("No customers to sort.");
