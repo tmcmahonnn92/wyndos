@@ -91,6 +91,13 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - AI sort only when `ANTHROPIC_API_KEY` is set. Model `ANTHROPIC_MODEL` (default `claude-sonnet-5-5`), optional `ANTHROPIC_BASE_URL`. Sends street/town/postcode/price/frequency/due only, numbered (no names, house numbers, contacts). Result is checked: each customer once, missing ones go in "Check these". Nothing is saved until the owner presses Save.
 - Save makes areas (or reuses same-name ones), moves customers with `bulkMoveCustomersToArea`, removes old areas left empty with nothing booked. Anthropic is listed as a sub-processor in `src/lib/legal.ts`.
 
+## Guided import (`/customers/import/guided`, owner only, needs `ANTHROPIC_API_KEY`)
+- An alternative to the normal import (linked from it). Reads the sheet in the browser; `aiReadSheet` sends only headings, the first 5 rows and the distinct values of short columns to work out columns, date order, frequency and payment wording.
+- Owner checks/changes the column mapping, fills defaults for missing price/frequency, then keeps the sheet's areas or answers the planner questions (`planRows`, quick or AI). Mixed frequencies in an area become "<area> N weekly". Import goes through `bulkImportCustomers` (`importWithPlan`).
+
+## Page gate
+- The `x-wyndos-path` header from middleware never reaches the layout, so the terms screen, trial-ended lock, trial bar and email bar are now decided in the browser by `src/components/page-gate.tsx` (usePathname). Legal pages and /support always open.
+
 ## Bank statement import (security)
 - The file never leaves the browser: CSV is read in the page, spreadsheets in a throwaway Web Worker (`src/lib/bank-import/sheet.worker.ts`, bytes transferred then the worker is ended). Only the rows the user ticks are sent (date, amount, up to 140 chars of text). Nothing goes in browser storage.
 - File input is cleared straight after reading; everything is forgotten on save, on leaving the page and on `pagehide`. `/payments/import` is `Cache-Control: no-store` and skipped by the service worker.

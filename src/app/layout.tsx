@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import "./globals.css";
 import { auth } from "@/auth";
 import { Nav } from "@/components/nav";
@@ -16,6 +16,7 @@ import { emailVerificationState } from "@/lib/auth-actions";
 import { billingStateForTenant, type BillingState } from "@/lib/billing";
 import { legalAccepted } from "@/lib/legal-state";
 import { LegalAcceptGate } from "@/components/legal-accept-gate";
+import { PageGate } from "@/components/page-gate";
 
 // Fonts are bundled in the repo (src/app/fonts) so builds never depend on reaching Google Fonts.
 const syne = localFont({
@@ -130,20 +131,17 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     }
   }
 
-  const path = (await headers()).get("x-wyndos-path") ?? "";
   // Owners who signed up with email and password confirm the address once.
-  const emailCheck = session?.user && activeRole === "OWNER" && !path.startsWith("/auth")
+  const emailCheck = session?.user && activeRole === "OWNER"
     ? await emailVerificationState().catch(() => null)
     : null;
   // When the trial has ended only planning and the day sheets stop; customers, payments,
   // settings, backups and everything else stay open so nobody is cut off from their data.
-  const blockedWhenLocked = ["/scheduler", "/days"].some((p) => path === p || path.startsWith(`${p}/`));
-  const locked = Boolean(billing && !billing.access && blockedWhenLocked);
-  // Owners accept the current Terms (and confirm they may hold their customers' details) before carrying on.
-  const legalExempt = ["/auth", "/terms", "/privacy", "/cookies", "/support", "/api"].some((p) => path.startsWith(p));
-  const needsLegal = Boolean(session?.user && activeRole === "OWNER" && businessTenantId && !legalExempt)
+  // Which page is open is decided in the browser (PageGate): the legal pages and support always open.
+  const billingEnded = Boolean(billing && !billing.access);
+  const needsLegal = Boolean(session?.user && activeRole === "OWNER" && businessTenantId)
     && !(await legalAccepted(businessTenantId!).catch(() => true));
-  const showTrialBar = Boolean(billing && activeRole === "OWNER" && !path.startsWith("/billing") && !path.startsWith("/auth")
+  const showTrialBar = Boolean(billing && activeRole === "OWNER"
     && ((billing.kind === "trial" && billing.daysLeft <= 15) || billing.kind === "past_due" || billing.kind === "ended"));
 
   return (
@@ -166,10 +164,17 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           {session?.user?.role === "SUPER_ADMIN" && tenantName && supportSession && (
             <SupportSessionBanner tenantName={tenantName} reason={supportSession.reason} startedAt={supportSession.startedAt} />
           )}
-          {emailCheck && !emailCheck.verified && <VerifyEmailBar email={emailCheck.email} />}
           {session?.user && <div className="print:hidden"><OfflineStatus /></div>}
-          {showTrialBar && billing && <TrialBar state={billing} />}
-          {needsLegal ? <LegalAcceptGate /> : locked ? <BillingLock isOwner={activeRole === "OWNER"} hadSubscription={billing?.hadSubscription} /> : children}
+          <PageGate
+            needsLegal={needsLegal}
+            legalGate={<LegalAcceptGate />}
+            billingEnded={billingEnded}
+            lockScreen={<BillingLock isOwner={activeRole === "OWNER"} hadSubscription={billing?.hadSubscription} />}
+            trialBar={showTrialBar && billing ? <TrialBar state={billing} /> : null}
+            verifyBar={emailCheck && !emailCheck.verified ? <VerifyEmailBar email={emailCheck.email} /> : null}
+          >
+            {children}
+          </PageGate>
         </main>
         {session?.user && <PWAInstallPrompt />}
       </body>
