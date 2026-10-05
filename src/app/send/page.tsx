@@ -2,15 +2,17 @@ import Link from "next/link";
 import { getPhoneOutbox } from "@/lib/text-actions";
 import { requirePermission } from "@/lib/tenant-context";
 import { SendQueuePage } from "./send-queue-page";
+import { decodeIdRanges } from "@/lib/id-ranges";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Send texts" };
 
 /** Opened on a phone (often from the code on a computer) to send waiting texts one tap at a time. */
-export default async function SendPage({ searchParams }: { searchParams: Promise<{ ids?: string }> }) {
+export default async function SendPage({ searchParams }: { searchParams: Promise<{ ids?: string; r?: string }> }) {
   await requirePermission("messaging");
-  const { ids } = await searchParams;
-  const idList = ids?.split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  const { ids, r } = await searchParams;
+  // "r" is the short form the QR code uses; "ids" is the old comma list (older codes still work).
+  const idList = r ? decodeIdRanges(r) : ids?.split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
   const items = await getPhoneOutbox(idList && idList.length > 0 ? { ids: idList } : {});
 
   return (
