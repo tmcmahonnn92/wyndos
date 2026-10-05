@@ -33,7 +33,8 @@ trap 'fail "line $LINENO"' ERR
 [[ -f "$ENV_FILE" ]] || fail "missing $ENV_FILE"
 [[ -s "$KEY_FILE" ]] || fail "missing $KEY_FILE (create it: openssl rand -base64 48 > $KEY_FILE)"
 
-DATABASE_URL="$(set -a; source "$ENV_FILE"; echo "${DATABASE_URL:-}")"
+# Read just the DATABASE_URL line (sourcing the whole file breaks on unquoted values with spaces).
+DATABASE_URL="$(grep -E '^[[:space:]]*(export[[:space:]]+)?DATABASE_URL=' "$ENV_FILE" | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?DATABASE_URL=//; s/^["'\'']//; s/["'\'']$//')"
 [[ -n "$DATABASE_URL" ]] || fail "DATABASE_URL not set in $ENV_FILE"
 # Prisma adds ?schema=public, which pg_dump doesn't understand.
 PG_URL="${DATABASE_URL%%\?*}"
