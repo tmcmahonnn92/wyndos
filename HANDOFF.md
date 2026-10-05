@@ -129,4 +129,5 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - `/scheduler` on phones (under md) shows `src/app/scheduler/mobile-scheduler.tsx` instead of "desktop only". Note at top points to a bigger screen for drag and drop.
 - Booked runs (unfinished from last 4 weeks + next 8 weeks): move date, change worker (owner), open day. A started day with jobs done moves only the jobs left (`moveJobsToDate`); otherwise `rescheduleWorkDay(..., "one-off")` like desktop.
 - Needs booking: areas with customers and no open run; pick date (and worker) → `scheduleAreaRun`.
+- Calendar tab (default): month grid with a coloured bar per run (faded = done, red date = unfinished, amber = holiday). Tap a day to see its runs (same move/worker/open controls) and book an unbooked area onto it. `getMobileMonth("YYYY-MM")` loads 6 weeks.
 - Data: `getMobileSchedule()` in `src/lib/mobile-schedule.ts`. Scheduler now shows in the phone "More" menu.
