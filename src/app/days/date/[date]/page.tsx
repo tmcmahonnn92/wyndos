@@ -31,6 +31,8 @@ export default async function DatePage({ params }: Props) {
   );
 
   const isOwner = user.role === "OWNER" || user.role === "SUPER_ADMIN";
+  const canReorderWork = user.role !== "WORKER" || (user.permissions ?? []).some((p) => p === "reorder" || p === "scheduler");
+
   const team = isOwner ? await getAssignableTeam() : null;
   const canReschedule = isOwner || (user.permissions ?? []).includes("scheduler");
   const canText = isOwner || (user.permissions ?? []).includes("messaging");
@@ -47,6 +49,7 @@ export default async function DatePage({ params }: Props) {
       canText={canText}
       allowCredit={(await getBusinessSettings().catch(() => null))?.allowCustomerCredit ?? true}
       runSiblings={runSiblings}
+      canReorderWork={canReorderWork}
       canEditAreas={user.role === "OWNER" || user.role === "SUPER_ADMIN" || (user.permissions ?? []).includes("areas")}
     />
   );
