@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useTransition, useCallback } from "react";
+import { Fragment, useState, useRef, useTransition, useCallback } from "react";
 import Link from "next/link";
 import {
   Upload,
@@ -24,7 +24,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AREA_SORT_ENABLED, GUIDED_IMPORT_ENABLED } from "@/lib/features";
 import { composeAddress, type AddressParts } from "@/lib/address";
-import { ukMobile } from "@/lib/text-format";
+import { fixUkPhone, ukMobile } from "@/lib/text-format";
+
+/** First line of an address, for customers with no name. */
+function firstAddressLine(address: string, house = "", street = "") {
+  return (address.split(",")[0] ?? "").trim() || [house.trim(), street.trim()].filter(Boolean).join(" ");
+}
 import {
   normalisePaymentMethod,
   parsePrice,
@@ -422,7 +427,8 @@ export function ImportClient({ areas }: { areas: Area[] }) {
       const g = (key: string) => resolveValue(row, headers, mappings[key] ?? { source: "skip" });
       const errors: string[] = [];
 
-      const name = g("name");
+      // No name: use the first line of the address (house name/number and street).
+      const name = g("name").trim() || firstAddressLine(g("address"), g("houseNameNumber"), g("street"));
       const partValues: AddressParts = {
         houseNameNumber: g("houseNameNumber").trim(),
         street: g("street").trim(),
@@ -501,7 +507,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         areaId,
         areaIsNew,
         email: g("email"),
-        phone: g("phone"),
+        phone: fixUkPhone(g("phone")),
         // "Usually pays" is a fixed list: anything else ("under mat", "neighbour") is kept as a note.
         notes: [g("notes"), g("preferredPaymentMethod").trim() && !normalisePaymentMethod(g("preferredPaymentMethod")) ? `Usually pays: ${g("preferredPaymentMethod").trim()}` : ""].filter(Boolean).join("\n"),
         jobName: g("jobName") || "Window Cleaning",
@@ -513,7 +519,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         lastCompletedDate: lastDate,
         tags: g("tags").split(/[;,]/).map((t) => t.trim()).filter(Boolean),
         active: mappings["active"]?.source === "skip" || !mappings["active"] ? undefined : !/^(no|n|false|0|inactive)$/i.test(g("active").trim()),
-        noMobile: Boolean(g("phone").trim()) && !ukMobile(g("phone")),
+        noMobile: Boolean(g("phone").trim()) && !ukMobile(fixUkPhone(g("phone"))),
         newAreaKey: null,
         errors,
       };
@@ -696,8 +702,8 @@ export function ImportClient({ areas }: { areas: Area[] }) {
     if (editingRowIndex === null) return;
     setPreview((prev) => prev.map((row) => {
       if (row.index !== editingRowIndex) return row;
-      const name = editingRowData.name ?? row.name;
       const address = editingRowData.address ?? row.address;
+      const name = (editingRowData.name ?? row.name).trim() || firstAddressLine(address);
       const priceStr = editingRowData.price ?? row.price;
       const areaId = editingRowData.areaId !== undefined ? editingRowData.areaId : row.areaId;
       const area = editingRowData.area !== undefined ? editingRowData.area : row.area;
@@ -1382,56 +1388,105 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                 {pagedPreview.map((row) => {
                   const isEditing = editingRowIndex === row.index;
                   return (
-                  <tr key={row.index} className={cn(
+                  <Fragment key={row.index}>
+                  <tr className={cn(
                     row.errors.length > 0 ? "bg-red-50" : "bg-white hover:bg-slate-50"
                   )}>
                     <td className="px-3 py-2 text-slate-400">{row.index}</td>
                     <td className="px-3 py-2 font-medium text-slate-800 max-w-[120px]">
-                      {isEditing ? (
-                        <input
-                          autoFocus
-                          type="text"
-                          value={editingRowData.name ?? row.name}
-                          onChange={(e) => setEditingRowData((d) => ({ ...d, name: e.target.value }))}
-                          className="w-full border border-blue-400 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-                        />
-                      ) : (
+                      {(
                         <span className="truncate block cursor-pointer hover:text-blue-700" onClick={() => openRowEdit(row)}>
                           {row.name || <span className="text-red-400 italic">missing</span>}
                         </span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-slate-600 max-w-[150px]">
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={editingRowData.address ?? row.address}
-                          onChange={(e) => setEditingRowData((d) => ({ ...d, address: e.target.value }))}
-                          className="w-full border border-blue-400 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-                        />
-                      ) : (
+                      {(
                         <span className="truncate block cursor-pointer hover:text-blue-700" onClick={() => openRowEdit(row)}>
                           {row.address || <span className="text-red-400 italic">missing</span>}
                         </span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-slate-700">
-                      {isEditing ? (
-                        <input
-                          type="number" step="0.01" min="0"
-                          value={editingRowData.price ?? row.price}
-                          onChange={(e) => setEditingRowData((d) => ({ ...d, price: e.target.value }))}
-                          className="w-20 border border-blue-400 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-                        />
-                      ) : (
+                      {(
                         <span className="cursor-pointer hover:text-blue-700" onClick={() => openRowEdit(row)}>
                           {row.price ? `£${row.price}` : <span className="text-red-400 italic">—</span>}
                         </span>
                       )}
                     </td>
                     <td className="px-3 py-2">
+                      {row.areaIsNew ? (
+                        <span className="flex items-center gap-1 text-amber-700 font-medium cursor-pointer" onClick={() => openRowEdit(row)}>
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: row.newAreaKey && newAreaConfigs[row.newAreaKey] ? newAreaConfigs[row.newAreaKey].color : "#F59E0B" }}
+                          />
+                          {row.newAreaKey && newAreaConfigs[row.newAreaKey] ? newAreaConfigs[row.newAreaKey].displayName : row.area}
+                          <span className="text-[10px] text-amber-500 font-normal">(new)</span>
+                        </span>
+                      ) : row.areaId ? (
+                        <span className="flex items-center gap-1 cursor-pointer hover:text-blue-700" onClick={() => openRowEdit(row)}>
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: areas.find(a => a.id === row.areaId)?.color || "#94a3b8" }} />
+                          {row.area}
+                        </span>
+                      ) : <span className="text-red-400 italic cursor-pointer" onClick={() => openRowEdit(row)}>{row.area || "missing"}</span>}
+                    </td>
+                    <td className="px-3 py-2 text-slate-500 max-w-[100px] truncate">{row.email || "—"}</td>
+                    <td className="px-3 py-2 text-slate-500">
+                      {row.phone || "—"}
+                      {row.noMobile && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800" title="Texts only go to UK mobiles (07…)">not a mobile</span>}
+                    </td>
+                    <td className="px-3 py-2">
                       {isEditing ? (
-                        <select
+                        <span className="text-[10px] font-semibold text-blue-700">Editing…</span>
+                      ) : row.errors.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {row.errors.map((e, i) => (
+                            <p key={i} className="text-red-600 font-medium">{e}</p>
+                          ))}
+                          <button onClick={() => openRowEdit(row)} className="text-[10px] text-blue-600 hover:underline mt-0.5">Edit row</button>
+                        </div>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <span className="text-green-600 font-semibold flex items-center gap-1"><Check size={11} /> OK</span>
+                          <button onClick={() => openRowEdit(row)} className="text-[10px] text-blue-600 hover:underline">Edit</button>
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                  {isEditing && (
+                    // Edit this row in a form on its own line, so it fits any screen.
+                    <tr className="bg-blue-50">
+                      <td colSpan={8} className="px-3 py-3">
+                        <div className="sticky left-3 w-[min(40rem,calc(100vw-4rem))] space-y-2">
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <label className="block text-[11px] font-semibold text-slate-600">Name
+                              <input
+                          autoFocus
+                          type="text"
+                          value={editingRowData.name ?? row.name}
+                          onChange={(e) => setEditingRowData((d) => ({ ...d, name: e.target.value }))}
+                          className="w-full border border-blue-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                            </label>
+                            <label className="block text-[11px] font-semibold text-slate-600">Price (£)
+                              <input
+                          type="number" step="0.01" min="0"
+                          value={editingRowData.price ?? row.price}
+                          onChange={(e) => setEditingRowData((d) => ({ ...d, price: e.target.value }))}
+                          className="w-full border border-blue-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                            </label>
+                            <label className="block text-[11px] font-semibold text-slate-600 sm:col-span-2">Address
+                              <input
+                          type="text"
+                          value={editingRowData.address ?? row.address}
+                          onChange={(e) => setEditingRowData((d) => ({ ...d, address: e.target.value }))}
+                          className="w-full border border-blue-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                            </label>
+                            <label className="block text-[11px] font-semibold text-slate-600 sm:col-span-2">Area
+                              <select
                           value={(() => {
                             const isNew = editingRowData.areaIsNew ?? row.areaIsNew;
                             const key = editingRowData.newAreaKey !== undefined ? editingRowData.newAreaKey : row.newAreaKey;
@@ -1467,7 +1522,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                             const name = areas.find((a) => a.id === id)?.name ?? "";
                             setEditingRowData((d) => ({ ...d, areaId: id, areaIsNew: false, newAreaKey: null, area: name }));
                           }}
-                          className="w-full border border-blue-400 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          className="w-full border border-blue-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
                         >
                           <option value="">— select area —</option>
                           {areas.length > 0 && (
@@ -1490,47 +1545,17 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                             </optgroup>
                           )}
                         </select>
-                      ) : row.areaIsNew ? (
-                        <span className="flex items-center gap-1 text-amber-700 font-medium cursor-pointer" onClick={() => openRowEdit(row)}>
-                          <span
-                            className="w-2 h-2 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: row.newAreaKey && newAreaConfigs[row.newAreaKey] ? newAreaConfigs[row.newAreaKey].color : "#F59E0B" }}
-                          />
-                          {row.newAreaKey && newAreaConfigs[row.newAreaKey] ? newAreaConfigs[row.newAreaKey].displayName : row.area}
-                          <span className="text-[10px] text-amber-500 font-normal">(new)</span>
-                        </span>
-                      ) : row.areaId ? (
-                        <span className="flex items-center gap-1 cursor-pointer hover:text-blue-700" onClick={() => openRowEdit(row)}>
-                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: areas.find(a => a.id === row.areaId)?.color || "#94a3b8" }} />
-                          {row.area}
-                        </span>
-                      ) : <span className="text-red-400 italic cursor-pointer" onClick={() => openRowEdit(row)}>{row.area || "missing"}</span>}
-                    </td>
-                    <td className="px-3 py-2 text-slate-500 max-w-[100px] truncate">{row.email || "—"}</td>
-                    <td className="px-3 py-2 text-slate-500">
-                      {row.phone || "—"}
-                      {row.noMobile && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800" title="Texts only go to UK mobiles (07…)">not a mobile</span>}
-                    </td>
-                    <td className="px-3 py-2">
-                      {isEditing ? (
-                        <div className="flex gap-1">
-                          <button onClick={commitRowEdit} className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700">Save</button>
-                          <button onClick={() => { setEditingRowIndex(null); setEditingRowData({}); }} className="px-2 py-0.5 rounded border border-slate-200 text-[10px] text-slate-600 hover:bg-slate-100">Cancel</button>
+                            </label>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={commitRowEdit} className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">Save row</button>
+                            <button onClick={() => { setEditingRowIndex(null); setEditingRowData({}); }} className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+                          </div>
                         </div>
-                      ) : row.errors.length > 0 ? (
-                        <div className="space-y-0.5">
-                          {row.errors.map((e, i) => (
-                            <p key={i} className="text-red-600 font-medium">{e}</p>
-                          ))}
-                          <button onClick={() => openRowEdit(row)} className="text-[10px] text-blue-600 hover:underline mt-0.5">Edit row</button>
-                        </div>
-                      ) : (
-                        <span className="text-green-600 font-semibold flex items-center gap-1">
-                          <Check size={11} /> OK
-                        </span>
-                      )}
-                    </td>
-                  </tr>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                   );
                 })}
               </tbody>

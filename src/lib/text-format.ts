@@ -11,6 +11,19 @@ export function ukMobile(raw: string | null | undefined): string | null {
   return "44" + match[0].replace(/^\+?44|^0/, "");
 }
 
+/**
+ * Put back the leading 0 spreadsheets drop from UK numbers: "7811213929" -> "07811213929",
+ * "1234 567890" -> "01234 567890". Numbers starting +44 / 44 / 0, or that aren't 10 digits, are left alone.
+ */
+export function fixUkPhone(raw: string | null | undefined): string {
+  const text = String(raw ?? "").trim();
+  if (!text) return "";
+  if (/^\+/.test(text)) return text;
+  const digits = text.replace(/[\s\-().]/g, "");
+  if (!/^\d+$/.test(digits) || digits.startsWith("0") || digits.startsWith("44")) return text;
+  return digits.length === 10 && /^[1-9]/.test(digits) ? `0${text}` : text;
+}
+
 const PLACE_WORDS = /\b(road|rd|street|st|lane|ln|close|avenue|ave|drive|way|court|view|cottage|cottages|house|bungalow|farm|hall|pub|barn|lodge|mill|croft|nook|green|hill|place|terrace|crescent|grove)\b/i;
 
 /**

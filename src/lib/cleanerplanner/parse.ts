@@ -1,3 +1,4 @@
+import { fixUkPhone } from "@/lib/text-format";
 /**
  * Reads a CleanerPlanner backup (the zip of CSVs from CleanerPlanner → Backup) into a plan
  * Wyndos can import. Runs in the browser: the file is never uploaded or stored.
@@ -223,7 +224,7 @@ export function readBackup(files: CpFiles): CpBackup {
       street,
       town,
       postcode,
-      phone: own?.Mobile || own?.Phone || owner?.Mobile || owner?.Phone || "",
+      phone: fixUkPhone(own?.Mobile || own?.Phone || owner?.Mobile || owner?.Phone || ""),
       email: own?.Email || owner?.Email || "",
       latitude: lat && lng ? lat : null,
       longitude: lat && lng ? lng : null,
