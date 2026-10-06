@@ -753,7 +753,8 @@ export function ImportClient({ areas }: { areas: Area[] }) {
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="px-4 py-5 max-w-3xl mx-auto space-y-5">
+    // Matching and checking rows use the full width; upload and the finish page stay narrow.
+    <div className={cn("px-4 py-5 mx-auto space-y-5", step === 1 || step === 2 ? "max-w-none" : "max-w-3xl")}>
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link href="/customers" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
@@ -1393,14 +1394,14 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                     row.errors.length > 0 ? "bg-red-50" : "bg-white hover:bg-slate-50"
                   )}>
                     <td className="px-3 py-2 text-slate-400">{row.index}</td>
-                    <td className="px-3 py-2 font-medium text-slate-800 max-w-[120px]">
+                    <td className="px-3 py-2 font-medium text-slate-800 max-w-[220px]">
                       {(
                         <span className="truncate block cursor-pointer hover:text-blue-700" onClick={() => openRowEdit(row)}>
                           {row.name || <span className="text-red-400 italic">missing</span>}
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slate-600 max-w-[150px]">
+                    <td className="px-3 py-2 text-slate-600 max-w-[360px]">
                       {(
                         <span className="truncate block cursor-pointer hover:text-blue-700" onClick={() => openRowEdit(row)}>
                           {row.address || <span className="text-red-400 italic">missing</span>}
@@ -1431,7 +1432,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                         </span>
                       ) : <span className="text-red-400 italic cursor-pointer" onClick={() => openRowEdit(row)}>{row.area || "missing"}</span>}
                     </td>
-                    <td className="px-3 py-2 text-slate-500 max-w-[100px] truncate">{row.email || "—"}</td>
+                    <td className="px-3 py-2 text-slate-500 max-w-[200px] truncate">{row.email || "—"}</td>
                     <td className="px-3 py-2 text-slate-500">
                       {row.phone || "—"}
                       {row.noMobile && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800" title="Texts only go to UK mobiles (07…)">not a mobile</span>}
