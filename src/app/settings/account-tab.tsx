@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { clearOfflinePages } from "@/lib/offline-queue";
-import { Bell, CreditCard, Download, Trash2 } from "lucide-react";
+import { Bell, CreditCard, Download, LogOut, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { closeBusiness } from "@/lib/close-account";
 
@@ -25,6 +25,13 @@ export function AccountTab({ isOwner, businessName }: { isOwner: boolean; busine
           {isOwner && (
             <Link href="/billing" className={row}><span className="flex items-center gap-2"><CreditCard size={15} className="text-blue-600" /> Billing and subscription</span><span className="text-blue-600">→</span></Link>
           )}
+          <button
+            type="button"
+            onClick={async () => { clearOfflinePages(); await signOut({ callbackUrl: "/auth/signin" }); }}
+            className={`${row} w-full text-left`}
+          >
+            <span className="flex items-center gap-2"><LogOut size={15} className="text-slate-500" /> Sign out</span>
+          </button>
           <p className="px-1 text-xs text-slate-500">Change your password under Security.</p>
         </CardContent>
       </Card>

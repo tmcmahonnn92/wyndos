@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Plus,
   Pencil,
@@ -837,10 +838,13 @@ export function AreaManage({ areas }: { areas: Area[] }) {
                 className="w-3 h-3 rounded-full flex-shrink-0 ring-1 ring-black/10"
                 style={{ backgroundColor: area.color ?? "#94a3b8" }}
               />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-800 truncate">{area.name}</p>
-                <p className="text-[11px] text-slate-400">{cadenceLabel(area)}</p>
-              </div>
+              {/* Tap the area to see its customers (a filtered Customers list). */}
+              <Link href={`/customers?areas=${area.id}&inactive=1`} className="group flex-1 min-w-0" title={`See ${area.name}'s customers`}>
+                <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-blue-700 group-hover:underline">{area.name}</p>
+                <p className="text-[11px] text-slate-400">
+                  {cadenceLabel(area)} · <span className="text-blue-600">{area._count.customers} customer{area._count.customers === 1 ? "" : "s"} →</span>
+                </p>
+              </Link>
               <div className="hidden sm:flex flex-col items-center min-w-[72px]">
                 <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">Next due</p>
                 <p className="text-xs font-semibold text-slate-700">{fmtDate(area.nextDueDate)}</p>
