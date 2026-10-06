@@ -77,7 +77,7 @@ export function PrintSheet({
         <tbody>
           {jobs.map((job, index) => {
             const debt = owes(job);
-            const notes = [job.notes, job.customer.notes].filter(Boolean).join(" · ");
+            const notes = [job.customer.notes, job.notes ? `This visit: ${job.notes}` : ""].filter(Boolean).join(" / ");
             const title = job.name && job.name !== "Window Cleaning" ? job.name : null;
             return (
               <tr key={job.id} className="border-b border-slate-300 align-top">
