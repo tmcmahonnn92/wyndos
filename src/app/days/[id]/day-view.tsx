@@ -316,6 +316,25 @@ export function DayView({
     return map;
   }, [allJobs, knownTowns, dayById]);
 
+  // While dragging a job, scroll the page when the pointer nears the top or bottom edge.
+  useEffect(() => {
+    if (dragJobId === null) return;
+    let y = -1;
+    let frame = 0;
+    const onOver = (e: DragEvent) => { y = e.clientY; };
+    const tick = () => {
+      const edge = 110;
+      if (y >= 0) {
+        if (y < edge) window.scrollBy(0, -Math.ceil((edge - y) / 5));
+        else if (y > window.innerHeight - edge) window.scrollBy(0, Math.ceil((y - (window.innerHeight - edge)) / 5));
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    document.addEventListener("dragover", onOver);
+    frame = requestAnimationFrame(tick);
+    return () => { document.removeEventListener("dragover", onOver); cancelAnimationFrame(frame); };
+  }, [dragJobId]);
+
   // A fresh order from the server replaces whatever was shown straight after a move.
   useEffect(() => { setOptimistic({ jobs: null, days: null }); }, [days]);
 
@@ -958,7 +977,10 @@ export function DayView({
 
         {/* One card per area on this date: its worker, notes, and area-only actions */}
         <div className={multi ? "space-y-1.5" : "space-y-4"}>
-        {days.map((day) => {
+        {multi && !filtering && (
+          <p className="px-1 text-[11px] text-slate-400">Use the arrows to change the order you do the areas in today.</p>
+        )}
+        {orderedDays.map((day, position) => {
           const jobs = day.jobs.map(withLocal);
           const done = jobs.filter((j) => j.status === "COMPLETE").length;
           const value = jobs.reduce((s, j) => s + j.price, 0);
@@ -966,11 +988,20 @@ export function DayView({
           return (
             <div key={day.id} className={cn("space-y-2", multi && "rounded-xl border border-slate-200 bg-white px-3 py-2.5")}>
               {multi && (
+                <div className="flex items-center gap-1.5">
+                {!filtering && (
+                  <span className="flex flex-shrink-0 flex-col">
+                    <button type="button" aria-label={`Do ${areaLabel(day)} earlier`} disabled={position === 0 || isPending} onClick={() => moveArea(day.id, -1)}
+                      className="rounded px-1 text-[11px] leading-4 font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-25">▲</button>
+                    <button type="button" aria-label={`Do ${areaLabel(day)} later`} disabled={position === orderedDays.length - 1 || isPending} onClick={() => moveArea(day.id, 1)}
+                      className="rounded px-1 text-[11px] leading-4 font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-25">▼</button>
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => setOpenAreaId(open ? null : day.id)}
                   aria-expanded={open}
-                  className="flex w-full items-center gap-2 text-left"
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
                 >
                   <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: day.area?.color ?? "#94a3b8" }} />
                   <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-800">{areaLabel(day)}</span>
@@ -982,6 +1013,7 @@ export function DayView({
                   </Badge>
                   <ChevronDown size={15} className={cn("flex-shrink-0 text-slate-400 transition-transform", open && "rotate-180")} />
                 </button>
+                </div>
               )}
               {day.notes && multi && !open && (
                 <p className="flex items-start gap-1.5 text-xs text-amber-800"><StickyNote size={12} className="mt-0.5 flex-shrink-0 text-amber-600" />{day.notes}</p>
