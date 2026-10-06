@@ -145,6 +145,8 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Balances: Balance from Jobs.csv; which way round is checked against Transactions (StartingBalance + charges − payments). Without history → "Balance brought forward" clean (owed) or unallocated payment (credit). With history → StartingBalance brought forward, then every charge (TypeId 0) as a clean, then every payment (TypeId 1) paying the oldest cleans first; the rest is credit. Drafts and missed rows skipped.
 - Server: `src/lib/cleanerplanner/actions.ts` (chunks of 250 customers / 1500 history rows), linked by ids, skips name+address+job already in Wyndos.
 - Payment methods not on Wyndos' list ("Under mat") are kept as a note "Usually pays: …" (also in the normal import); history payments keep "Paid by: …".
+- Jobs with no repeat go into the one-off customers area; the summary lets each extra service (e.g. Gutter clear) on a repeat come in as one-offs instead.
+- Customers page shows a "One-off (N)" quick filter when there are any (`countOneOffCustomers`).
 - `GUIDED_IMPORT_ENABLED = false` in features.ts: guided import hidden everywhere and its page redirects.
 
 ## Inactive customers area

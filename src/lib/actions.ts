@@ -856,6 +856,20 @@ async function getOrCreateOneOffSystemArea(tenantId: number) {
   });
 }
 
+/** The one-off customers' hidden area (made if missing). Owner only: used by imports. */
+export async function oneOffAreaIdForImport() {
+  const actor = await requireOwner();
+  return (await getOrCreateOneOffSystemArea(actor.tenantId)).id;
+}
+
+/** How many active one-off customers there are (for the quick link on Customers). */
+export async function countOneOffCustomers() {
+  const actor = await requirePerm("customers");
+  return prisma.customer.count({
+    where: { tenantId: actor.tenantId, active: true, area: { isSystemArea: true, NOT: [{ name: { startsWith: "Overdue – " } }, { name: INACTIVE_AREA_NAME }] } },
+  });
+}
+
 /**
  * Find or create a hidden "Overdue – [source area]" grouping area. Used when overdue/unfinished
  * jobs are moved off a completed day onto a fresh day as a temporary one-off batch. Marked as a

@@ -24,7 +24,7 @@ async function readFiles(list: FileList): Promise<Array<{ name: string; text: st
 }
 
 type Options = { inactive: boolean; balances: boolean; history: boolean; bookRuns: boolean; flip: boolean };
-type Result = { created: number; skipped: number; areas: string[]; owed: number; credit: number; cleans: number; payments: number; runs: number; errors: string[] };
+type Result = { created: number; skipped: number; oneOffs: number; areas: string[]; owed: number; credit: number; cleans: number; payments: number; runs: number; errors: string[] };
 
 export function CleanerPlannerImport() {
   const [backup, setBackup] = useState<CpBackup | null>(null);
@@ -55,6 +55,29 @@ export function CleanerPlannerImport() {
   // Positive Balance = owes, unless the history says otherwise or they swap it.
   const sign = ((backup?.balanceSign ?? 1) * (opts.flip ? -1 : 1)) as 1 | -1;
   const chosen = useMemo(() => (backup ? backup.customers.filter((c) => opts.inactive || c.active) : []), [backup, opts.inactive]);
+  // Extra services (gutters, conservatory roofs…) on a repeat can come in as one-offs instead.
+  const [oneOffServices, setOneOffServices] = useState<Set<string>>(new Set());
+  const extras = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of chosen) counts.set(c.jobName, (counts.get(c.jobName) ?? 0) + 1);
+    const main = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    return [...counts.entries()].filter(([name]) => name !== main).map(([name]) => ({
+      name, repeat: chosen.filter((c) => c.jobName === name && c.scheduled).length,
+    })).filter((e) => e.repeat > 0);
+  }, [chosen]);
+  const repeats = (c: CpCustomer) => c.scheduled && !oneOffServices.has(c.jobName);
+  const oneOffCount = chosen.filter((c) => !repeats(c)).length;
+  const areaList = useMemo(() => {
+    const m = new Map<string, { name: string; frequencyWeeks: number; customers: number }>();
+    for (const c of chosen) {
+      if (!repeats(c)) continue;
+      const a = m.get(c.areaName) ?? { name: c.areaName, frequencyWeeks: c.frequencyWeeks, customers: 0 };
+      a.customers++;
+      m.set(c.areaName, a);
+    }
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosen, oneOffServices]);
   const owedNow = (c: CpCustomer) => Math.round(sign * c.balance * 100) / 100;
   const totals = useMemo(() => {
     let owed = 0, credit = 0, owing = 0, inCredit = 0;
@@ -86,13 +109,13 @@ export function CleanerPlannerImport() {
           postcode: c.postcode, phone: c.phone, email: c.email, latitude: c.latitude, longitude: c.longitude,
           areaName: c.areaName, frequencyWeeks: c.frequencyWeeks, price: c.price, jobName: c.jobName,
           preferredPaymentMethod: c.preferredPaymentMethod, notes: c.notes, nextDueDate: c.nextDueDate,
-          lastCompletedDate: c.lastCompletedDate, sortOrder: c.sortOrder, active: c.active, scheduled: c.scheduled,
+          lastCompletedDate: c.lastCompletedDate, sortOrder: c.sortOrder, active: c.active, scheduled: repeats(c),
           openingBalance: Math.round(opening * 100) / 100, openingDate: openingDate || "",
         };
       });
       const ids: Record<string, number> = {};
       const areaIds = new Set<number>();
-      const res: Result = { created: 0, skipped: 0, areas: [], owed: 0, credit: 0, cleans: 0, payments: 0, runs: 0, errors: [] };
+      const res: Result = { created: 0, skipped: 0, oneOffs: 0, areas: [], owed: 0, credit: 0, cleans: 0, payments: 0, runs: 0, errors: [] };
       const chosenKeys = new Set(chosen.map((c) => c.key));
       const historyItems: CpHistoryItem[] = useHistory ? backup.txns.filter((t) => chosenKeys.has(t.jobKey)).map((t) => ({
         customerId: 0, kind: t.kind, date: t.date, amount: t.amount, method: t.method, note: t.note, key: t.jobKey,
@@ -106,7 +129,7 @@ export function CleanerPlannerImport() {
         const r = await importCpCustomers(rows.slice(i, i + 250));
         Object.assign(ids, r.ids);
         r.datedAreaIds.forEach((id) => areaIds.add(id));
-        res.created += r.created; res.skipped += r.skipped; res.areas.push(...r.areasCreated);
+        res.created += r.created; res.skipped += r.skipped; res.oneOffs += r.oneOffs; res.areas.push(...r.areasCreated);
         res.owed += r.owedTotal; res.credit += r.creditTotal; res.errors.push(...r.errors);
         tick();
       }
@@ -144,6 +167,7 @@ export function CleanerPlannerImport() {
         <p className="flex items-center gap-2 text-base font-semibold"><CheckCircle2 size={18} /> Moved across</p>
         <ul className="list-disc space-y-1 pl-5">
           <li>{result.created} customers added{result.areas.length ? ` into ${result.areas.length} new areas` : ""}.</li>
+          {result.oneOffs > 0 && <li>{result.oneOffs} of them are one-offs (no repeat): <a href="/customers?oneoff=1" className="font-semibold underline">see one-off customers</a>.</li>}
           {result.skipped > 0 && <li>{result.skipped} were already in Wyndos and left as they were.</li>}
           {(result.owed > 0 || result.credit > 0) && <li>{fmtCurrency(result.owed)} owed and {fmtCurrency(result.credit)} in credit brought forward.</li>}
           {(result.cleans > 0 || result.payments > 0) && <li>{result.cleans} past cleans and {result.payments} payments.</li>}
@@ -195,7 +219,7 @@ export function CleanerPlannerImport() {
             <p className="text-xs text-slate-500">From {fileName}</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Stat label="Customers" value={String(backup.counts.jobs)} sub={`${backup.counts.active} active`} />
-              <Stat label="Areas" value={String(backup.areas.length)} sub="from your rounds" />
+              <Stat label="Areas" value={String(areaList.length)} sub={oneOffCount ? `+ ${plural(oneOffCount, "one-off")}` : "from your rounds"} />
               <Stat label="Owed to you" value={fmtCurrency(totals.owed)} sub={plural(totals.owing, "customer")} />
               <Stat label="In credit" value={fmtCurrency(totals.credit)} sub={plural(totals.inCredit, "customer")} />
             </div>
@@ -204,7 +228,7 @@ export function CleanerPlannerImport() {
             <div>
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Areas</p>
               <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-                {backup.areas.map((a) => (
+                {areaList.map((a) => (
                   <div key={a.name} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                     <span className="min-w-0 truncate font-medium text-slate-800">{a.name}</span>
                     <span className="flex-shrink-0 text-xs text-slate-500">{plural(a.customers, "customer")} · every {a.frequencyWeeks} week{a.frequencyWeeks === 1 ? "" : "s"}</span>
@@ -271,8 +295,17 @@ export function CleanerPlannerImport() {
             )}
             <Check checked={opts.bookRuns} onChange={(v) => setOpts((o) => ({ ...o, bookRuns: v }))}
               title="Put areas on the schedule from the due dates" sub="Each area's next run goes on the earliest date someone in it is due (today if that's passed)." />
-            {backup.counts.unscheduled > 0 && (
-              <p className="pt-1 text-xs text-slate-500">{plural(backup.counts.unscheduled, "customer")} {backup.counts.unscheduled === 1 ? "has" : "have"} no repeat schedule in CleanerPlanner. They come across without a due date, so book them when you need to.</p>
+            {extras.map((e) => (
+              <Check key={e.name} checked={oneOffServices.has(e.name)}
+                onChange={(v) => setOneOffServices((s) => { const n = new Set(s); if (v) n.add(e.name); else n.delete(e.name); return n; })}
+                title={`Bring in "${e.name}" as one-off jobs (${e.repeat})`}
+                sub="Leave unticked to keep them on their own repeat, in areas like the ones above." />
+            ))}
+            {oneOffCount > 0 && (
+              <p className="pt-1 text-xs text-slate-500">
+                {plural(oneOffCount, "job")} {oneOffCount === 1 ? "has" : "have"} no repeat, so {oneOffCount === 1 ? "it comes" : "they come"} in as one-off customers.
+                Find them under Customers → One-off. Book them when you need to.
+              </p>
             )}
           </section>
 

@@ -1,6 +1,6 @@
 ﻿import Link from "next/link";
-import { TableProperties, Sparkles, Upload, MapPin } from "lucide-react";
-import { getCustomers, getAreas, getTags } from "@/lib/actions";
+import { TableProperties, Sparkles, Upload, MapPin, Zap } from "lucide-react";
+import { getCustomers, getAreas, getTags, countOneOffCustomers } from "@/lib/actions";
 import { AREA_SORT_ENABLED } from "@/lib/features";
 import { isInactiveArea } from "@/lib/system-areas";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
@@ -31,7 +31,7 @@ export default async function CustomersPage({ searchParams }: Props) {
   const selectedTagIds = tagsParam
     ? tagsParam.split(",").map(Number).filter(Boolean)
     : [];
-  const [customers, areas, allTags] = await Promise.all([
+  const [customers, areas, allTags, oneOffCount] = await Promise.all([
     getCustomers(
       onlyOneOff ? undefined : (selectedAreaIds.length > 0 ? selectedAreaIds : undefined),
       q,
@@ -41,6 +41,7 @@ export default async function CustomersPage({ searchParams }: Props) {
     ),
     getAreas(),
     getTags(),
+    countOneOffCustomers().catch(() => 0),
   ]);
   const activeCustomers = customers.filter((customer) => customer.active);
   const inactiveCustomers = customers.length - activeCustomers.length;
@@ -75,6 +76,12 @@ export default async function CustomersPage({ searchParams }: Props) {
             <Sparkles size={14} />
             Sort into areas
           </Link>}
+          {oneOffCount > 0 && (
+            <Link href={onlyOneOff ? "/customers" : "/customers?oneoff=1"} className={`flex flex-shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${onlyOneOff ? "border-purple-300 bg-purple-50 text-purple-700" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800"}`}>
+              <Zap size={14} />
+              One-off ({oneOffCount})
+            </Link>
+          )}
           <Link href="/customers/addresses" className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors">
             <MapPin size={14} />
             Tidy addresses

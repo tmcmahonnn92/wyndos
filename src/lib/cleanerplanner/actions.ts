@@ -10,7 +10,7 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
 import { requireOwner } from "@/lib/guards";
 import { composeAddress } from "@/lib/address";
-import { bookAreaRunsAfterImport } from "@/lib/actions";
+import { bookAreaRunsAfterImport, oneOffAreaIdForImport } from "@/lib/actions";
 
 const AREA_COLOURS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#06B6D4", "#84CC16", "#A855F7", "#6366F1"];
 const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
@@ -42,7 +42,7 @@ export type CpImportRow = {
   lastCompletedDate: string;
   sortOrder: number;
   active: boolean;
-  /** False = no repeat schedule in CleanerPlanner: no due date is made up for them. */
+  /** False = no repeat (a one-off, or a service brought in as one-off): goes in with the one-off customers. */
   scheduled: boolean;
   /** Positive = they owe you; negative = in credit. Already the right way round. */
   openingBalance: number;
@@ -79,7 +79,8 @@ export async function importCpCustomers(rows: CpImportRow[]) {
   const ids: Record<string, number> = {};
   const datedAreas = new Set<number>();
   const dayCache = new Map<string, number>();
-  let created = 0, skipped = 0, owedTotal = 0, creditTotal = 0;
+  let created = 0, skipped = 0, owedTotal = 0, creditTotal = 0, oneOffs = 0;
+  let oneOffAreaId: number | null = null;
   const errors: string[] = [];
 
   for (const r of rows) {
@@ -87,7 +88,9 @@ export async function importCpCustomers(rows: CpImportRow[]) {
       const name = text(r.name, 120);
       const areaName = text(r.areaName, 80) || "Imported";
       if (!name) throw new Error("No name");
-      let areaId = areaIds.get(areaName.toLowerCase());
+      const oneOff = r.scheduled === false;
+      if (oneOff && oneOffAreaId === null) oneOffAreaId = await oneOffAreaIdForImport();
+      let areaId = oneOff ? oneOffAreaId! : areaIds.get(areaName.toLowerCase());
       if (!areaId) {
         const existing = await prisma.area.findFirst({ where: { tenantId, name: areaName } });
         const area = existing ?? await prisma.area.create({
@@ -106,7 +109,7 @@ export async function importCpCustomers(rows: CpImportRow[]) {
       if (already) { skipped++; continue; }
 
       const last = isIso(r.lastCompletedDate) ? day(r.lastCompletedDate) : null;
-      const next = isIso(r.nextDueDate)
+      const next = oneOff ? null : isIso(r.nextDueDate)
         ? day(r.nextDueDate)
         : r.active && r.scheduled !== false && last ? new Date(last.getTime() + area.frequencyWeeks * 7 * 86400000) : null;
       const customer = await prisma.customer.create({
@@ -134,7 +137,8 @@ export async function importCpCustomers(rows: CpImportRow[]) {
       });
       ids[String(r.key)] = customer.id;
       created++;
-      if (r.active !== false && (next || last)) datedAreas.add(areaId);
+      if (oneOff) oneOffs++;
+      if (!oneOff && r.active !== false && (next || last)) datedAreas.add(areaId);
 
       // What they owe (or have in credit) when they come across.
       const bal = money(r.openingBalance);
@@ -161,7 +165,7 @@ export async function importCpCustomers(rows: CpImportRow[]) {
 
   revalidatePath("/customers");
   revalidatePath("/areas");
-  return { created, skipped, ids, areasCreated, datedAreaIds: [...datedAreas], owedTotal: money(owedTotal), creditTotal: money(creditTotal), errors };
+  return { created, skipped, oneOffs, ids, areasCreated, datedAreaIds: [...datedAreas], owedTotal: money(owedTotal), creditTotal: money(creditTotal), errors };
 }
 
 export type CpHistoryItem = { customerId: number; kind: "charge" | "payment"; date: string; amount: number; method: string; note: string };
