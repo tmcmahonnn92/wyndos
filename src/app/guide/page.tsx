@@ -147,8 +147,8 @@ export default async function GuidePage() {
           <Shot src="d-import-map" alt="Import, step 2: matching spreadsheet columns to Wyndos fields" caption="Matching your columns" />
           <Shot src="d-import-preview" alt="Import, step 3: preview showing two new areas and all rows OK" caption="The preview: new areas and every row checked before anything is saved" />
           <p>
-            Messy spreadsheet? Try <strong>the guided import</strong> link at the top of the import page. It works out your
-            columns and tidies the data for you.
+            Moving from CleanerPlanner? Use <strong>Moving from CleanerPlanner</strong> at the top of the import page and upload
+            your CleanerPlanner backup. Customers, rounds, due dates and balances all come across.
           </p>
           <p>Your customers then appear under <strong>Customers</strong>. Tap anyone to see their details, history and what they owe.</p>
           <Shot src="d-customers" alt="The Customers list with names, addresses, area, due date and price" />

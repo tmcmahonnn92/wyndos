@@ -22,7 +22,7 @@ import {
 import { bulkImportCustomers, deleteAllCustomers, bulkImportJobHistory } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { AREA_SORT_ENABLED } from "@/lib/features";
+import { AREA_SORT_ENABLED, GUIDED_IMPORT_ENABLED } from "@/lib/features";
 import { composeAddress, type AddressParts } from "@/lib/address";
 import { ukMobile } from "@/lib/text-format";
 import {
@@ -502,7 +502,8 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         areaIsNew,
         email: g("email"),
         phone: g("phone"),
-        notes: g("notes"),
+        // "Usually pays" is a fixed list: anything else ("under mat", "neighbour") is kept as a note.
+        notes: [g("notes"), g("preferredPaymentMethod").trim() && !normalisePaymentMethod(g("preferredPaymentMethod")) ? `Usually pays: ${g("preferredPaymentMethod").trim()}` : ""].filter(Boolean).join("\n"),
         jobName: g("jobName") || "Window Cleaning",
         nextDueDate: dateStr,
         preferredPaymentMethod: normalisePaymentMethod(g("preferredPaymentMethod")),
@@ -765,9 +766,16 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         </button>
       </div>
 
-      <Link href="/customers/import/guided" className="flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:bg-blue-100">
-        <span><b>Messy spreadsheet?</b> Try the guided import: we work out your columns, tidy the data and suggest areas.</span>
-        <span className="flex-shrink-0 font-semibold">Try it →</span>
+      {GUIDED_IMPORT_ENABLED && (
+        <Link href="/customers/import/guided" className="flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:bg-blue-100">
+          <span><b>Messy spreadsheet?</b> Try the guided import: we work out your columns, tidy the data and suggest areas.</span>
+          <span className="flex-shrink-0 font-semibold">Try it →</span>
+        </Link>
+      )}
+
+      <Link href="/customers/import/cleanerplanner" className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 hover:bg-slate-50">
+        <span><b>Moving from CleanerPlanner?</b> Upload your CleanerPlanner backup and bring customers, rounds, due dates and balances across.</span>
+        <span className="flex-shrink-0 font-semibold text-blue-700">Start →</span>
       </Link>
 
       {/* Step indicator */}

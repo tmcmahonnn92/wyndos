@@ -3,12 +3,14 @@ import { redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { plannerAvailable } from "@/lib/area-planner";
 import { requirePermission } from "@/lib/tenant-context";
+import { GUIDED_IMPORT_ENABLED } from "@/lib/features";
 import { GuidedImportClient } from "./guided-import-client";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Guided import" };
 
 export default async function GuidedImportPage() {
+  if (!GUIDED_IMPORT_ENABLED) redirect("/customers/import");
   await requirePermission("customers");
   const available = await plannerAvailable().catch(() => null);
   if (!available) redirect("/customers/import"); // owner only

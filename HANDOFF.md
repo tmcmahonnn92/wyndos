@@ -138,3 +138,11 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
   `DATABASE_URL=… npx tsx scripts/seed-guide-demo.ts` → run the app → `node scripts/guide-screenshots.mjs` → `python3 scripts/guide-compress.py`.
   Demo logins: sam@example.com / jamie@example.com, password GuideDemo123! (local/staging only, never production).
 - Landing page screenshots (`public/screens/*.jpg`) come from the same demo business: `node scripts/landing-screenshots.mjs` then `python3 scripts/landing-compress.py`. Run the app with TZ=UTC so server and browser agree on today.
+
+## CleanerPlanner import
+- `/customers/import/cleanerplanner` (owner only), linked from the import page. Upload the CleanerPlanner backup zip (or its CSVs); read in the browser (`src/lib/cleanerplanner/parse.ts`, fflate), never uploaded.
+- Each CleanerPlanner job → a Wyndos customer (a second service at the same house is a second customer with its own job name). Round → area; rounds mixing cycles split into "<round> N weekly". Cycle from Due→NextDue gap, else ScheduleInterval/FrequencyId (1 days, 2 weeks, 3 months). StatusId 1 = active. Job's own contact = the property when it has an address.
+- Balances: Balance from Jobs.csv; which way round is checked against Transactions (StartingBalance + charges − payments). Without history → "Balance brought forward" clean (owed) or unallocated payment (credit). With history → StartingBalance brought forward, then every charge (TypeId 0) as a clean, then every payment (TypeId 1) paying the oldest cleans first; the rest is credit. Drafts and missed rows skipped.
+- Server: `src/lib/cleanerplanner/actions.ts` (chunks of 250 customers / 1500 history rows), linked by ids, skips name+address+job already in Wyndos.
+- Payment methods not on Wyndos' list ("Under mat") are kept as a note "Usually pays: …" (also in the normal import); history payments keep "Paid by: …".
+- `GUIDED_IMPORT_ENABLED = false` in features.ts: guided import hidden everywhere and its page redirects.

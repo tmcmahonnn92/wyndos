@@ -1,5 +1,7 @@
 "use server";
 
+import { normalisePreference } from "@/lib/payment-preference";
+
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
 import { queueNotification } from "@/lib/notifications";
@@ -1378,10 +1380,11 @@ export async function bulkImportCustomers(
         phone: r.phone?.trim() ?? "",
         areaId: resolvedAreaId,
         price: r.price,
-        notes: r.notes?.trim() || null,
+        // "Usually pays" is a fixed list. Anything else ("under the mat", "neighbour") is kept as a note.
+        notes: [r.notes?.trim(), r.preferredPaymentMethod?.trim() && !normalisePreference(r.preferredPaymentMethod) ? `Usually pays: ${r.preferredPaymentMethod.trim()}` : ""].filter(Boolean).join("\n") || null,
         jobName: r.jobName?.trim() || "Window Cleaning",
         advanceNotice: r.advanceNotice ?? false,
-        preferredPaymentMethod: r.preferredPaymentMethod?.trim() ?? "",
+        preferredPaymentMethod: normalisePreference(r.preferredPaymentMethod),
         frequencyWeeks: area.frequencyWeeks, // frequency belongs to the area
         // Next due from the sheet, else one cycle after they were last cleaned.
         nextDueDate: r.nextDueDate
@@ -1459,6 +1462,12 @@ export async function bulkImportCustomers(
   revalidatePath("/areas");
   revalidatePath("/scheduler");
   return { created, updated, skipped, errors, areasCreated, runsBooked };
+}
+
+/** Book imported areas' next runs (used by the CleanerPlanner import). Owner only, own areas only. */
+export async function bookAreaRunsAfterImport(areaIds: number[]) {
+  const actor = await requireOwner();
+  return bookImportedAreaRuns(actor.tenantId, (Array.isArray(areaIds) ? areaIds : []).filter((n) => Number.isInteger(n)).slice(0, 500));
 }
 
 /**
@@ -1598,17 +1607,23 @@ export async function bulkImportJobHistory(
       });
 
       if (r.paid && r.paid > 0) {
-        const validMethods = ["CASH", "BACS", "CARD"];
-        const method = validMethods.includes((r.paymentMethod ?? "").toUpperCase())
-          ? (r.paymentMethod!.toUpperCase() as "CASH" | "BACS" | "CARD")
-          : "CASH";
+        // "Bank transfer", "bacs", "card" etc. are understood. Anything else ("under mat",
+        // "neighbour") is recorded as cash with the words kept on the payment.
+        const raw = (r.paymentMethod ?? "").trim();
+        const pref = normalisePreference(raw);
+        const method: "CASH" | "BACS" | "CARD" = pref === "CARD" ? "CARD" : pref === "BACS" || pref === "DD" || pref === "INVOICE" ? "BACS" : "CASH";
+        const paidNote = raw && !pref ? `Paid by: ${raw}` : null;
+        // Paid more than the clean? The extra stays on the payment as credit.
+        const onJob = Math.min(r.paid, jobPrice);
         await prisma.$transaction(async (tx) => {
           const payment = await tx.payment.create({
-            data: { tenantId, customerId: customer.id, amount: r.paid!, method, paidAt: workDate },
+            data: { tenantId, customerId: customer.id, amount: r.paid!, method, paidAt: workDate, notes: paidNote },
           });
-          await tx.paymentAllocation.create({
-            data: { tenantId, paymentId: payment.id, jobId: job.id, amount: r.paid! },
-          });
+          if (onJob > 0) {
+            await tx.paymentAllocation.create({
+              data: { tenantId, paymentId: payment.id, jobId: job.id, amount: onJob },
+            });
+          }
         });
       }
 

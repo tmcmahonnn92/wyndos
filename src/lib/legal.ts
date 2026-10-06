@@ -1,3 +1,4 @@
+import { AREA_SORT_ENABLED, GUIDED_IMPORT_ENABLED } from "@/lib/features";
 /**
  * Legal details shown in the Terms, Privacy and Cookie pages.
  *
@@ -38,5 +39,8 @@ export const SUB_PROCESSORS: Array<{ name: string; purpose: string; location: st
   { name: "Stripe", purpose: "Wyndos subscription billing (business owners only, not your customers)", location: "EU / US" },
   { name: "Google", purpose: "Optional 'Sign in with Google'", location: "EU / US" },
   { name: "OpenStreetMap (Nominatim)", purpose: "Turning addresses into map positions", location: "EU / UK" },
-  { name: "Anthropic (Claude)", purpose: "Optional 'Sort into areas with AI': streets, towns, postcodes, prices and due dates only (no names or contact details)", location: "US" },
+  // Only while an AI feature is switched on.
+  ...(AREA_SORT_ENABLED || GUIDED_IMPORT_ENABLED
+    ? [{ name: "Anthropic (Claude)", purpose: "Optional AI help sorting customers into areas: streets, towns, postcodes, prices and due dates only (no names or contact details)", location: "US" }]
+    : []),
 ];
