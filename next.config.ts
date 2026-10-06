@@ -1,5 +1,16 @@
 import type { NextConfig } from "next";
 import path from "path";
+import fs from "fs";
+
+function releaseId(): string | undefined {
+  try {
+    const meta = JSON.parse(fs.readFileSync(path.join(__dirname, ".release-meta.json"), "utf8"));
+    const id = `${String(meta.commit ?? "").slice(0, 12)}-${String(meta.builtAt ?? "").replace(/\D/g, "")}`;
+    return id.length > 1 ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // Offline support is our own service worker in public/sw.js (registered by OfflineStatus).
 const nextConfig: NextConfig = {
@@ -7,6 +18,9 @@ const nextConfig: NextConfig = {
     root: path.resolve(__dirname),
   },
   poweredByHeader: false,
+  // From the release the deploy script made (same at build and start). When a page from an
+  // older build navigates after an update, Next does a full page load instead of mixing files.
+  deploymentId: releaseId(),
   async headers() {
     return [
       {

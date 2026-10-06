@@ -405,7 +405,7 @@ export function LogPaymentForm({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Notes (optional)</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Payment notes (optional)</label>
             <input
               type="text"
               placeholder="e.g. paid at door"

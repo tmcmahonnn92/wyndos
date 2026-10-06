@@ -1,5 +1,7 @@
 "use client";
 
+import { fillPlaceholders } from "@/lib/text-format";
+
 /** Placeholders that can go in any text. Filled in per customer when it's sent. */
 export const TEXT_PLACEHOLDERS = [
   { label: "First name", value: "{{customerFirstName}}" },
@@ -18,7 +20,9 @@ export const TEXT_PLACEHOLDERS = [
 ];
 
 export function fillTemplate(template: string, vars: Record<string, string | undefined>) {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? "");
+  // Every known placeholder is filled (blank if there's no value for this customer).
+  const all: Record<string, string | undefined> = Object.fromEntries(TEXT_PLACEHOLDERS.map((p) => [p.value.slice(2, -2), ""]));
+  return fillPlaceholders(template, { ...all, ...vars });
 }
 
 /** Insert a placeholder at the cursor of a textarea. */

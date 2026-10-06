@@ -15,6 +15,8 @@ import { AccountTab } from "./account-tab";
 import { UserRound } from "lucide-react";
 import { AUTO_SMS_ENABLED } from "@/lib/features";
 import { createInvite, listTeamMembers, listPendingInvites, revokeInvite, removeTeamMember, updateWorkerPermissions, changePassword, resetWorkerPassword } from "@/lib/auth-actions";
+import { fillTemplate } from "@/components/text-placeholders";
+import { greetingName } from "@/lib/text-format";
 import { ROLE_PRESETS, ALL_PERMISSIONS, PERMISSION_LABELS, DEFAULT_WORKER_PERMISSIONS, type Permission } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -494,13 +496,16 @@ export function SettingsClient({
   const firstSelected = [...bcSelected][0];
   const previewCust = customers.find((c) => c.id === firstSelected);
   const previewMsg = previewCust
-    ? bcMessage
-        .replaceAll("{{customerName}}", previewCust.name)
-        .replaceAll("{{customerFirstName}}", previewCust.name.split(" ")[0])
-        .replaceAll("{{customerAddress}}", previewCust.address)
-        .replaceAll("{{areaName}}", previewCust.area?.name ?? "")
-        .replaceAll("{{businessName}}", form.businessName)
-        .replaceAll("{{businessPhone}}", form.phone)
+    ? fillTemplate(bcMessage, {
+        customerName: previewCust.name,
+        customerFirstName: greetingName(previewCust.name, previewCust.address),
+        customerAddress: previewCust.address,
+        areaName: previewCust.area?.name ?? "",
+        businessName: form.businessName,
+        businessPhone: form.phone,
+        bankDetails: form.bankDetails.replace(/\s*\n\s*/g, ", "),
+        paymentReference: previewCust.address.split(",")[0]?.trim() || previewCust.name,
+      })
     : null;
 
   const inp = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";

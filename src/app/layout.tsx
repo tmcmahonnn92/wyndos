@@ -10,6 +10,7 @@ import { ACTIVE_TENANT_COOKIE, SUPPORT_ACCESS_COOKIE } from "@/lib/auth-cookies"
 import { resolveActiveMembership, resolveActivePermissions } from "@/lib/memberships";
 import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
 import { OfflineStatus } from "@/components/offline-status";
+import { UpdateBanner } from "@/components/update-banner";
 import { BillingLock, TrialBar } from "@/components/billing-banners";
 import { VerifyEmailBar } from "@/components/verify-email-bar";
 import { emailVerificationState } from "@/lib/auth-actions";
@@ -165,6 +166,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <SupportSessionBanner tenantName={tenantName} reason={supportSession.reason} startedAt={supportSession.startedAt} />
           )}
           {session?.user && <div className="print:hidden"><OfflineStatus /></div>}
+          {session?.user && <UpdateBanner />}
           <PageGate
             needsLegal={needsLegal}
             legalGate={<LegalAcceptGate />}

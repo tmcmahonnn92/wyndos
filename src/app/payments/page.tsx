@@ -72,6 +72,11 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
         credits={customersWithCredit}
         areas={owingAreas}
         businessName={settings.businessName || "Your Business"}
+        textVars={{
+          bankDetails: settings.bankDetails?.replace(/\s*\n\s*/g, ", ") ?? "",
+          businessPhone: settings.phone ?? "",
+          workerName: (settings.ownerName ?? "").trim().split(/\s+/)[0] || settings.businessName || "",
+        }}
         smsTemplates={[
           settings.tmplPaymentReminder1 || "",
           settings.tmplPaymentReminder2 || "",

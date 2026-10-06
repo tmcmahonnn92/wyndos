@@ -4,6 +4,7 @@
  * Use interpolateTemplate() to fill {{placeholder}} values before sending.
  */
 
+import { fillPlaceholders } from "@/lib/text-format";
 import { prisma } from "@/lib/db";
 import { getActiveTenantId } from "@/lib/tenant-context";
 import { decryptSettingsSecrets } from "@/lib/secrets";
@@ -29,10 +30,7 @@ export type MessageVars = {
 
 /** Replace all {{key}} tokens in a template string with provided values. */
 export function interpolateTemplate(template: string, vars: MessageVars): string {
-  return Object.entries(vars).reduce(
-    (str, [key, value]) => str.replaceAll(`{{${key}}}`, value ?? ""),
-    template
-  );
+  return fillPlaceholders(template, vars as Record<string, string | undefined>);
 }
 
 // ── Send message ──────────────────────────────────────────────────────────────

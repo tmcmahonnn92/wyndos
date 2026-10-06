@@ -23,6 +23,8 @@ import { syncGoCardlessPayments } from "@/lib/actions";
 import { LogPaymentForm, type PaymentCustomerOption } from "./log-payment-form";
 import { AddCreditForm, type CreditCustomerOption } from "./add-credit-form";
 import { smsHref } from "@/components/phone-send-queue";
+import { fillTemplate } from "@/components/text-placeholders";
+import { greetingName } from "@/lib/text-format";
 import { logPhoneText, queuePhoneTexts } from "@/lib/text-actions";
 import { SendOnPhone } from "@/components/send-on-phone";
 import { ukMobile } from "@/lib/text-format";
@@ -174,11 +176,13 @@ function SmsModal({
   debtor,
   businessName,
   templates,
+  textVars = {},
   onClose,
 }: {
   debtor: Debtor;
   businessName: string;
   templates?: string[];
+  textVars?: Record<string, string>;
   onClose: () => void;
 }) {
   const [selected, setSelected] = useState<0 | 1 | 2>(0);
@@ -196,13 +200,16 @@ function SmsModal({
   // Use settings template if provided and non-empty, otherwise fall back to hardcoded
   const settingsTmpl = templates?.[selected]?.trim();
   const message = settingsTmpl
-    ? settingsTmpl
-        .replaceAll("{{customerName}}", debtor.name)
-        .replaceAll("{{customerFirstName}}", firstName)
-        .replaceAll("{{amountDue}}", amount)
-        .replaceAll("{{businessName}}", businessName)
-        .replaceAll("{{areaName}}", debtor.areaName ?? "")
-        .replaceAll("{{customerAddress}}", debtor.address ?? "")
+    ? fillTemplate(settingsTmpl, {
+        ...textVars,
+        customerName: debtor.name,
+        customerFirstName: greetingName(debtor.name, debtor.address ?? ""),
+        amountDue: amount,
+        businessName,
+        areaName: debtor.areaName ?? "",
+        customerAddress: debtor.address ?? "",
+        paymentReference: (debtor.address ?? "").split(",")[0]?.trim() || debtor.name,
+      })
     : tpl.msg(firstName, amount, businessName);
 
   const handleSend = async () => {
@@ -359,6 +366,7 @@ export function DebtorsPanel({
   areas,
   businessName,
   smsTemplates,
+  textVars,
   query = "",
   onlyLate = false,
 }: {
@@ -366,6 +374,7 @@ export function DebtorsPanel({
   areas: AreaFilter[];
   businessName: string;
   smsTemplates?: string[];
+  textVars?: Record<string, string>;
   query?: string;
   onlyLate?: boolean;
 }) {
@@ -621,6 +630,7 @@ export function DebtorsPanel({
           debtor={smsDebtor}
           businessName={businessName}
           templates={smsTemplates}
+          textVars={textVars}
           onClose={() => setSmsDebtor(null)}
         />
       )}

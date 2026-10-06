@@ -1,0 +1,23 @@
+# Two copies run (wyndos@3000 and wyndos@3002 live; 3001/3003 for staging) so a deploy can
+# restart one while the other serves. Installed and restarted by deploy/deploy-vps.sh.
+[Unit]
+Description=Wyndos app (port %i)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=wyndos
+Group=wyndos
+WorkingDirectory=/opt/wyndos/live
+EnvironmentFile=/opt/wyndos/shared/.env.production
+ExecStart=/usr/bin/npm run start -- --hostname 127.0.0.1 --port %i
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+StandardOutput=append:/var/log/wyndos/app-%i.log
+StandardError=append:/var/log/wyndos/app-error-%i.log
+
+[Install]
+WantedBy=multi-user.target

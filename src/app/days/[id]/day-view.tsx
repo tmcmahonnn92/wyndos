@@ -59,6 +59,7 @@ import {
   reorderDayJobs,
   assignWholeDate,
   updateJobNotes,
+  updateCustomer,
   updateJobCompletedAt,
   updateJobPrice,
   updateJobCompletedBy,
@@ -143,6 +144,8 @@ interface Props {
   canEditAreas?: boolean;
   /** May change the order of work on the day. False: they see it in the order they're given. */
   canReorderWork?: boolean;
+  /** May edit customers (owner, or Customers permission): customer notes from the day. */
+  canEditCustomers?: boolean;
 }
 
 /** After moving a job: offer to make it permanent. */
@@ -175,6 +178,7 @@ export function DayView({
   runSiblings = {},
   canEditAreas = false,
   canReorderWork = true,
+  canEditCustomers = false,
 }: Props) {
   const todayDateValue = new Date().toISOString().slice(0, 10);
   const scheduledDateValue = dateISO;
@@ -1282,7 +1286,7 @@ export function DayView({
         )}
       </div>
 
-      <CustomerNotesModal job={notesJob} onClose={() => setNotesJob(null)} hidePrices={hidePrices} />
+      <CustomerNotesModal job={notesJob} onClose={() => setNotesJob(null)} hidePrices={hidePrices} canEditCustomer={canEditCustomers} />
 
 
       {/* ── More: the less-used day actions ───────────── */}
@@ -2035,9 +2039,9 @@ function JobActionModal({
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs text-slate-600 font-medium mb-1 block">Notes <span className="font-normal text-slate-400">(optional)</span></label>
+                    <label className="text-xs text-slate-600 font-medium mb-1 block">Payment notes <span className="font-normal text-slate-400">(optional)</span></label>
                     <input type="text" value={payNotes} onChange={(e) => setPayNotes(e.target.value)}
-                      placeholder="e.g. fronts only..."
+                      placeholder="e.g. paid by bank transfer"
                       className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
                   </div>
                   <div className="flex gap-2">
@@ -2216,8 +2220,8 @@ function JobActionModal({
                           </div>
                         </div>
                         <div>
-                          <label className="text-xs text-slate-600 font-medium mb-1 block">Notes <span className="font-normal text-slate-400">(optional)</span></label>
-                          <input type="text" value={payNotes} onChange={(e) => setPayNotes(e.target.value)} placeholder="e.g. fronts only, window 3 broken..."
+                          <label className="text-xs text-slate-600 font-medium mb-1 block">Payment notes <span className="font-normal text-slate-400">(optional)</span></label>
+                          <input type="text" value={payNotes} onChange={(e) => setPayNotes(e.target.value)} placeholder="e.g. paid in the card machine, left under the mat"
                             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
                         </div>
                         <div className="flex gap-2">
@@ -2254,22 +2258,31 @@ function JobActionModal({
   );
 }
 
-function CustomerNotesModal({ job, onClose, hidePrices = false }: { job: Job | null; onClose: () => void; hidePrices?: boolean }) {
+function CustomerNotesModal({ job, onClose, hidePrices = false, canEditCustomer = false }: { job: Job | null; onClose: () => void; hidePrices?: boolean; canEditCustomer?: boolean }) {
   const [noteText, setNoteText] = useState("");
+  const [customerNote, setCustomerNote] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, startSaveTransition] = useTransition();
   const router = useRouter();
 
   useEffect(() => {
-    if (job) setNoteText(job.notes ?? "");
+    if (job) { setNoteText(job.notes ?? ""); setCustomerNote(job.customer.notes ?? ""); setSaveError(null); }
   }, [job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!job) return null;
 
   const handleSave = () => {
     startSaveTransition(async () => {
-      await updateJobNotes(job.id, noteText);
-      router.refresh();
-      onClose();
+      try {
+        if (noteText.trim() !== (job.notes ?? "").trim()) await updateJobNotes(job.id, noteText);
+        if (canEditCustomer && customerNote.trim() !== (job.customer.notes ?? "").trim()) {
+          await updateCustomer(job.customer.id, { notes: customerNote.trim() });
+        }
+        router.refresh();
+        onClose();
+      } catch (issue) {
+        setSaveError(issue instanceof Error ? issue.message : "Couldn't save.");
+      }
     });
   };
 
@@ -2281,7 +2294,17 @@ function CustomerNotesModal({ job, onClose, hidePrices = false }: { job: Job | n
     }>
       <div className="space-y-3">
         <p className="text-xs text-slate-500">{job.customer.address}{!hidePrices && ` - ${fmtCurrency(job.price)}`}</p>
-        {job.customer.notes && (
+        {canEditCustomer ? (
+          <div>
+            <p className="text-[11px] font-bold text-amber-700 uppercase tracking-wide mb-1">Customer notes (every visit)</p>
+            <textarea
+              value={customerNote}
+              onChange={(e) => setCustomerNote(e.target.value)}
+              placeholder="e.g. gate code 1234, dog in garden, leave a slip"
+              className="w-full border border-amber-300 rounded-lg px-3 py-2.5 text-sm text-amber-900 resize-none focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50 min-h-[70px]"
+            />
+          </div>
+        ) : job.customer.notes && (
           <div className="border-l-4 border-amber-400 bg-amber-50 px-4 py-3 rounded-r-xl">
             <p className="text-[11px] font-bold text-amber-700 uppercase tracking-wide mb-1.5">Customer Notes</p>
             <p className="text-sm text-amber-900 whitespace-pre-wrap leading-relaxed">{job.customer.notes}</p>
@@ -2297,6 +2320,7 @@ function CustomerNotesModal({ job, onClose, hidePrices = false }: { job: Job | n
             autoFocus
           />
         </div>
+        {saveError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{saveError}</p>}
         <div className="flex gap-2">
           <Button onClick={handleSave} disabled={isSaving} size="sm" className="flex-1">
             {isSaving ? "Saving..." : "Save Notes"}
@@ -2609,6 +2633,14 @@ function JobCard({
             >
               <StickyNote size={11} className="mt-0.5 flex-shrink-0" />
               <span className="line-clamp-2">{[job.notes, job.customer.notes].filter(Boolean).join(" · ")}</span>
+            </button>
+          )}
+          {!job.customer.notes && !job.notes && onNotesClick && !isDone && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onNotesClick(); }}
+              className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-blue-600"
+            >
+              <StickyNote size={11} /> Add note
             </button>
           )}
           {(job.customer.slip === false || job.customer.preferredPaymentMethod || job.assignedUser || (job.status === "COMPLETE" && job.completedBy && showWorker)) && (
