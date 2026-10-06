@@ -464,11 +464,9 @@ export function DayView({
       const nextSame = next && next.workDayId === moved.workDayId ? next : undefined;
       safely(async () => {
         await placeJobInArea(moved.workDayId, areaIds, movedId);
+        // Within its own area: that's the area's walking order from now on too (no question asked).
         if (canEditAreas && day?.area && !day.area.isSystemArea && (prevSame || nextSame)) {
-          setOffer({
-            kind: "area", jobId: movedId, customerId: moved.customerId, name: moved.customer.name, areaName: day.area.name,
-            after: prevSame?.customerId ?? null, before: prevSame ? null : nextSame?.customerId ?? null,
-          });
+          await placeCustomerInArea(moved.customerId, { after: prevSame?.customerId ?? null, before: prevSame ? null : nextSame?.customerId ?? null }, movedId);
         }
         router.refresh();
       });
