@@ -1942,11 +1942,12 @@ function JobActionModal({
                     </select>
                   </label>
                 )}
+                <p className="text-[11px] font-semibold text-slate-600">Completion notes <span className="font-normal text-slate-400">(this visit only)</span></p>
                 <textarea
                   value={workerNote}
                   onChange={(e) => setWorkerNote(e.target.value)}
                   rows={2}
-                  placeholder="Note for this job (shows on Payments too)"
+                  placeholder="e.g. fronts only, gate locked (shows on Payments too)"
                   className="w-full resize-none rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
                 />
                 {(() => {
@@ -2138,7 +2139,7 @@ function JobActionModal({
                     />
                   </div>
                   <div className="flex gap-2 items-center">
-                    <label className="text-xs text-slate-600 font-medium whitespace-nowrap w-14 flex-shrink-0">Note</label>
+                    <label className="text-xs text-slate-600 font-medium whitespace-nowrap flex-shrink-0">Completion notes</label>
                     <input
                       type="text"
                       value={workerNote}
@@ -2332,7 +2333,7 @@ function CustomerNotesModal({ job, onClose, hidePrices = false, canEditCustomer 
           </div>
         )}
         <div>
-          <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wide mb-1">Job Notes (this visit)</p>
+          <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wide mb-1">{job.status === "COMPLETE" ? "Completion notes (this visit)" : "Job notes (this visit only)"}</p>
           <textarea
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
@@ -2653,7 +2654,11 @@ function JobCard({
               className="mt-1 flex w-full items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-left text-[11px] leading-snug text-amber-900 hover:bg-amber-100 active:scale-[0.99] transition-all"
             >
               <StickyNote size={11} className="mt-0.5 flex-shrink-0" />
-              <span className="line-clamp-2">{[job.notes, job.customer.notes].filter(Boolean).join(" · ")}</span>
+              <span className="line-clamp-2">
+                {job.notes && <><b className="font-semibold">{isDone ? "Completion: " : "This visit: "}</b>{job.notes}</>}
+                {job.notes && job.customer.notes && " · "}
+                {job.customer.notes}
+              </span>
             </button>
           )}
           {!job.customer.notes && !job.notes && onNotesClick && !isDone && (
