@@ -326,7 +326,7 @@ export async function getMessageLog(limit = 200) {
   const logs = await prisma.messageLog.findMany({
     where: { tenantId: actor.tenantId, clearedAt: null },
     orderBy: { createdAt: "desc" },
-    take: limit,
+    take: Math.min(500, Math.max(1, Math.floor(Number(limit) || 200))),
   });
   const customerIds = [...new Set(logs.map((l) => l.customerId).filter((id): id is number => id !== null))];
   const customers = await prisma.customer.findMany({

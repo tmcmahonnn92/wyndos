@@ -132,16 +132,86 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
     if (list.some((r) => r.tenantId !== tenantId)) throw new Error("The backup file has been changed and can't be used.");
   }
 
-  // People who have since left the team: keep the history, drop the link to their login.
-  const userIds = new Set((await prisma.user.findMany({ select: { id: true } })).map((u) => u.id));
-  const userOrNull = (v: unknown) => (typeof v === "string" && userIds.has(v) ? v : null);
+  // Every link must point at something in this same backup, so an edited file can't hook
+  // rows up to another business's customers, days or payments.
+  const bad = () => new Error("The backup file has been changed and can't be used.");
+  const idsOf = (list: Row[]) => {
+    const set = new Set<number>();
+    for (const r of list) {
+      if (!Number.isSafeInteger(r.id) || (r.id as number) < 1) throw bad();
+      set.add(r.id as number);
+    }
+    return set;
+  };
+  const areaIds = idsOf(areas), tagIds = idsOf(tags), customerIds = idsOf(customers), workDayIds = idsOf(workDays);
+  const jobIds = idsOf(jobs), paymentIds = idsOf(payments), handoverIds = idsOf(cashHandovers), importIds = idsOf(paymentImports);
+  idsOf(allocations); idsOf(expenses); idsOf(otherIncome); idsOf(holidays); idsOf(messageLogs); idsOf(payerReferences); idsOf(importedLines);
+  const must = (v: unknown, set: Set<number>) => { if (typeof v !== "number" || !set.has(v)) throw bad(); };
+  const mayBe = (v: unknown, set: Set<number>) => { if (v != null) must(v, set); };
+  const orNull = (v: unknown, set: Set<number>) => (typeof v === "number" && set.has(v) ? v : null);
+  for (const c of customers) { must(c.areaId, areaIds); c.paidByCustomerId = null; }
+  for (const ct of customerTags) { must(ct.customerId, customerIds); must(ct.tagId, tagIds); }
+  for (const w of workDays) { mayBe(w.areaId, areaIds); w.partOfId = orNull(w.partOfId, workDayIds); }
+  for (const j of jobs) { must(j.workDayId, workDayIds); must(j.customerId, customerIds); }
+  for (const p of payments) { must(p.customerId, customerIds); mayBe(p.handoverId, handoverIds); }
+  for (const a of allocations) { must(a.paymentId, paymentIds); must(a.jobId, jobIds); }
+  for (const r of payerReferences) mayBe(r.customerId, customerIds);
+  for (const l of importedLines) { must(l.importId, importIds); l.paymentId = orNull(l.paymentId, paymentIds); }
+  for (const m of messageLogs) {
+    m.customerId = orNull(m.customerId, customerIds);
+    m.jobId = orNull(m.jobId, jobIds);
+    m.workDayId = orNull(m.workDayId, workDayIds);
+  }
+  const expenseIds = new Set(expenses.map((e) => e.id as number));
+  const incomeIds = new Set(otherIncome.map((e) => e.id as number));
+  for (const e of expenses) e.recurrenceTemplateId = orNull(e.recurrenceTemplateId, expenseIds);
+  for (const e of otherIncome) e.recurrenceTemplateId = orNull(e.recurrenceTemplateId, incomeIds);
+
+  // Ids can only be ones this database has already handed out, so a file can't claim
+  // ids that another business would be given later.
+  const maxIds = await Promise.all([
+    prisma.area.aggregate({ _max: { id: true } }), prisma.tag.aggregate({ _max: { id: true } }),
+    prisma.customer.aggregate({ _max: { id: true } }), prisma.workDay.aggregate({ _max: { id: true } }),
+    prisma.job.aggregate({ _max: { id: true } }), prisma.payment.aggregate({ _max: { id: true } }),
+    prisma.paymentAllocation.aggregate({ _max: { id: true } }), prisma.expense.aggregate({ _max: { id: true } }),
+    prisma.otherIncome.aggregate({ _max: { id: true } }), prisma.holiday.aggregate({ _max: { id: true } }),
+    prisma.messageLog.aggregate({ _max: { id: true } }), prisma.cashHandover.aggregate({ _max: { id: true } }),
+    prisma.payerReference.aggregate({ _max: { id: true } }), prisma.paymentImport.aggregate({ _max: { id: true } }),
+    prisma.importedLine.aggregate({ _max: { id: true } }),
+  ]);
+  const lists = [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines];
+  lists.forEach((list, i) => {
+    const max = maxIds[i]._max.id ?? 0;
+    if (list.some((r) => (r.id as number) > max)) throw bad();
+  });
+
+  // Logins: only people on this team (now, or named in its current records). Anyone else,
+  // or someone who has since left, keeps their history but loses the link to the login.
+  const [members, current] = await Promise.all([
+    prisma.membership.findMany({ where: { tenantId }, select: { userId: true } }),
+    Promise.all([
+      prisma.workDay.findMany({ where: { tenantId, assignedUserId: { not: null } }, select: { assignedUserId: true }, distinct: ["assignedUserId"] }),
+      prisma.job.findMany({ where: { tenantId, completedByUserId: { not: null } }, select: { completedByUserId: true }, distinct: ["completedByUserId"] }),
+      prisma.cashHandover.findMany({ where: { tenantId }, select: { workerUserId: true, receivedByUserId: true } }),
+    ]),
+  ]);
+  const userIds = new Set<string>(members.map((m) => m.userId));
+  for (const w of current[0]) if (w.assignedUserId) userIds.add(w.assignedUserId);
+  for (const j of current[1]) if (j.completedByUserId) userIds.add(j.completedByUserId);
+  for (const h of current[2]) { userIds.add(h.workerUserId); userIds.add(h.receivedByUserId); }
+  const stillExist = new Set((await prisma.user.findMany({ where: { id: { in: [...userIds] } }, select: { id: true } })).map((u) => u.id));
+  const userOrNull = (v: unknown) => (typeof v === "string" && stillExist.has(v) ? v : null);
   for (const w of workDays) w.assignedUserId = userOrNull(w.assignedUserId);
   for (const j of jobs) {
     j.assignedUserId = userOrNull(j.assignedUserId);
     j.completedByUserId = userOrNull(j.completedByUserId);
   }
-  const paidBy = customers.filter((c) => c.paidByCustomerId != null).map((c) => ({ id: c.id as number, paidByCustomerId: c.paidByCustomerId as number }));
-  for (const c of customers) c.paidByCustomerId = null;
+  for (const p of payments) p.collectedByUserId = userOrNull(p.collectedByUserId);
+  for (const m of messageLogs) m.sentByUserId = userOrNull(m.sentByUserId);
+  for (const i of paymentImports) i.createdByUserId = userOrNull(i.createdByUserId);
+  for (const h of cashHandovers) {
+    if (!stillExist.has(h.workerUserId as string) || !stillExist.has(h.receivedByUserId as string)) throw bad();
+  }
 
   const where = { tenantId };
   await prisma.$transaction(async (tx) => {
@@ -170,7 +240,6 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
     if (areas.length) await tx.area.createMany({ data: areas as any });
     if (tags.length) await tx.tag.createMany({ data: tags as any });
     if (customers.length) await tx.customer.createMany({ data: customers as any });
-    for (const p of paidBy) await tx.customer.update({ where: { id: p.id }, data: { paidByCustomerId: p.paidByCustomerId } });
     if (customerTags.length) await tx.customerTag.createMany({ data: customerTags as any });
     if (workDays.length) await tx.workDay.createMany({ data: workDays as any });
     if (jobs.length) await tx.job.createMany({ data: jobs as any });

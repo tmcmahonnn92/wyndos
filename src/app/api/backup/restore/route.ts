@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   let parsed: unknown;
   try {
     const raw = Buffer.from(await (file as File).arrayBuffer());
-    const text = raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw).toString("utf8") : raw.toString("utf8");
+    const text = raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw, { maxOutputLength: 100 * 1024 * 1024 }).toString("utf8") : raw.toString("utf8");
     parsed = JSON.parse(text);
   } catch {
     return NextResponse.json({ ok: false, error: "That file can't be read. Choose a Wyndos backup (.json.gz)." }, { status: 400 });

@@ -28,8 +28,11 @@ async function getReleaseMetadata(): Promise<ReleaseMetadata> {
   }
 }
 
-export async function GET() {
-  const release = await getReleaseMetadata();
+export async function GET(request: Request) {
+  // Build details only for checks run on the server itself (the deploy script), not the public.
+  const host = (request.headers.get("host") ?? "").split(":")[0];
+  const local = host === "127.0.0.1" || host === "localhost";
+  const release = local ? await getReleaseMetadata() : undefined;
 
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -41,13 +44,13 @@ export async function GET() {
       release,
     });
   } catch (error) {
+    console.error("[health]", error);
     return NextResponse.json(
       {
         status: "error",
         database: "unavailable",
         timestamp: new Date().toISOString(),
         release,
-        error: error instanceof Error ? error.message : "Unknown health-check error",
       },
       { status: 503 }
     );

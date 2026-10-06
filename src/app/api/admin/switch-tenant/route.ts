@@ -1,3 +1,4 @@
+import { clientIp } from "@/lib/client-ip";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { auth } from "@/auth";
@@ -35,8 +36,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
   }
 
-  const forwardedFor = req.headers.get("x-forwarded-for") ?? "";
-  const ipAddress = forwardedFor.split(",")[0]?.trim() ?? "";
+  const ipAddress = clientIp(req.headers);
   const userAgent = req.headers.get("user-agent") ?? "";
 
   const cookieStore = await cookies();

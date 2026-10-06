@@ -86,8 +86,10 @@ const REPEAT_UNIT_OPTIONS: Array<{ value: RepeatUnit; label: string }> = [
 ];
 
 function toCsvValue(value: string | number) {
-  const raw = String(value ?? "");
-  return /[",\n]/.test(raw) ? `"${raw.replaceAll('"', '""')}"` : raw;
+  let raw = String(value ?? "");
+  // Stop Excel treating text as a formula (=, +, -, @).
+  if (/^[=+\-@\t\r]/.test(raw) && !/^-?\d+(\.\d+)?$/.test(raw)) raw = `'${raw}`;
+  return /[",\n\r]/.test(raw) ? `"${raw.replaceAll('"', '""')}"` : raw;
 }
 
 function downloadCsv(filename: string, rows: Array<Array<string | number>>) {

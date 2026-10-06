@@ -1,3 +1,5 @@
+import { allow, clearLimit, MINUTE } from "@/lib/rate-limit";
+import { clientIp } from "@/lib/client-ip";
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
@@ -142,16 +144,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         const email = String(credentials?.email ?? "").trim().toLowerCase();
         const password = String(credentials?.password ?? "");
         if (!email || !password) return null;
+
+        // Slow down password guessing: per account and per address.
+        const ip = request?.headers ? clientIp(request.headers) || "unknown" : "unknown";
+        if (!allow(`login:email:${email}`, 10, 15 * MINUTE) || !allow(`login:ip:${ip}`, 30, 15 * MINUTE)) return null;
 
         const user = await db.user.findUnique({ where: { email } });
         if (!user?.passwordHash) return null;
 
         const isValid = await compare(password, user.passwordHash);
         if (!isValid) return null;
+        clearLimit(`login:email:${email}`);
 
         return {
           id: user.id,
@@ -240,10 +247,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       let current = await db.user.findUnique({ where: { id: user.id } });
       if (!current) return true;
 
-      const isSuperAdmin =
+      // The address must be proven (confirmed by email or via Google), so nobody can make
+      // themselves super admin just by signing up with that address first.
+      const emailMatches =
         SUPER_ADMIN_EMAIL.length > 0 &&
         typeof current.email === "string" &&
         current.email.toLowerCase() === SUPER_ADMIN_EMAIL;
+      const emailProven =
+        emailMatches &&
+        (current.role === "SUPER_ADMIN" ||
+          !!current.emailVerified ||
+          (await db.account.count({ where: { userId: current.id, provider: "google" } })) > 0);
+      const isSuperAdmin = emailMatches && emailProven;
 
       if (!isSuperAdmin) {
         const pendingInvite = current.email

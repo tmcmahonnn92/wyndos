@@ -1,5 +1,6 @@
 "use server";
 
+import { allow, actionIp, MINUTE, TOO_MANY } from "@/lib/rate-limit";
 import { createHash, randomBytes } from "node:crypto";
 import { decryptSecret } from "@/lib/secrets";
 import { cookies } from "next/headers";
@@ -80,6 +81,7 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
     if (!name || !email || !input.password || !companyName) {
       return { ok: false, error: "All fields are required." };
     }
+    if (!allow(`signup:ip:${await actionIp()}`, 5, 60 * MINUTE)) return { ok: false, error: TOO_MANY };
 
     const existing = await db.user.findUnique({ where: { email } });
     if (existing) return { ok: false, error: "An account with this email already exists." };
@@ -445,6 +447,7 @@ export type AcceptInviteResult =
 
 export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInviteResult> {
   try {
+    if (!allow(`invite:ip:${await actionIp()}`, 20, 15 * MINUTE)) return { ok: false, error: TOO_MANY };
     const invite = await db.invite.findUnique({
       where: { token: input.token },
     });
@@ -836,6 +839,10 @@ export async function requestPasswordReset(email: string): Promise<RequestResetR
   try {
     const normEmail = email.trim().toLowerCase();
     if (!normEmail) return { ok: false, error: "Email is required." };
+    // Stop the form being used to flood someone's inbox.
+    if (!allow(`reset:email:${normEmail}`, 3, 60 * MINUTE) || !allow(`reset:ip:${await actionIp()}`, 10, 60 * MINUTE)) {
+      return { ok: false, error: TOO_MANY };
+    }
 
     const user = await db.user.findUnique({ where: { email: normEmail } });
     // Silently succeed for unknown emails / Google-only accounts to avoid enumeration
@@ -858,21 +865,9 @@ export async function requestPasswordReset(email: string): Promise<RequestResetR
     const baseUrl = (process.env.NEXTAUTH_URL ?? process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
     const resetLink = `${baseUrl}/auth/reset-password/${resetToken}`;
 
-    // Try to send via the user's tenant SMTP settings
-    let smtpSettings: any = null;
-    if (user.tenantId) {
-      smtpSettings = await db.tenantSettings.findFirst({ where: { tenantId: user.tenantId } });
-    } else {
-      const membership = await db.membership.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "asc" } });
-      if (membership) {
-        smtpSettings = await db.tenantSettings.findFirst({ where: { tenantId: membership.tenantId } });
-      }
-    }
-
-    const smtpDeliveryOptions = [
-      getTenantSmtpDeliveryConfig(smtpSettings),
-      getPlatformSmtpDeliveryConfig(),
-    ].filter(Boolean) as SmtpDeliveryConfig[];
+    // Reset links only ever go through Wyndos's own mail server. A business's own SMTP
+    // server could be read by that business, which would let it take over a worker's login.
+    const smtpDeliveryOptions = [getPlatformSmtpDeliveryConfig()].filter(Boolean) as SmtpDeliveryConfig[];
 
     for (const smtpConfig of smtpDeliveryOptions) {
       try {
@@ -1026,6 +1021,7 @@ export async function resendVerificationEmail(): Promise<{ ok: boolean; error?: 
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) return { ok: false, error: "Please sign in again." };
+  if (!allow(`verify:user:${userId}`, 5, 60 * MINUTE)) return { ok: false, error: TOO_MANY };
   try {
     await sendVerificationEmail(userId);
     return { ok: true };

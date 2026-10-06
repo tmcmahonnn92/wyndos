@@ -9,7 +9,9 @@ type Kind = (typeof KINDS)[number];
 
 function csv(rows: Array<Array<string | number | boolean | null | undefined>>) {
   const cell = (value: string | number | boolean | null | undefined) => {
-    const text = value === null || value === undefined ? "" : String(value);
+    let text = value === null || value === undefined ? "" : String(value);
+    // Stop Excel treating a customer's name or note as a formula (=, +, -, @).
+    if (/^[=+\-@\t\r]/.test(text) && !/^-?\d+(\.\d+)?$/.test(text)) text = `'${text}`;
     return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   // BOM so Excel reads £ correctly.

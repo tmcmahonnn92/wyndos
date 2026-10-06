@@ -2,6 +2,7 @@
 
 import { normalisePreference } from "@/lib/payment-preference";
 import { INACTIVE_AREA_NAME } from "@/lib/system-areas";
+import { pickPlain } from "@/lib/safe-input";
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
@@ -20,6 +21,7 @@ import {
   hasPermission,
   visibleJobWhere,
   visibleWorkDayWhere,
+  requireVisibleWorkDay,
   AccessDeniedError,
   type Actor,
 } from "@/lib/guards";
@@ -721,7 +723,10 @@ export async function updateArea(
   const actor = await requirePerm("areas");
   const tenantId = actor.tenantId;
   const area = await requireTenantArea(tenantId, id);
-  await prisma.area.update({ where: { id: area.id }, data });
+  await prisma.area.update({
+    where: { id: area.id },
+    data: pickPlain(data, ["name", "color", "sortOrder", "scheduleType", "frequencyWeeks", "monthlyDay", "nextDueDate", "dueWindowDays"] as const),
+  });
   // Frequency belongs to the area: every customer in it follows the area.
   if (data.frequencyWeeks !== undefined && !area.isSystemArea) {
     await prisma.customer.updateMany({ where: { tenantId, areaId: area.id }, data: { frequencyWeeks: data.frequencyWeeks } });
@@ -1979,7 +1984,8 @@ export async function updateCustomer(
   const { address: _a, houseNameNumber: _h, street: _s, town: _t, postcode: _p, ...rest } = data;
   const addressFields = resolveAddress(data);
   const updateData = {
-    ...rest,
+    // Only these fields, as plain values (see safe-input.ts).
+    ...pickPlain(rest, ["name", "email", "phone", "price", "notes", "nextDueDate", "active", "jobName", "advanceNotice", "preferredPaymentMethod", "slip"] as const),
     ...(addressFields ?? {}),
     ...(data.goCardlessCustomerReference !== undefined && {
       goCardlessCustomerReference: data.goCardlessCustomerReference.trim(),
@@ -2066,7 +2072,7 @@ export async function bulkUpdateCustomers(
       await tx.customer.update({
         where: { id },
         data: {
-          ...rest,
+          ...pickPlain(rest, ["name", "price", "notes", "active", "phone", "email", "preferredPaymentMethod", "slip", "advanceNotice"] as const),
           ...(addressFields?.address ? addressFields : {}),
           areaId: resolvedAreaId,
           frequencyWeeks: area?.frequencyWeeks ?? 4, // frequency belongs to the area
@@ -2340,12 +2346,16 @@ export async function addJobFromOtherArea(targetWorkDayId: number, customerId: n
     requireTenantCustomer(tenantId, customerId),
     requireTenantWorkDay(tenantId, targetWorkDayId),
   ]);
+  // Workers who don't plan the diary may only add to their own day, and only take jobs they can see.
+  const limited = actor.isWorker && !hasPermission(actor, "scheduler");
+  if (limited) await requireVisibleWorkDay(actor, targetWorkDayId);
 
   const existing = await prisma.job.findFirst({ where: { tenantId, workDayId: targetWorkDayId, customerId } });
   if (!existing) {
     const pendingElsewhere = await prisma.job.findFirst({
       where: {
         tenantId,
+        ...(limited ? visibleJobWhere(actor) : {}),
         customerId,
         status: "PENDING",
         isOneOff: false,
@@ -3642,11 +3652,12 @@ export async function splitArea(areaId: number) {
 // ─── Update completed work day date ─────────────────────────────────────────
 
 export async function updateCompletedWorkDayDate(workDayId: number, isoDate: string) {
-  const actor = await requirePerm("schedule");
+  // Planning action: only the owner or someone allowed to use the scheduler.
+  const actor = await requirePerm("scheduler");
   const tenantId = actor.tenantId;
   const newDate = isoToUTC(isoDate);
   const workDay = await prisma.workDay.findFirst({
-    where: { id: workDayId, tenantId },
+    where: { id: workDayId, tenantId, status: "COMPLETE" },
     include: { area: true },
   });
   if (!workDay) throw new Error("Work day not found");
@@ -3705,7 +3716,18 @@ export async function recordPayment(data: {
     const visible = await prisma.job.count({ where: { tenantId, id: { in: jobIds }, ...visibleJobWhere(actor) } });
     if (visible !== new Set(jobIds).size) throw new AccessDeniedError();
   }
-  await createAllocatedPayment({ tenantId, ...data, collectedByUserId: actor.userId });
+  // Only what a payment needs; tenantId always comes from the signed-in user.
+  await createAllocatedPayment({
+    tenantId,
+    customerId: Number(data.customerId),
+    allocations: (Array.isArray(data.allocations) ? data.allocations : []).map((a) => ({ jobId: Number(a.jobId), amount: Number(a.amount) })),
+    method: data.method,
+    notes: typeof data.notes === "string" ? data.notes.slice(0, 500) : undefined,
+    paidAt: data.paidAt instanceof Date ? data.paidAt : undefined,
+    clientRequestId: typeof data.clientRequestId === "string" ? data.clientRequestId.slice(0, 100) : undefined,
+    extra: typeof data.extra === "number" ? data.extra : undefined,
+    collectedByUserId: actor.userId,
+  });
 
   revalidatePath("/payments");
   revalidatePath(`/customers/${data.customerId}`);
@@ -5354,6 +5376,8 @@ export async function getBusinessSettingsForClient() {
   };
 }
 
+const SETTINGS_FIELDS = ["businessName", "ownerName", "phone", "email", "address", "bankDetails", "vatNumber", "invoicePrefix", "nextInvoiceNum", "invoiceVatEnabled", "allowCustomerCredit", "keepWorkerOnNextRun", "invoiceVatRate", "invoicePaymentTerms", "logoBase64", "goCardlessAccessToken", "goCardlessEnvironment", "goCardlessReferencePrefix", "smtpProvider", "smtpHost", "smtpPort", "smtpUser", "smtpPass", "smtpFromName", "voodooApiKey", "voodooSender", "messagingProvider", "twilioAccountSid", "twilioAuthToken", "twilioFromNumber", "metaPhoneNumberId", "metaAccessToken", "metaWabaId", "tmplCleaningReminder", "tmplJobComplete", "tmplPaymentReminder1", "tmplPaymentReminder2", "tmplPaymentReminder3", "tmplPaymentReceived", "tmplJobAndPayment", "tmplInvoiceNote", "tmplCleanedBank", "textSendMethod", "textsTestMode", "textCleanedEnabled", "textSkipCleanedIfPaid", "textPaymentReminderDays", "textPaymentReminder2Days", "runDueWindowDays"] as const;
+
 export async function updateBusinessSettings(data: {
   businessName?: string;
   ownerName?: string;
@@ -5415,7 +5439,11 @@ export async function updateBusinessSettings(data: {
   const tenantId = actor.tenantId;
   const user = await requireAuth();
   const canManageProviderSettings = !actor.isWorker;
-  const updateData: Record<string, unknown> = { ...data };
+  // Only these fields, as plain values (see safe-input.ts).
+  const updateData: Record<string, unknown> = pickPlain(data, SETTINGS_FIELDS);
+  if (typeof updateData.logoBase64 === "string" && !/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(updateData.logoBase64)) {
+    throw new Error("The logo must be a PNG, JPG or WebP picture.");
+  }
   const businessName = typeof updateData.businessName === "string" ? updateData.businessName.trim() : undefined;
   const ownerName = typeof updateData.ownerName === "string" ? updateData.ownerName.trim() : undefined;
   const phone = typeof updateData.phone === "string" ? updateData.phone.trim() : undefined;
@@ -5546,7 +5574,7 @@ export async function getTags() {
 export async function createTag(data: { name: string; color: string }) {
   const actor = await requirePerm("customers");
   const tenantId = actor.tenantId;
-  await prisma.tag.create({ data: { ...data, tenantId } });
+  await prisma.tag.create({ data: { name: String(data?.name ?? "").trim().slice(0, 40), color: String(data?.color ?? "#3B82F6").slice(0, 20), tenantId } });
   revalidatePath("/settings");
 }
 
