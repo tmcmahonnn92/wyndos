@@ -596,18 +596,29 @@ export function SettingsClient({
           <Card>
             <CardHeader><CardTitle>Scheduling</CardTitle></CardHeader>
             <CardContent className="space-y-2">
-              <label className={lbl}>Keep areas together: include customers due up to</label>
+              <label className={lbl}>Clean customers early so the area stays together</label>
               <div className="flex items-center gap-2">
-                <input type="number" min={0} max={90} className={cn(inp, "w-40")} value={form.runDueWindowDays}
-                  placeholder="Half the frequency"
+                <span className="text-sm text-slate-600">Up to</span>
+                <input type="number" min={0} max={90} className={cn(inp, "w-28")} value={form.runDueWindowDays}
+                  placeholder="Auto"
                   onChange={(e) => setForm((f) => ({ ...f, runDueWindowDays: e.target.value }))} />
-                <span className="text-sm text-slate-600">days after the run</span>
+                <span className="text-sm text-slate-600">days early</span>
               </div>
-              <p className="text-xs text-slate-500">
-                When an area&apos;s run is booked, everyone due by then, or within this many days after, goes on it. Bigger
-                means nobody waits an extra cycle (at most they&apos;re cleaned a little early). Leave blank for half the
-                area&apos;s frequency, e.g. 14 days for 4-weekly. Each area can have its own number in Areas.
-              </p>
+              <div className="space-y-1.5 text-xs text-slate-500">
+                <p>
+                  When you book an area&apos;s run, it takes everyone who&apos;s due by that day, plus anyone due
+                  within this many days after it, so they&apos;re all done in one go instead of someone being left behind.
+                </p>
+                <p className="rounded-lg bg-slate-50 px-3 py-2 text-slate-600">
+                  <b>Example:</b> Oakfield is booked for Monday 10th, set to 7 days. Mrs Smith is due Thursday 13th, so she
+                  goes on Monday&apos;s run (3 days early). Mr Jones is due Friday 21st, 11 days later, so he waits for the
+                  next run.
+                </p>
+                <p>
+                  Leave it blank (Auto) for half the area&apos;s frequency: 14 days for a 4-weekly area, 7 for 2-weekly.
+                  You can set a different number for one area in Areas.
+                </p>
+              </div>
               <label className="mt-3 flex items-start gap-3 rounded-lg border border-slate-200 p-3">
                 <input type="checkbox" className="mt-1" checked={form.keepWorkerOnNextRun} onChange={(e) => setForm((f) => ({ ...f, keepWorkerOnNextRun: e.target.checked }))} />
                 <span>

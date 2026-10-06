@@ -77,6 +77,8 @@ import { OneOffJobModal } from "@/app/days/one-off-job-modal";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type Area = {
+  /** False when the area has nothing in it (hidden unless "Show empty"). */
+  inUse?: boolean;
   id: number;
   name: string;
   color: string;
@@ -1108,7 +1110,8 @@ function AreaPanelCard({ area, onDragStart, overdueWorkDay }: {
   const expectedDate = nextExpectedDateForArea(area);
 
   // An already-scheduled but uncompleted past workday takes priority for overdue status
-  const isOverdue = overdueWorkDay
+  const empty = area.inUse === false;
+  const isOverdue = empty ? false : overdueWorkDay
     ? true
     : expectedDate
     ? expectedDate < today
@@ -1125,7 +1128,9 @@ function AreaPanelCard({ area, onDragStart, overdueWorkDay }: {
   }
 
   let dueBadge: React.ReactNode = null;
-  if (overdueWorkDay) {
+  if (empty) {
+    dueBadge = <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold whitespace-nowrap bg-slate-100 text-slate-500 border border-slate-200">Empty</span>;
+  } else if (overdueWorkDay) {
     // Area has a scheduled workday in the past that was never completed
     const wd = toUTCMidnight(overdueWorkDay.date);
     const diff = Math.round((today.getTime() - wd.getTime()) / 86_400_000);
@@ -2814,6 +2819,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
   viewerRole: "SUPER_ADMIN" | "OWNER" | "WORKER";
   viewerPermissions: string[];
 }) {
+  const [showEmpty, setShowEmpty] = useState(false);
   const router = useRouter();
   const [, startTransition] = useTransition();
   const canManageSchedule = viewerRole !== "WORKER";
@@ -2946,8 +2952,10 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
       .filter(Boolean) as number[]
   );
 
+  // Empty areas (nothing in them) are hidden unless "Show empty" is ticked.
+  const emptyCount = areas.filter((a) => a.inUse === false && !scheduledAreaIds.has(a.id)).length;
   const sortedAreas = [...areas]
-    .filter((a) => !scheduledAreaIds.has(a.id))
+    .filter((a) => !scheduledAreaIds.has(a.id) && (showEmpty || a.inUse !== false))
     .sort((a, b) => {
       const da = nextExpectedDateForArea(a)?.getTime() ?? Infinity;
       const db = nextExpectedDateForArea(b)?.getTime() ?? Infinity;
@@ -2959,6 +2967,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
   const shownAreas = areaQuery ? sortedAreas.filter((a) => a.name.toLowerCase().includes(areaQuery)) : sortedAreas;
 
   const overdueAreas = sortedAreas.filter((a) => {
+    if (a.inUse === false) return false;
     const expected = nextExpectedDateForArea(a);
     if (!expected) return false;
     return expected < today0;
@@ -2966,7 +2975,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
 
   const scheduledOverdueAreas = areas
     .filter((a) => {
-      if (!scheduledAreaIds.has(a.id)) return false;
+      if (!scheduledAreaIds.has(a.id) || a.inUse === false) return false;
       const expected = nextExpectedDateForArea(a);
       if (!expected) return false;
       return expected < today0;
@@ -3467,6 +3476,12 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                 className="w-32 rounded-lg border border-slate-200 bg-white py-1 pl-6 pr-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-40"
               />
             </div>
+            {emptyCount > 0 && (
+              <label className="flex items-center gap-1 text-[11px] text-slate-500" title="Areas with no customers, quotes or one-offs">
+                <input type="checkbox" checked={showEmpty} onChange={(e) => { setShowEmpty(e.target.checked); if (areasCollapsed) setAreasCollapsed(false); }} className="h-3.5 w-3.5 accent-blue-600" />
+                Show empty ({emptyCount})
+              </label>
+            )}
           </div>
           {/* Toolbar buttons */}
           <div className="flex items-center gap-1.5">

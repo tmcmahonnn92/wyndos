@@ -842,8 +842,11 @@ export async function getAreaSchedules(opts: { inUseOnly?: boolean } = {}) {
     },
     orderBy: { sortOrder: "asc" },
   });
+  const inUse = new Set((await prisma.area.findMany({ where: { tenantId, isSystemArea: false, ...AREA_IN_USE }, select: { id: true } })).map((a) => a.id));
   return areas.map((a) => ({
     ...a,
+    /** False for an empty area (no active customers, no quotes or one-offs to do). */
+    inUse: inUse.has(a.id),
     estimatedValue: a.customers.reduce((sum, customer) => sum + customer.price, 0),
     outstandingDebt: Number(
       a.customers.reduce((sum, customer) =>
