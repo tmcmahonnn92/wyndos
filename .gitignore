@@ -81,3 +81,4 @@ key.pub
 
 # Local test scripts and screenshots
 .tmp-test/
+.release-meta.json

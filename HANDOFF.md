@@ -166,3 +166,10 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Added or moved jobs go to the end of their area (`endOfDay`); customers moved to another area go to the end of it (`endOfArea`).
 - The old "All jobs by street" view is gone (street is now a one-off sort you can then tidy).
 - Scheduler month cell: clicking the date or empty space opens /days/date/[date].
+
+## Zero-downtime deploys (Oct 2026)
+- `deploy/deploy-vps.sh`: `/opt/wyndos/current` is only the git checkout. Each deploy copies it to `/opt/wyndos/releases/<time>-<sha>`, installs/migrates/builds there while the old one serves, then points `/opt/wyndos/live` at it and restarts `wyndos@3002` then `wyndos@3000`, each only after the other is healthy (rolls back the symlink if not). Keeps 3 releases.
+- systemd template `deploy/systemd/wyndos@.service` (installed by the deploy script). The old single `wyndos.service` is disabled on the first new deploy.
+- nginx: upstream `wyndos_app` (3000 + 3002) with `proxy_next_upstream`; `/_next/static` served from `/opt/wyndos/shared/next-static` (every build's files, 30 days). One-off: `sudo ./deploy/setup-zero-downtime.sh`.
+- App: `next.config.ts` `deploymentId` from `.release-meta.json` (skew protection: old pages do a full load on navigation); `/api/version` + `UpdateBanner` show "Wyndos has been updated · Refresh".
+- Dashboard: its service status check should use `wyndos@3000`.
