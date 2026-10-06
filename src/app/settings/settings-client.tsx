@@ -615,7 +615,7 @@ export function SettingsClient({
                   next run.
                 </p>
                 <p>
-                  Leave it blank (Auto) for half the area&apos;s frequency: 14 days for a 4-weekly area, 7 for 2-weekly.
+                  Leave it blank (Auto) for 7 days (3 for weekly areas, so nobody is done a whole visit early).
                   You can set a different number for one area in Areas.
                 </p>
               </div>
