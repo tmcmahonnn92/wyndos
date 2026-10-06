@@ -506,6 +506,23 @@ export function DayView({
     ids.splice(to, 0, dragId);
     placeJob(ids, dragId);
   };
+  /** Drag an area row onto another to put it in that place. */
+  const dragAreaRef = useRef<number | null>(null);
+  const [dragOverAreaId, setDragOverAreaId] = useState<number | null>(null);
+  const dropArea = (targetDayId: number) => {
+    const dragId = dragAreaRef.current;
+    dragAreaRef.current = null;
+    setDragOverAreaId(null);
+    if (dragId === null || dragId === targetDayId) return;
+    const ids = orderedDays.map((d) => d.id);
+    const from = ids.indexOf(dragId);
+    const to = ids.indexOf(targetDayId);
+    if (from === -1 || to === -1) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, dragId);
+    setOptimistic({ jobs: null, days: ids });
+    safely(async () => { await setDateAreaOrder(ids); router.refresh(); });
+  };
   /** Move a whole area up or down the day. */
   const moveArea = (dayId: number, direction: -1 | 1) => {
     const ids = orderedDays.map((d) => d.id);
@@ -978,7 +995,7 @@ export function DayView({
         {/* One card per area on this date: its worker, notes, and area-only actions */}
         <div className={multi ? "space-y-1.5" : "space-y-4"}>
         {multi && !filtering && (
-          <p className="px-1 text-[11px] text-slate-400">Use the arrows to change the order you do the areas in today.</p>
+          <p className="px-1 text-[11px] text-slate-400">Drag the areas, or use the arrows, to change the order you do them in today.</p>
         )}
         {orderedDays.map((day, position) => {
           const jobs = day.jobs.map(withLocal);
@@ -986,7 +1003,16 @@ export function DayView({
           const value = jobs.reduce((s, j) => s + j.price, 0);
           const open = openAreaId === day.id;
           return (
-            <div key={day.id} className={cn("space-y-2", multi && "rounded-xl border border-slate-200 bg-white px-3 py-2.5")}>
+            <div
+              key={day.id}
+              draggable={multi && !filtering}
+              onDragStart={(e) => { if (!multi || filtering) return; e.stopPropagation(); dragAreaRef.current = day.id; }}
+              onDragEnd={() => { dragAreaRef.current = null; setDragOverAreaId(null); }}
+              onDragOver={(e) => { if (dragAreaRef.current === null) return; e.preventDefault(); setDragOverAreaId(day.id); }}
+              onDrop={(e) => { if (dragAreaRef.current === null) return; e.preventDefault(); dropArea(day.id); }}
+              className={cn("space-y-2", multi && "rounded-xl border border-slate-200 bg-white px-3 py-2.5", multi && !filtering && "cursor-grab",
+                dragOverAreaId === day.id && dragAreaRef.current !== day.id && "ring-2 ring-blue-400")}
+            >
               {multi && (
                 <div className="flex items-center gap-1.5">
                 {!filtering && (
@@ -1133,25 +1159,13 @@ export function DayView({
             </div>
             {reorderMode && canReorder && (
               <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800">
-                <p>Drag a job, or use the arrows, to put it anywhere in the day, even in among another area&apos;s jobs.{multi ? " Use the arrows by an area's name to move the whole area." : ""}</p>
+                <p>Drag a job, or use the arrows, to put it anywhere in the day, even in among another area&apos;s jobs.{multi ? " To change the order of the areas, use the arrows on the area list above." : ""}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button type="button" onClick={sortByStreet} disabled={isPending}
                     className="rounded-lg border border-blue-300 bg-white px-2.5 py-1 font-semibold text-blue-700 disabled:opacity-50">Sort each area by street</button>
                   <button type="button" onClick={resetOrder} disabled={isPending}
                     className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600 disabled:opacity-50">Back to normal order</button>
                 </div>
-              </div>
-            )}
-            {offer && (
-              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-700 shadow-sm">
-                <span className="flex-1">
-                  {offer.kind === "after"
-                    ? <>Moved for today. Always put <b>{offer.name}</b> after <b>{offer.afterName}</b> when they&apos;re on the same day?</>
-                    : <>Moved for today. Change <b>{offer.areaName}</b>&apos;s normal order too?</>}
-                </span>
-                <button type="button" onClick={acceptOffer} disabled={isPending}
-                  className="rounded-lg bg-blue-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{offer.kind === "after" ? "Always" : "Change it"}</button>
-                <button type="button" onClick={() => setOffer(null)} className="rounded-lg px-2 py-1 font-semibold text-slate-500">Just today</button>
               </div>
             )}
             {multi && !routeOrder ? (
@@ -1168,20 +1182,11 @@ export function DayView({
                       const day = dayById.get(job.workDayId)!;
                       const firstTime = !shown.has(day.id);
                       shown.add(day.id);
-                      const position = orderedDays.findIndex((d) => d.id === day.id);
                       out.push(
                         <div key={`h-${day.id}-${job.id}`} className="flex items-center gap-2 px-1 pt-2">
                           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: day.area?.color ?? "#94a3b8" }} />
                           <span className="text-xs font-bold text-slate-700">{areaLabel(day)}{firstTime ? "" : " (continued)"}</span>
                           <span className="text-xs text-slate-400">{pendingJobs.filter((j) => j.workDayId === day.id).length}</span>
-                          {reorderMode && canReorder && firstTime && (
-                            <span className="ml-auto flex gap-1">
-                              <button type="button" aria-label={`Move ${areaLabel(day)} earlier`} disabled={position <= 0 || isPending} onClick={() => moveArea(day.id, -1)}
-                                className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-bold text-slate-600 disabled:opacity-30">↑</button>
-                              <button type="button" aria-label={`Move ${areaLabel(day)} later`} disabled={position >= orderedDays.length - 1 || isPending} onClick={() => moveArea(day.id, 1)}
-                                className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-bold text-slate-600 disabled:opacity-30">↓</button>
-                            </span>
-                          )}
                         </div>,
                       );
                     }
@@ -1251,6 +1256,26 @@ export function DayView({
 
 
       {/* ── More: the less-used day actions ───────────── */}
+      <Modal open={offer !== null} onClose={() => setOffer(null)} title={offer?.kind === "after" ? "Always do them together?" : "Change the normal order?"}>
+        {offer && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700 dark:text-slate-200">
+              {offer.kind === "after"
+                ? <>Moved for today. Do you want <b>{offer.name}</b> to always come straight after <b>{offer.afterName}</b> whenever they&apos;re on the same day?</>
+                : <>Moved for today. Do you want to change <b>{offer.areaName}</b>&apos;s normal order too, so <b>{offer.name}</b> is here on every run?</>}
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row-reverse">
+              <button type="button" onClick={acceptOffer} disabled={isPending}
+                className="flex-1 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                {offer.kind === "after" ? "Yes, always" : "Yes, change it"}
+              </button>
+              <button type="button" onClick={() => setOffer(null)}
+                className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700">Just today</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <Modal open={moreOpen} onClose={() => setMoreOpen(false)} title="More">
         <div className="space-y-1.5">
           {!allComplete && (
