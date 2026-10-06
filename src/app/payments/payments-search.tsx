@@ -36,6 +36,7 @@ export function PaymentsBody({
   areas,
   businessName,
   smsTemplates,
+  textVars,
   payments,
 }: {
   debtors: Debtor[];
@@ -47,6 +48,7 @@ export function PaymentsBody({
   areas: Array<{ id: number; name: string; color?: string | null }>;
   businessName: string;
   smsTemplates: string[];
+  textVars?: Record<string, string>;
   payments: PaymentRow[];
 }) {
   const [query, setQuery] = useState("");
@@ -142,7 +144,7 @@ export function PaymentsBody({
           {debtors.length === 0 ? (
             <p className="py-6 text-center text-sm text-slate-500">Nobody owes anything. Nice.</p>
           ) : (
-            <DebtorsPanel debtors={debtors} areas={areas} businessName={businessName} smsTemplates={smsTemplates} query={query} onlyLate={onlyLate} />
+            <DebtorsPanel debtors={debtors} areas={areas} businessName={businessName} smsTemplates={smsTemplates} textVars={textVars} query={query} onlyLate={onlyLate} />
           )}
         </section>
       )}

@@ -1601,7 +1601,7 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
                           ))}
                         </div>
                         <input type="text" value={payNotes} onChange={(e) => setPayNotes(e.target.value)}
-                          placeholder="Notes (optional)"
+                          placeholder="Payment notes (optional)"
                           className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
                         <div className="flex gap-2">
                           <button onClick={() => handleMarkPaid(job)}
@@ -2390,7 +2390,7 @@ function DayDetailModal({
                         ))}
                       </div>
                       <input type="text" value={ddPayNotes} onChange={(e) => setDdPayNotes(e.target.value)}
-                        placeholder="Notes (optional)"
+                        placeholder="Payment notes (optional)"
                         className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
                       <div className="flex gap-2">
                         <button onClick={() => handleDayDetailMarkPaid(job)} disabled={isSaving || ddPayJobIds.size === 0}

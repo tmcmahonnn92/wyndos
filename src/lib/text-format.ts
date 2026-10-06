@@ -24,6 +24,23 @@ export function fixUkPhone(raw: string | null | undefined): string {
   return digits.length === 10 && /^[1-9]/.test(digits) ? `0${text}` : text;
 }
 
+/**
+ * Fill {{placeholders}} in a text. Forgiving about how they were typed or pasted:
+ * spaces inside the braces, odd capitals, invisible characters copied from other apps,
+ * curly or full-width braces. Unknown placeholders are left as they are.
+ */
+export function fillPlaceholders(template: string, vars: Record<string, string | undefined | null>) {
+  const lookup = new Map(Object.keys(vars).map((k) => [k.toLowerCase(), k]));
+  const text = template
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, "")
+    .replace(/\uFF5B/g, "{")
+    .replace(/\uFF5D/g, "}");
+  return text.replace(/\{\{([^{}]{1,40})\}\}/g, (whole, inner: string) => {
+    const key = lookup.get(inner.replace(/[^A-Za-z0-9]/g, "").toLowerCase());
+    return key === undefined ? whole : String(vars[key] ?? "");
+  });
+}
+
 const PLACE_WORDS = /\b(road|rd|street|st|lane|ln|close|avenue|ave|drive|way|court|view|cottage|cottages|house|bungalow|farm|hall|pub|barn|lodge|mill|croft|nook|green|hill|place|terrace|crescent|grove)\b/i;
 
 /**
