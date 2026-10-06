@@ -2651,6 +2651,8 @@ function JobCard({
           {(job.customer.notes || job.notes) && (
             <button
               onClick={(e) => { e.stopPropagation(); onNotesClick?.(); }}
+              aria-label="Edit notes"
+              title="Tap to edit notes"
               className="mt-1 flex w-full items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-left text-[11px] leading-snug text-amber-900 hover:bg-amber-100 active:scale-[0.99] transition-all"
             >
               <StickyNote size={11} className="mt-0.5 flex-shrink-0" />
@@ -2658,6 +2660,9 @@ function JobCard({
                 {job.customer.notes && <li className="line-clamp-2">• {job.customer.notes}</li>}
                 {job.notes && <li className="line-clamp-2">• <b className="font-semibold">{isDone ? "Completion: " : "This visit: "}</b>{job.notes}</li>}
               </ul>
+              <span className="ml-1 inline-flex flex-shrink-0 items-center gap-0.5 self-start rounded-full border border-amber-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                <Pencil size={9} /> Edit
+              </span>
             </button>
           )}
           {!job.customer.notes && !job.notes && onNotesClick && !isDone && (
