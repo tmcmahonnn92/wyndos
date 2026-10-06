@@ -4,6 +4,7 @@ import { getCustomer, getCustomerBankReferences, getAreas, getBusinessSettings, 
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { CustomerDetail } from "./customer-detail";
 import { BankReferences } from "./bank-references";
+import { PlaceAfter } from "./place-after";
 import { getCustomerTexts } from "@/lib/text-actions";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,10 @@ export default async function CustomerPage({ params }: Props) {
         hidePrices={hidePrices}
         goCardlessReferencePrefix={settings.goCardlessReferencePrefix || "WD"}
         texts={texts.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() }))}
+      />
+      <PlaceAfter
+        customerId={customer.id}
+        afterName={customer.placeAfterCustomerId ? pickList.find((c) => c.id === customer.placeAfterCustomerId)?.name ?? null : null}
       />
       {canPay && <BankReferences refs={bankRefs.map(({ id, label }) => ({ id, label }))} />}
     </Suspense>

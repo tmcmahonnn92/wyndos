@@ -347,6 +347,8 @@ model Customer {
   goCardlessMandateId     String?
   active                 Boolean       @default(true)
   sortOrder              Int           @default(0)
+  /// Always put this customer straight after that customer when both are on the same day (any area).
+  placeAfterCustomerId   Int?
   nextDueDate            DateTime?
   lastCompletedDate      DateTime?
   skipNextAreaRun        Boolean       @default(false)
@@ -379,6 +381,8 @@ model WorkDay {
   tenantId  Int
   tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   date      DateTime
+  /// Position of this area among the areas on its date (null = the areas' normal order).
+  dayOrder        Int?
   areaId    Int?
   area      Area?         @relation(fields: [areaId], references: [id])
   assignedUserId String?
@@ -418,6 +422,8 @@ model Job {
   invoiceNumber String    @default("")
   notes       String?
   sortOrder   Int       @default(0)
+  /// Where this job goes on its date, today only: after that job (any area), 0 = first, -1 = stay in its own area. Null = normal order.
+  afterJobId  Int?
   isOneOff    Boolean   @default(false)
   /// A quote visit rather than a clean. Price stays 0; the quote is in quotedPrice.
   isQuote              Boolean   @default(false)

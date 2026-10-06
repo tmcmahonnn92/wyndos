@@ -13,6 +13,7 @@ import { getExpenseCategory, getOtherIncomeCategory, getTaxTreatment, EXPENSE_CA
 import { calcNextDue } from "@/lib/utils";
 import { addDays, startOfDay } from "date-fns";
 import { requireAuth } from "@/lib/tenant-context";
+import { orderDays } from "@/lib/day-order";
 import {
   getActor,
   requireMember,
@@ -117,6 +118,18 @@ async function removeDayIfEmpty(tenantId: number, dayId: number) {
  * area's day on the new date (made as a "part" of the same run if there isn't one), so the
  * area stays one run: its next visit is booked once every part is done.
  */
+/** Position at the end of a day's jobs, so added or moved jobs go last, not first. */
+async function endOfDay(workDayId: number) {
+  const m = await prisma.job.aggregate({ where: { workDayId }, _max: { sortOrder: true } });
+  return (m._max.sortOrder ?? -1) + 1;
+}
+
+/** Position at the end of an area's walking order. */
+async function endOfArea(tenantId: number, areaId: number) {
+  const m = await prisma.customer.aggregate({ where: { tenantId, areaId }, _max: { sortOrder: true } });
+  return (m._max.sortOrder ?? -1) + 1;
+}
+
 async function moveJobsToDateFor(
   actor: Awaited<ReturnType<typeof requirePerm>>,
   jobIds: number[],
@@ -164,6 +177,8 @@ async function moveJobsToDateFor(
       data: {
         workDayId: target.id,
         status: "PENDING",
+        sortOrder: await endOfDay(target.id),
+        afterJobId: null,
         assignedUserId: keepWorker && keepWorker !== target.assignedUserId ? keepWorker : null,
       },
     });
@@ -946,6 +961,8 @@ export async function moveOverdueJobsToDay(
       data: {
         workDayId: targetWorkDayId,
         status: "PENDING",
+        sortOrder: await endOfDay(targetWorkDayId),
+        afterJobId: null,
         assignedUserId: job.assignedUserId ?? job.workDay.assignedUserId ?? null,
       },
     });
@@ -2221,8 +2238,8 @@ export async function getWorkDaysOnDate(dateISO: string) {
     include: workDayInclude(actor),
     orderBy: [{ area: { sortOrder: "asc" } }, { id: "asc" }],
   });
-  // A worker only sees area days that have at least one of their jobs.
-  return actor.isWorker ? days.filter((day) => day.jobs.length > 0) : days;
+  // A worker only sees area days that have at least one of their jobs. Areas in the order set for the date.
+  return orderDays(actor.isWorker ? days.filter((day) => day.jobs.length > 0) : days);
 }
 
 export async function createWorkDay(date: Date, areaId?: number, assignedUserId?: string | null) {
@@ -2255,7 +2272,7 @@ export async function addJobToDay(workDayId: number, customerId: number) {
     requireTenantCustomer(tenantId, customerId),
     requireTenantWorkDay(tenantId, workDayId),
   ]);
-  const job = await prisma.job.create({ data: { tenantId, workDayId, customerId, price: customer.price, status: "PENDING" },
+  const job = await prisma.job.create({ data: { tenantId, workDayId, customerId, price: customer.price, status: "PENDING", sortOrder: await endOfDay(workDayId) },
   });
   revalidatePath(`/days/${workDayId}`);
   return job;
@@ -2326,6 +2343,7 @@ export async function addOneOffJobToDay(
       price: opts.price ?? customer.price,
       notes: opts.notes?.trim() || null,
       isOneOff: true,
+      sortOrder: await endOfDay(workDayId),
       assignedUserId: actor.isWorker ? actor.userId : null,
     },
   });
@@ -2367,7 +2385,7 @@ export async function addJobFromOtherArea(targetWorkDayId: number, customerId: n
     if (pendingElsewhere) {
       await prisma.job.update({
         where: { id: pendingElsewhere.id },
-        data: { workDayId: targetWorkDay.id, assignedUserId: null },
+        data: { workDayId: targetWorkDay.id, assignedUserId: null, sortOrder: await endOfDay(targetWorkDay.id), afterJobId: null },
       });
       revalidatePath(`/days/${pendingElsewhere.workDayId}`);
     } else {
@@ -2378,6 +2396,7 @@ export async function addJobFromOtherArea(targetWorkDayId: number, customerId: n
         price: customer.price,
         name: customer.jobName || "Window Cleaning",
         isOneOff: true,
+        sortOrder: await endOfDay(targetWorkDayId),
       } });
     }
   }
@@ -2417,7 +2436,7 @@ export async function createCustomerAndAddToDay(
       frequencyWeeks: area?.frequencyWeeks ?? 4,
     },
   });
-  await prisma.job.create({ data: { tenantId, workDayId, customerId: customer.id, price: customer.price },
+  await prisma.job.create({ data: { tenantId, workDayId, customerId: customer.id, price: customer.price, sortOrder: await endOfDay(workDayId) },
   });
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/customers");
@@ -2470,7 +2489,7 @@ export async function createOneOffCustomerAndAddToDay(
       frequencyWeeks: freqWeeks,
     },
   });
-  await prisma.job.create({ data: { tenantId, workDayId, customerId: customer.id, price: customer.price, isOneOff: true },
+  await prisma.job.create({ data: { tenantId, workDayId, customerId: customer.id, price: customer.price, isOneOff: true, sortOrder: await endOfDay(workDayId) },
   });
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/customers");
@@ -2894,10 +2913,10 @@ export async function moveCustomerToArea(
     addToWorkDayId ? requireTenantWorkDay(tenantId, addToWorkDayId) : Promise.resolve(null),
   ]);
   const oldAreaId = customer.areaId;
-  // Clear skip flag — moving to a new area is a clean slate
+  // Clear skip flag — moving to a new area is a clean slate. They go to the end of its walking order.
   await prisma.customer.updateMany({
     where: { tenantId, id: customerId },
-    data: { areaId: newAreaId, skipNextAreaRun: false },
+    data: { areaId: newAreaId, skipNextAreaRun: false, ...(oldAreaId !== newAreaId ? { sortOrder: await endOfArea(tenantId, newAreaId) } : {}) },
   });
   await removeCustomerFromPreviousAreaScheduledDays(tenantId, customerId, oldAreaId, newAreaId);
   revalidatePath("/customers");
@@ -2918,9 +2937,17 @@ export async function bulkMoveCustomersToArea(customerIds: number[], newAreaId: 
   await requireTenantArea(tenantId, newAreaId);
   const customers = await prisma.customer.findMany({ where: { tenantId, id: { in: customerIds } }, select: { id: true, areaId: true } });
   if (customers.length !== customerIds.length) throw new Error("One or more customers were not found");
+  // Clear skip flag — moving to a new area is a clean slate. Newcomers go to the end of its
+  // walking order, in the order they had before.
+  let next = await endOfArea(tenantId, newAreaId);
+  const movers = await prisma.customer.findMany({
+    where: { tenantId, id: { in: customerIds }, areaId: { not: newAreaId } },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true },
+  });
+  for (const m of movers) await prisma.customer.update({ where: { id: m.id }, data: { sortOrder: next++ } });
   await prisma.customer.updateMany({
     where: { tenantId, id: { in: customerIds } },
-    // Clear skip flag — moving to a new area is a clean slate
     data: { areaId: newAreaId, skipNextAreaRun: false },
   });
   for (const customer of customers) {
@@ -5798,6 +5825,7 @@ export async function addJobToWorkDay(workDayId: number, customerId: number, pri
       name: "Window Cleaning",
       price: price ?? customer.price,
       status: "PENDING",
+      sortOrder: await endOfDay(workDayId),
     },
   });
   revalidatePath(`/days/${workDayId}`);

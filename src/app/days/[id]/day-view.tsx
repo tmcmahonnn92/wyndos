@@ -79,6 +79,8 @@ import { expectsPaymentAtDoor, normalisePreference, preferenceLabel } from "@/li
 import { fmtDate, fmtShortDate, fmtCurrency, cn } from "@/lib/utils";
 import { addressPartsOf, collectKnownTowns, compareByStreet, composeAddress, withTownFallback } from "@/lib/address";
 import { MapsRouteModal, type RouteStop } from "@/components/maps-route-modal";
+import { isLinked, orderDays, orderJobs } from "@/lib/day-order";
+import { placeCustomerInArea, placeJobAfter, placeJobInArea, resetDayOrder, setCustomerPlaceAfter, setDateAreaOrder } from "@/lib/day-order-actions";
 
 type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
 type FutureDay = Awaited<ReturnType<typeof getWorkDays>>[0];
@@ -135,7 +137,14 @@ interface Props {
   allowCredit?: boolean;
   /** Split runs: other parts of each day's run that aren't done yet. */
   runSiblings?: Record<number, Array<{ id: number; date: string; status: string }>>;
+  /** May change areas' walking order and always-after links (owner, or Areas permission). */
+  canEditAreas?: boolean;
 }
+
+/** After moving a job: offer to make it permanent. */
+type AlwaysOffer =
+  | { kind: "after"; jobId: number; customerId: number; name: string; afterCustomerId: number; afterName: string }
+  | { kind: "area"; jobId: number; customerId: number; name: string; areaName: string; after: number | null; before: number | null };
 
 type PendingResolution = {
   jobId: number;
@@ -144,7 +153,6 @@ type PendingResolution = {
 };
 
 type ViewMode = "area" | "street";
-const VIEW_MODE_KEY = "wyndos.dayViewMode";
 
 function areaLabel(day: Day) {
   return day.area?.name ?? day.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off";
@@ -161,6 +169,7 @@ export function DayView({
   canText = false,
   allowCredit = true,
   runSiblings = {},
+  canEditAreas = false,
 }: Props) {
   const todayDateValue = new Date().toISOString().slice(0, 10);
   const scheduledDateValue = dateISO;
@@ -197,27 +206,17 @@ export function DayView({
   const [rainOff, setRainOff] = useState<{ dayIds: number[]; date: string } | null>(null);
   const [workerFilter, setWorkerFilter] = useState<string>("all");
   const [openAreaId, setOpenAreaId] = useState<number | null>(null);
-  const [viewMode, setViewModeState] = useState<ViewMode>("area");
+  // The day's own order is the only view now ("Sort by street" sets it).
+  const viewMode: ViewMode = "area";
   const router = useRouter();
 
-  // Each device remembers the last view mode.
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(VIEW_MODE_KEY);
-      if (saved === "area" || saved === "street") setViewModeState(saved);
-    } catch {}
-  }, []);
-  const setViewMode = (mode: ViewMode) => {
-    setViewModeState(mode);
-    setRouteOrder(null);
-    try { window.localStorage.setItem(VIEW_MODE_KEY, mode); } catch {}
-  };
-
-  // Drag-to-reorder state for pending jobs (only within one area, only in area view).
+  // Drag-to-reorder state for pending jobs (any job, anywhere in the day).
   const dragJobIdRef = useRef<number | null>(null);
   const [dragOverJobId, setDragOverJobId] = useState<number | null>(null);
   const [reorderMode, setReorderMode] = useState(false);
-  const [manualOrder, setManualOrder] = useState<Record<number, number[]>>({});
+  // Order shown straight away after a move, until the saved order comes back from the server.
+  const [optimistic, setOptimistic] = useState<{ jobs: number[] | null; days: number[] | null }>({ jobs: null, days: null });
+  const [offer, setOffer] = useState<AlwaysOffer | null>(null);
 
   // Taps saved on the phone while offline show immediately, before they reach the server.
   const [localStatus, setLocalStatus] = useState<Record<number, "COMPLETE" | "SKIPPED">>({});
@@ -317,26 +316,35 @@ export function DayView({
     return map;
   }, [allJobs, knownTowns, dayById]);
 
-  /** Jobs of one area day in its saved route order (or the order just dragged). */
-  const orderedJobsOf = (day: Day) => {
-    const jobs = day.jobs.map(withLocal);
-    const order = manualOrder[day.id];
-    if (!order) return jobs;
-    const rank = new Map(order.map((id, i) => [id, i]));
-    return [...jobs].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
-  };
+  // A fresh order from the server replaces whatever was shown straight after a move.
+  useEffect(() => { setOptimistic({ jobs: null, days: null }); }, [days]);
 
-  // Visible list: optimiser order, else by area (route order), else all by street.
+  /** Areas on this date in working order. */
+  const orderedDays: Day[] = useMemo(() => {
+    if (optimistic.days) {
+      const rank = new Map(optimistic.days.map((id, i) => [id, i]));
+      return [...days].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+    }
+    return orderDays(days);
+  }, [days, optimistic.days]);
+
+  /** Every job on the date in working order: areas, each area's order, then any links. */
+  const dayOrder: Job[] = useMemo(() => {
+    const list = orderJobs(orderedDays.map((d, i) => ({ ...d, dayOrder: i })));
+    if (!optimistic.jobs) return list;
+    const rank = new Map(optimistic.jobs.map((id, i) => [id, i]));
+    return [...list].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+  }, [orderedDays, optimistic.jobs]);
+
+  // Visible list: optimiser order, else the day's order.
   const sortedJobs: Job[] = (() => {
     const visible = allJobsView.filter(passesFilter);
     if (routeOrder) {
       const byId = new Map(visible.map((j) => [j.id, j]));
       return routeOrder.map((id) => byId.get(id)).filter(Boolean) as Job[];
     }
-    if (viewMode === "street") {
-      return [...visible].sort((a, b) => compareByStreet(streetKey.get(a.id)!, streetKey.get(b.id)!));
-    }
-    return days.flatMap((d) => orderedJobsOf(d).filter(passesFilter));
+    const byId = new Map(visible.map((j) => [j.id, j]));
+    return dayOrder.map((j) => byId.get(j.id)).filter(Boolean) as Job[];
   })();
 
   const pendingJobs = sortedJobs.filter((j) => j.status === "PENDING");
@@ -360,13 +368,14 @@ export function DayView({
   const openDays = days.filter((d) => d.status !== "COMPLETE");
   const plannedDays = days.filter((d) => d.status === "PLANNED");
   const shouldPromptForCompletedDate = scheduledDateValue !== todayDateValue;
-  const canReorder = viewMode === "area" && !routeOrder && !filtering;
+  const canReorder = !routeOrder && !filtering;
   const areaOf = (job: Job) => {
     const area = dayById.get(job.workDayId)?.area;
     return area ? { name: area.name, color: area.color } : null;
   };
-  // Pending cards are already under an area heading in area view; tag them only when mixed.
-  const tagFor = (job: Job) => (!multi || (viewMode === "area" && !routeOrder) ? null : areaOf(job));
+  // Pending cards sit under their area heading; a job moved in among another area's jobs is tagged.
+  const linkedIds = useMemo(() => new Set(dayOrder.filter((j) => isLinked(j, dayOrder)).map((j) => j.id)), [dayOrder]);
+  const tagFor = (job: Job) => (!multi ? null : routeOrder || linkedIds.has(job.id) ? areaOf(job) : null);
 
   /** Run a change without ever crashing the page; queue it if there's no signal. */
   const safely = (fn: () => Promise<void>) => {
@@ -412,25 +421,57 @@ export function DayView({
     );
   };
 
-  /** Save a new order for one area day (reordering never crosses areas). */
-  const saveDayOrder = (dayId: number, ids: number[]) => {
-    setManualOrder((prev) => ({ ...prev, [dayId]: ids }));
-    safely(async () => { await reorderDayJobs(dayId, ids); });
+  /**
+   * A job was moved to a new place in the day's pending list (`ids` = the new list).
+   * Next to its own area's jobs: that area's order for today. Next to another area's job:
+   * linked after that job for today. Either way, offer to make it permanent.
+   */
+  const placeJob = (ids: number[], movedId: number) => {
+    const byId = new Map(allJobs.map((j) => [j.id, j]));
+    const moved = byId.get(movedId);
+    if (!moved) return;
+    const at = ids.indexOf(movedId);
+    const prev = at > 0 ? byId.get(ids[at - 1]) : undefined;
+    const next = at < ids.length - 1 ? byId.get(ids[at + 1]) : undefined;
+    const fullOrder = [...ids, ...dayOrder.map((j) => j.id).filter((id) => !ids.includes(id))];
+    setOptimistic((o) => ({ ...o, jobs: fullOrder }));
+    setOffer(null);
+    const day = dayById.get(moved.workDayId);
+    const inOwnArea = prev ? prev.workDayId === moved.workDayId : next?.workDayId === moved.workDayId || !next;
+    if (inOwnArea) {
+      // New order for this area's jobs (pending as dropped, then the rest as they were).
+      const areaIds = fullOrder.filter((id) => byId.get(id)?.workDayId === moved.workDayId);
+      const prevSame = prev && prev.workDayId === moved.workDayId ? prev : undefined;
+      const nextSame = next && next.workDayId === moved.workDayId ? next : undefined;
+      safely(async () => {
+        await placeJobInArea(moved.workDayId, areaIds, movedId);
+        if (canEditAreas && day?.area && !day.area.isSystemArea && (prevSame || nextSame)) {
+          setOffer({
+            kind: "area", jobId: movedId, customerId: moved.customerId, name: moved.customer.name, areaName: day.area.name,
+            after: prevSame?.customerId ?? null, before: prevSame ? null : nextSame?.customerId ?? null,
+          });
+        }
+        router.refresh();
+      });
+      return;
+    }
+    safely(async () => {
+      await placeJobAfter(movedId, prev ? prev.id : 0);
+      if (canEditAreas && prev) {
+        setOffer({ kind: "after", jobId: movedId, customerId: moved.customerId, name: moved.customer.name, afterCustomerId: prev.customerId, afterName: prev.customer.name });
+      }
+      router.refresh();
+    });
   };
+  const pendingIds = () => sortedJobs.filter((j) => j.status === "PENDING").map((j) => j.id);
   const moveJob = (jobId: number, direction: -1 | 1) => {
-    const job = allJobs.find((j) => j.id === jobId);
-    const day = job ? dayById.get(job.workDayId) : undefined;
-    if (!day) return;
-    const list = orderedJobsOf(day);
-    const ids = list.map((j) => j.id);
+    const ids = pendingIds();
     const from = ids.indexOf(jobId);
-    let to = from + direction;
-    while (to >= 0 && to < ids.length && list[to].status !== "PENDING") to += direction;
+    const to = from + direction;
     if (from === -1 || to < 0 || to >= ids.length) return;
-    const next = [...ids];
-    next.splice(from, 1);
-    next.splice(to, 0, jobId);
-    saveDayOrder(day.id, next);
+    ids.splice(from, 1);
+    ids.splice(to, 0, jobId);
+    placeJob(ids, jobId);
   };
   const handleJobDrop = (targetJobId: number) => {
     const dragId = dragJobIdRef.current;
@@ -438,17 +479,52 @@ export function DayView({
     setDragJobId(null);
     setDragOverJobId(null);
     if (!dragId || dragId === targetJobId) return;
-    const dragged = allJobs.find((j) => j.id === dragId);
-    const target = allJobs.find((j) => j.id === targetJobId);
-    if (!dragged || !target || dragged.workDayId !== target.workDayId) return; // only within one area
-    const day = dayById.get(dragged.workDayId)!;
-    const ids = orderedJobsOf(day).map((j) => j.id);
+    const ids = pendingIds();
     const from = ids.indexOf(dragId);
     const to = ids.indexOf(targetJobId);
     if (from === -1 || to === -1) return;
     ids.splice(from, 1);
     ids.splice(to, 0, dragId);
-    saveDayOrder(day.id, ids);
+    placeJob(ids, dragId);
+  };
+  /** Move a whole area up or down the day. */
+  const moveArea = (dayId: number, direction: -1 | 1) => {
+    const ids = orderedDays.map((d) => d.id);
+    const from = ids.indexOf(dayId);
+    const to = from + direction;
+    if (from === -1 || to < 0 || to >= ids.length) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, dayId);
+    setOptimistic({ jobs: null, days: ids });
+    safely(async () => { await setDateAreaOrder(ids); router.refresh(); });
+  };
+  /** Each area's jobs in street order, for this day only (then tidy by hand). */
+  const sortByStreet = () => {
+    setOffer(null);
+    safely(async () => {
+      for (const day of orderedDays) {
+        const jobs = day.jobs.filter((j) => j.status === "PENDING");
+        if (jobs.length < 2) continue;
+        const sorted = [...jobs].sort((a, b) => compareByStreet(streetKey.get(a.id)!, streetKey.get(b.id)!));
+        const rest = dayOrder.filter((j) => j.workDayId === day.id && j.status !== "PENDING");
+        await reorderDayJobs(day.id, [...sorted, ...rest].map((j) => j.id));
+      }
+      router.refresh();
+    });
+  };
+  const resetOrder = () => {
+    setOffer(null);
+    safely(async () => { await resetDayOrder(days.map((d) => d.id)); router.refresh(); });
+  };
+  const acceptOffer = () => {
+    const o = offer;
+    if (!o) return;
+    setOffer(null);
+    safely(async () => {
+      if (o.kind === "after") await setCustomerPlaceAfter(o.customerId, o.afterCustomerId, o.jobId);
+      else await placeCustomerInArea(o.customerId, { after: o.after, before: o.before }, o.jobId);
+      router.refresh();
+    });
   };
 
   const startNotes = (day: Day) => {
@@ -702,38 +778,20 @@ export function DayView({
           ) : null;
         })()}
 
-        {/* View switch: by area (route order) or everything in one list by street */}
-        {days.length > 0 && (
-          <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-100">
-            <div className="flex flex-1 rounded-lg border border-slate-200 p-0.5 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setViewMode("area")}
-                className={cn("flex-1 rounded-md px-2 py-1.5", viewMode === "area" && !routeOrder ? "bg-slate-800 text-white" : "text-slate-600")}
-              >
-                {multi ? "By area" : "Route order"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("street")}
-                className={cn("flex-1 rounded-md px-2 py-1.5", viewMode === "street" && !routeOrder ? "bg-slate-800 text-white" : "text-slate-600")}
-              >
-                {multi ? "All jobs by street" : "By street"}
-              </button>
-            </div>
-            {team && workerOptions.length > 1 && (
-              <select
+        {/* Whose jobs to show */}
+        {days.length > 0 && team && workerOptions.length > 1 && (
+          <div className="flex items-center justify-end gap-2 px-4 py-2 border-b border-slate-100">
+            <select
                 value={workerFilter}
                 onChange={(e) => setWorkerFilter(e.target.value)}
                 aria-label="Show jobs for"
-                className="max-w-[40%] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700"
+                className="max-w-[60%] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700"
               >
                 <option value="all">Everyone</option>
                 {workerOptions.filter((id): id is string => id !== null).map((id) => (
                   <option key={id} value={id}>{memberName(id)}</option>
                 ))}
               </select>
-            )}
           </div>
         )}
       </div>
@@ -1041,22 +1099,64 @@ export function DayView({
                 </button>
               )}
             </div>
-            {multi && viewMode === "area" && !routeOrder ? (
-              <div className="space-y-4">
-                {days.map((day) => {
-                  const list = pendingJobs.filter((j) => j.workDayId === day.id);
-                  if (list.length === 0) return null;
-                  return (
-                    <div key={day.id}>
-                      <div className="mb-1.5 flex items-center gap-2 px-1">
-                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: day.area?.color ?? "#94a3b8" }} />
-                        <span className="text-xs font-bold text-slate-700">{areaLabel(day)}</span>
-                        <span className="text-xs text-slate-400">{list.length}</span>
-                      </div>
-                      <div className="space-y-2">{list.map(renderPendingCard)}</div>
-                    </div>
-                  );
-                })}
+            {reorderMode && canReorder && (
+              <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800">
+                <p>Drag a job, or use the arrows, to put it anywhere in the day, even in among another area&apos;s jobs.{multi ? " Use the arrows by an area's name to move the whole area." : ""}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" onClick={sortByStreet} disabled={isPending}
+                    className="rounded-lg border border-blue-300 bg-white px-2.5 py-1 font-semibold text-blue-700 disabled:opacity-50">Sort each area by street</button>
+                  <button type="button" onClick={resetOrder} disabled={isPending}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600 disabled:opacity-50">Back to normal order</button>
+                </div>
+              </div>
+            )}
+            {offer && (
+              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-700 shadow-sm">
+                <span className="flex-1">
+                  {offer.kind === "after"
+                    ? <>Moved for today. Always put <b>{offer.name}</b> after <b>{offer.afterName}</b> when they&apos;re on the same day?</>
+                    : <>Moved for today. Change <b>{offer.areaName}</b>&apos;s normal order too?</>}
+                </span>
+                <button type="button" onClick={acceptOffer} disabled={isPending}
+                  className="rounded-lg bg-blue-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{offer.kind === "after" ? "Always" : "Change it"}</button>
+                <button type="button" onClick={() => setOffer(null)} className="rounded-lg px-2 py-1 font-semibold text-slate-500">Just today</button>
+              </div>
+            )}
+            {multi && !routeOrder ? (
+              <div className="space-y-2">
+                {(() => {
+                  // Flat list in working order; an area heading where each area's own jobs start.
+                  const out: React.ReactNode[] = [];
+                  const shown = new Set<number>();
+                  let current: number | null = null;
+                  for (const job of pendingJobs) {
+                    const linked = linkedIds.has(job.id);
+                    if (!linked && job.workDayId !== current) {
+                      current = job.workDayId;
+                      const day = dayById.get(job.workDayId)!;
+                      const firstTime = !shown.has(day.id);
+                      shown.add(day.id);
+                      const position = orderedDays.findIndex((d) => d.id === day.id);
+                      out.push(
+                        <div key={`h-${day.id}-${job.id}`} className="flex items-center gap-2 px-1 pt-2">
+                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: day.area?.color ?? "#94a3b8" }} />
+                          <span className="text-xs font-bold text-slate-700">{areaLabel(day)}{firstTime ? "" : " (continued)"}</span>
+                          <span className="text-xs text-slate-400">{pendingJobs.filter((j) => j.workDayId === day.id).length}</span>
+                          {reorderMode && canReorder && firstTime && (
+                            <span className="ml-auto flex gap-1">
+                              <button type="button" aria-label={`Move ${areaLabel(day)} earlier`} disabled={position <= 0 || isPending} onClick={() => moveArea(day.id, -1)}
+                                className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-bold text-slate-600 disabled:opacity-30">↑</button>
+                              <button type="button" aria-label={`Move ${areaLabel(day)} later`} disabled={position >= orderedDays.length - 1 || isPending} onClick={() => moveArea(day.id, 1)}
+                                className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-bold text-slate-600 disabled:opacity-30">↓</button>
+                            </span>
+                          )}
+                        </div>,
+                      );
+                    }
+                    out.push(renderPendingCard(job));
+                  }
+                  return out;
+                })()}
               </div>
             ) : (
               <div className="space-y-2">{pendingJobs.map(renderPendingCard)}</div>

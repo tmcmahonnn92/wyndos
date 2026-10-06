@@ -912,8 +912,14 @@ function MonthCalendarCell({
   onRemove: (wd: WorkDay) => void;
   canManageSchedule: boolean;
 }) {
+  const router = useRouter();
   const isToday = isoDate(date) === todayISO();
   const isCurrentMonth = date.getMonth() === monthStart.getMonth();
+  // Clicking the date or any empty part of the cell opens the whole day (every area on it).
+  const openWholeDay = (e: React.MouseEvent) => {
+    if (workDays.length === 0 || (e.target as HTMLElement).closest("button, a")) return;
+    router.push(`/days/date/${isoDate(date)}`);
+  };
   // Show 3 areas per day; "+N more" expands the cell to show them all.
   const [showAll, setShowAll] = useState(false);
   const visibleDays = showAll ? workDays : workDays.slice(0, 3);
@@ -943,8 +949,11 @@ function MonthCalendarCell({
       onDragOver={(e) => { e.preventDefault(); if (!isHoliday && canManageSchedule) onDragOver(date); }}
       onDragLeave={onDragLeave}
       onDrop={(e) => { e.preventDefault(); if (!isHoliday && canManageSchedule) onDrop(date); }}
+      onClick={openWholeDay}
+      title={workDays.length > 0 ? "Open the whole day" : undefined}
       className={cn(
         "relative min-h-[120px] rounded-xl border p-2 transition-colors",
+        workDays.length > 0 && "cursor-pointer hover:border-blue-300",
         isCurrentMonth ? "bg-white border-slate-200" : "bg-slate-50 border-slate-100 text-slate-400",
         isToday && "ring-2 ring-blue-300 border-blue-300",
         isHoliday && "bg-red-50/70 border-red-200",

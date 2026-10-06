@@ -48,6 +48,7 @@ export default async function DayPage({ params }: Props) {
       canText={canText}
       allowCredit={(await getBusinessSettings().catch(() => null))?.allowCustomerCredit ?? true}
       runSiblings={runSiblings}
+      canEditAreas={user.role === "OWNER" || user.role === "SUPER_ADMIN" || (user.permissions ?? []).includes("areas")}
       otherAreasOnDate={otherAreasOnDate}
     />
   );

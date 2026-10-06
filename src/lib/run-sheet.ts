@@ -1,4 +1,5 @@
 import type { getWorkDay } from "@/lib/actions";
+import { orderDays, orderJobs } from "@/lib/day-order";
 import { addressPartsOf, collectKnownTowns, compareByStreet, withTownFallback } from "@/lib/address";
 
 type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
@@ -16,7 +17,8 @@ export function buildRunSheet(
   const dayWorker = new Map(days.map((d) => [d.id, d.assignedUserId ?? null]));
   const workerOf = (job: RunSheetJob) => job.assignedUserId ?? dayWorker.get(job.workDayId) ?? null;
 
-  let jobs: RunSheetJob[] = days.flatMap((d) => d.jobs).filter((job) => job.status !== "MOVED");
+  // The day's own working order: areas in order, each area's order, then any links.
+  let jobs: RunSheetJob[] = orderJobs(days).filter((job) => job.status !== "MOVED");
   const worker = options.worker || null;
   if (worker) {
     jobs = jobs.filter((job) => {
@@ -57,7 +59,7 @@ export function buildRunSheet(
     total: jobs.reduce((sum, job) => sum + job.price, 0),
     multi: days.length > 1,
     areaName: (job: RunSheetJob) => areaById.get(job.workDayId)?.name ?? "One-off",
-    title: days.length > 1 ? days.map((d) => d.area?.name ?? "One-off").join(", ") : days[0]?.area?.name ?? "Round",
+    title: days.length > 1 ? orderDays(days).map((d) => d.area?.name ?? "One-off").join(", ") : days[0]?.area?.name ?? "Round",
     workerName,
     peopleLabel: workerName ?? everyone.join(", "),
     owes,

@@ -158,3 +158,11 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 
 ## To-do: mark as done
 - Dashboard to-do rows have a "Done" button (`src/components/todo-list.tsx`, `dismissTodo`). Stored per person in `Membership.notifyPrefs.todoDone` as "key|detail" → hidden until the line changes; entries older than 45 days are pruned. `saveMyNotifyPrefs` now merges instead of overwriting.
+
+## Order of work on a day (Oct 2026)
+- One rule everywhere (day view, print, PDF): `src/lib/day-order.ts` — areas by `WorkDay.dayOrder` (per date, else Area.sortOrder), jobs by `Job.sortOrder`, then links.
+- Links: `Job.afterJobId` (today only: job id, 0 = first, -1 = ignore the customer's link) and `Customer.placeAfterCustomerId` (always, when both are on the date). A link to someone not on the date is ignored.
+- Saving: `src/lib/day-order-actions.ts`. Day view "Reorder": drag/arrows anywhere, area arrows, "Sort each area by street", "Back to normal order"; after a move it offers "Always" / "Change it" (needs Areas permission).
+- Added or moved jobs go to the end of their area (`endOfDay`); customers moved to another area go to the end of it (`endOfArea`).
+- The old "All jobs by street" view is gone (street is now a one-off sort you can then tidy).
+- Scheduler month cell: clicking the date or empty space opens /days/date/[date].

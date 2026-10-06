@@ -149,10 +149,13 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
   const must = (v: unknown, set: Set<number>) => { if (typeof v !== "number" || !set.has(v)) throw bad(); };
   const mayBe = (v: unknown, set: Set<number>) => { if (v != null) must(v, set); };
   const orNull = (v: unknown, set: Set<number>) => (typeof v === "number" && set.has(v) ? v : null);
-  for (const c of customers) { must(c.areaId, areaIds); c.paidByCustomerId = null; }
+  for (const c of customers) { must(c.areaId, areaIds); c.paidByCustomerId = null; c.placeAfterCustomerId = orNull(c.placeAfterCustomerId, customerIds); }
   for (const ct of customerTags) { must(ct.customerId, customerIds); must(ct.tagId, tagIds); }
   for (const w of workDays) { mayBe(w.areaId, areaIds); w.partOfId = orNull(w.partOfId, workDayIds); }
-  for (const j of jobs) { must(j.workDayId, workDayIds); must(j.customerId, customerIds); }
+  for (const j of jobs) {
+    must(j.workDayId, workDayIds); must(j.customerId, customerIds);
+    if (j.afterJobId !== 0 && j.afterJobId !== -1) j.afterJobId = orNull(j.afterJobId, jobIds);
+  }
   for (const p of payments) { must(p.customerId, customerIds); mayBe(p.handoverId, handoverIds); }
   for (const a of allocations) { must(a.paymentId, paymentIds); must(a.jobId, jobIds); }
   for (const r of payerReferences) mayBe(r.customerId, customerIds);
