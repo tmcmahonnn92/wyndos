@@ -152,3 +152,9 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 ## Inactive customers area
 - Deleting an area with only inactive customers moves them to a hidden system area "Inactive customers" (`src/lib/system-areas.ts`), keeping history and balance; shown as "No area (inactive)". Areas with active customers still can't be deleted.
 - Switching such a customer back on asks for a real area first (Change Area). The one-off area lookup and "one-off" filter ignore this area.
+
+## Removed: "Paid by another customer"
+- UI and logic gone (payments, credit, texts, to-do, bank matching). Column `Customer.paidByCustomerId` stays but is unused; migration 20261006120000_clear_paid_by clears existing links.
+
+## To-do: mark as done
+- Dashboard to-do rows have a "Done" button (`src/components/todo-list.tsx`, `dismissTodo`). Stored per person in `Membership.notifyPrefs.todoDone` as "key|detail" → hidden until the line changes; entries older than 45 days are pruned. `saveMyNotifyPrefs` now merges instead of overwriting.

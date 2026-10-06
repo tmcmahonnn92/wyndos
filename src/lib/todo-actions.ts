@@ -1,7 +1,8 @@
 "use server";
 
 import prisma from "@/lib/db";
-import { hasPermission, requirePerm } from "@/lib/guards";
+import { revalidatePath } from "next/cache";
+import { getActor, hasPermission, requirePerm } from "@/lib/guards";
 import { balancesFor, ukMobile } from "@/lib/texts";
 
 const DAY = 86_400_000;
@@ -23,6 +24,34 @@ export type TodoItem = {
  * The scheduler's to-do list: reminders to send, payments to chase,
  * "windows cleaned" texts not sent yet, texts waiting on the phone, overdue areas.
  */
+/**
+ * To-dos someone marked done, kept with their own settings (Membership.notifyPrefs.todoDone).
+ * Stored as "key|detail", so a to-do comes back when something about it changes
+ * (e.g. a new customer starts owing and the chase line reads differently).
+ */
+async function doneTodos(userId: string, tenantId: number) {
+  const m = await prisma.membership.findUnique({ where: { userId_tenantId: { userId, tenantId } }, select: { notifyPrefs: true } });
+  let prefs: Record<string, unknown> = {};
+  try { prefs = JSON.parse(m?.notifyPrefs || "{}"); } catch { prefs = {}; }
+  const done = (prefs.todoDone && typeof prefs.todoDone === "object" ? prefs.todoDone : {}) as Record<string, string>;
+  return { prefs, done };
+}
+
+/** Mark a to-do as done (hide it until it changes). */
+export async function dismissTodo(key: string, detail: string) {
+  const actor = await getActor();
+  const { prefs, done } = await doneTodos(actor.userId, actor.tenantId);
+  const today = new Date().toISOString().slice(0, 10);
+  const cutoff = new Date(Date.now() - 45 * DAY).toISOString().slice(0, 10);
+  const kept = Object.fromEntries(Object.entries(done).filter(([, d]) => d >= cutoff).slice(-200));
+  kept[`${String(key).slice(0, 80)}|${String(detail).slice(0, 200)}`] = today;
+  await prisma.membership.update({
+    where: { userId_tenantId: { userId: actor.userId, tenantId: actor.tenantId } },
+    data: { notifyPrefs: JSON.stringify({ ...prefs, todoDone: kept }) },
+  });
+  revalidatePath("/");
+}
+
 export async function getAdminTodo(): Promise<TodoItem[]> {
   const actor = await requirePerm("schedule");
   if (actor.isWorker && !hasPermission(actor, "scheduler")) return [];
@@ -79,7 +108,7 @@ export async function getAdminTodo(): Promise<TodoItem[]> {
         area: { select: { name: true } },
         jobs: {
           where: { status: "COMPLETE", isQuote: false },
-          select: { id: true, customer: { select: { phone: true, preferredPaymentMethod: true, paidByCustomerId: true } } },
+          select: { id: true, customer: { select: { phone: true, preferredPaymentMethod: true } } },
         },
       },
       orderBy: { date: "desc" },
@@ -91,7 +120,7 @@ export async function getAdminTodo(): Promise<TodoItem[]> {
     );
     for (const day of doneDays) {
       const left = day.jobs.filter((j) =>
-        ukMobile(j.customer.phone) && j.customer.preferredPaymentMethod !== "DD" && !j.customer.paidByCustomerId && !texted.has(j.id),
+        ukMobile(j.customer.phone) && j.customer.preferredPaymentMethod !== "DD" && !texted.has(j.id),
       ).length;
       if (left === 0) continue;
       items.push({
@@ -109,7 +138,7 @@ export async function getAdminTodo(): Promise<TodoItem[]> {
   if (canPay) {
     const chaseAfter = settings?.textPaymentReminderDays && settings.textPaymentReminderDays > 0 ? settings.textPaymentReminderDays : 14;
     const customers = await prisma.customer.findMany({
-      where: { tenantId, paidByCustomerId: null, NOT: { preferredPaymentMethod: "DD" } },
+      where: { tenantId, NOT: { preferredPaymentMethod: "DD" } },
       select: { id: true },
     });
     const { balance, unpaidJobs } = await balancesFor(tenantId, customers.map((c) => c.id));
@@ -200,5 +229,6 @@ export async function getAdminTodo(): Promise<TodoItem[]> {
     });
   }
 
-  return items;
+  const { done } = await doneTodos(actor.userId, tenantId);
+  return items.filter((item) => !done[`${item.key}|${item.detail}`]);
 }

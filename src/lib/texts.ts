@@ -206,7 +206,7 @@ export async function queueCleanedTexts(
       allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
       completedAt: true,
       customer: {
-        select: { id: true, name: true, address: true, phone: true, preferredPaymentMethod: true, paidByCustomerId: true, area: { select: { name: true } } },
+        select: { id: true, name: true, address: true, phone: true, preferredPaymentMethod: true, area: { select: { name: true } } },
       },
     },
   });
@@ -225,7 +225,7 @@ export async function queueCleanedTexts(
     const c = job.customer;
     const to = ukMobile(c.phone);
     if (!to) continue;
-    if (c.preferredPaymentMethod === "DD" || c.paidByCustomerId) continue; // paid by Direct Debit or by someone else
+    if (c.preferredPaymentMethod === "DD") continue; // paid by Direct Debit
     const paidToday = job.price - job.allocations.reduce((s, a) => s + a.amount, 0) <= 0.005;
     if (paidToday && settings.textSkipCleanedIfPaid && !options.manual) continue;
     const owed = balance.get(c.id) ?? 0;
@@ -286,7 +286,7 @@ export async function runPaymentReminders(tenantId: number, sentByUserId: string
   if (!settings || (first <= 0 && second <= 0)) return { logged: 0, sent: 0, failed: 0, test: true, phone: false, skipped: "off" as const };
 
   const customers = await prisma.customer.findMany({
-    where: { tenantId, active: true, isProspect: false, paidByCustomerId: null, NOT: { preferredPaymentMethod: "DD" } },
+    where: { tenantId, active: true, isProspect: false, NOT: { preferredPaymentMethod: "DD" } },
     select: { id: true, name: true, address: true, phone: true, area: { select: { name: true } } },
   });
   const withMobile = customers.filter((c) => ukMobile(c.phone));

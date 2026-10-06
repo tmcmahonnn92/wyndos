@@ -33,7 +33,6 @@ export default async function CustomerPage({ params }: Props) {
     getCustomerTexts(customerId).catch(() => []),
     canPay ? getCustomerBankReferences(customerId).catch(() => []) : Promise.resolve([]),
   ]);
-  const payerOptions = pickList.filter((entry) => entry.id !== customerId && !entry.paidByCustomerId);
 
   return (
     <Suspense>
@@ -47,7 +46,6 @@ export default async function CustomerPage({ params }: Props) {
         allTags={allTags}
         hidePrices={hidePrices}
         goCardlessReferencePrefix={settings.goCardlessReferencePrefix || "WD"}
-        payerOptions={payerOptions.map(({ id, name }) => ({ id, name }))}
         texts={texts.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() }))}
       />
       {canPay && <BankReferences refs={bankRefs.map(({ id, label }) => ({ id, label }))} />}

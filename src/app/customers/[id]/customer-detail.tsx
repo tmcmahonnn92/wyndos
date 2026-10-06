@@ -53,7 +53,6 @@ interface Props {
   allTags: TagRow[];
   hidePrices?: boolean;
   goCardlessReferencePrefix?: string;
-  payerOptions?: Array<{ id: number; name: string }>;
   /** Texts sent to this customer, newest first. */
   texts?: Array<{ id: number; kind: string; status: string; body: string; createdAt: string; error: string }>;
 }
@@ -83,7 +82,7 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", payerOptions = [], texts = [] }: Props) {
+export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", texts = [] }: Props) {
   const [showAllTexts, setShowAllTexts] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [bookDate, setBookDate] = useState("");
@@ -150,7 +149,6 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
     preferredPaymentMethod: customer.preferredPaymentMethod ?? "",
     frequencyWeeks: String(customer.frequencyWeeks),
     slip: customer.slip ?? true,
-    paidByCustomerId: customer.paidByCustomerId ? String(customer.paidByCustomerId) : "",
     goCardlessCustomerReference: customer.goCardlessCustomerReference ?? "",
     goCardlessCustomerId: customer.goCardlessCustomerId ?? "",
     goCardlessMandateId: customer.goCardlessMandateId ?? "",
@@ -286,7 +284,6 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
         advanceNotice: form.advanceNotice,
         preferredPaymentMethod: form.preferredPaymentMethod || undefined,
         slip: form.slip,
-        paidByCustomerId: form.paidByCustomerId ? Number(form.paidByCustomerId) : null,
         goCardlessCustomerReference: form.goCardlessCustomerReference || "",
         goCardlessCustomerId: form.goCardlessCustomerId || "",
         goCardlessMandateId: form.goCardlessMandateId || "",
@@ -437,12 +434,6 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               <p className="text-lg font-bold text-slate-800">{hidePrices ? "–" : fmtCurrency(customer.price)}</p>
               {!customer.area.isSystemArea && (
                 <p className="text-xs text-slate-400">every {customer.frequencyWeeks}w{customer.slip === false ? " · no slip" : ""}</p>
-              )}
-              {customer.paidBy && (
-                <p className="text-xs text-slate-500">Paid by {customer.paidBy.name}</p>
-              )}
-              {customer.paysFor.length > 0 && (
-                <p className="text-xs text-slate-500">Also pays for {customer.paysFor.map((entry) => entry.name).join(", ")}</p>
               )}
             </CardContent>
           </Card>
@@ -871,17 +862,6 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                 <span className="text-sm font-medium text-slate-700 leading-tight">Leave a slip</span>
               </label>
             </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Paid by another customer</label>
-            <select value={form.paidByCustomerId} onChange={(e) => setForm(f => ({ ...f, paidByCustomerId: e.target.value }))}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-              <option value="">– Pays for themselves –</option>
-              {payerOptions.map((payer) => (
-                <option key={payer.id} value={payer.id}>{payer.name}</option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-slate-400">Their jobs show up when you take payment from that customer.</p>
           </div>
           {GOCARDLESS_ENABLED && <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 space-y-3">
             <div>

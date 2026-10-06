@@ -16,6 +16,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { getDashboardData } from "@/lib/actions";
 import { getAdminTodo, type TodoItem } from "@/lib/todo-actions";
+import { TodoList } from "@/components/todo-list";
 import { getDashboardInsights } from "@/lib/insights";
 import { DashboardInsights } from "./dashboard-insights";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -332,12 +333,6 @@ export default async function DashboardPage() {
     </div>
   );
 }
-const TONES: Record<TodoItem["tone"], string> = {
-  red: "bg-red-500",
-  amber: "bg-amber-500",
-  blue: "bg-blue-500",
-  green: "bg-green-500",
-};
 
 /** What needs doing today: reminders, chasing, "cleaned" texts, overdue areas. */
 function TodoCard({ items }: { items: TodoItem[] }) {
@@ -351,22 +346,7 @@ function TodoCard({ items }: { items: TodoItem[] }) {
         <span className="text-xs text-slate-400">{items.length} thing{items.length === 1 ? "" : "s"}</span>
       </CardHeader>
       <CardContent className="p-0">
-        <ul className="divide-y divide-slate-100">
-          {items.map((item) => (
-            <li key={item.key}>
-              <Link href={item.href} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors">
-                <span className={`h-2 w-2 flex-shrink-0 rounded-full ${TONES[item.tone]}`} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-800">{item.title}</p>
-                  <p className="truncate text-xs text-slate-500">{item.detail}</p>
-                </div>
-                <span className="flex-shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                  {item.action}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <TodoList items={items} />
       </CardContent>
     </Card>
   );

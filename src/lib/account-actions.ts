@@ -28,10 +28,12 @@ export async function getMyNotifyPrefs() {
 export async function saveMyNotifyPrefs(prefs: NotifyPrefs) {
   const actor = await getActor();
   const clean: NotifyPrefs = { dayStarted: !!prefs.dayStarted, dayCompleted: !!prefs.dayCompleted, workAssigned: !!prefs.workAssigned };
-  await prisma.membership.update({
-    where: { userId_tenantId: { userId: actor.userId, tenantId: actor.tenantId } },
-    data: { notifyPrefs: JSON.stringify(clean) },
-  });
+  const where = { userId_tenantId: { userId: actor.userId, tenantId: actor.tenantId } };
+  // The same JSON also keeps to-dos marked done: keep everything else that's in there.
+  const current = await prisma.membership.findUnique({ where, select: { notifyPrefs: true } });
+  let saved: Record<string, unknown> = {};
+  try { saved = JSON.parse(current?.notifyPrefs || "{}"); } catch { saved = {}; }
+  await prisma.membership.update({ where, data: { notifyPrefs: JSON.stringify({ ...saved, ...clean }) } });
   revalidatePath("/account");
   return clean;
 }

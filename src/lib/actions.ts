@@ -298,12 +298,11 @@ async function createAllocatedPayment(data: {
 
   const totalAmount = Number((allocationData.reduce((sum, allocation) => sum + allocation.amount, 0) + extra).toFixed(2));
   const jobIds = allocationData.map((allocation) => allocation.jobId);
-  // A payer can settle their own jobs and the jobs of customers they pay for ("paid by").
   const jobs = await prisma.job.findMany({
     where: {
       id: { in: jobIds },
       tenantId: data.tenantId,
-      OR: [{ customerId: data.customerId }, { customer: { paidByCustomerId: data.customerId } }],
+      customerId: data.customerId,
     },
     select: {
       id: true,
@@ -402,7 +401,7 @@ async function applyCredit(tenantId: number, payerIds: Array<number | null | und
     const jobs = await prisma.job.findMany({
       where: {
         tenantId, status: "COMPLETE", isQuote: false,
-        OR: [{ customerId: payerId }, { customer: { paidByCustomerId: payerId } }],
+        customerId: payerId,
       },
       select: { id: true, price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
       orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
@@ -429,7 +428,7 @@ async function releaseOverpaid(tenantId: number, jobId: number) {
   const job = await prisma.job.findFirst({
     where: { id: jobId, tenantId },
     select: {
-      price: true, customerId: true, customer: { select: { paidByCustomerId: true } },
+      price: true, customerId: true,
       allocations: { where: { payment: { voidedAt: null } }, select: { id: true, amount: true }, orderBy: { id: "desc" } },
     },
   });
@@ -445,7 +444,7 @@ async function releaseOverpaid(tenantId: number, jobId: number) {
       over = 0;
     }
   }
-  await applyCredit(tenantId, [job.customerId, job.customer.paidByCustomerId]);
+  await applyCredit(tenantId, [job.customerId]);
 }
 
 /** Record money paid in advance (or extra) as credit. It pays any cleans owing first. */
@@ -481,15 +480,6 @@ export async function getCustomerCredit(customerId: number) {
 }
 
 /** Validate a "paid by" customer link. undefined = leave unchanged, null = clear. */
-async function resolvePaidBy(tenantId: number, paidByCustomerId: number | null | undefined, selfId: number | null) {
-  if (paidByCustomerId === undefined) return undefined;
-  if (!paidByCustomerId) return null;
-  if (selfId !== null && paidByCustomerId === selfId) throw new Error("A customer can't pay for themselves.");
-  const payer = await prisma.customer.findFirst({ where: { id: paidByCustomerId, tenantId }, select: { id: true, paidByCustomerId: true } });
-  if (!payer) throw new Error("Paying customer not found");
-  if (payer.paidByCustomerId) throw new Error("That customer is already paid for by someone else.");
-  return payer.id;
-}
 
 async function requireTenantTag(tenantId: number, tagId: number) {
   const tag = await prisma.tag.findFirst({ where: { id: tagId, tenantId } });
@@ -1230,7 +1220,7 @@ export async function getCustomerPickList() {
   const actor = await requirePerm("customers");
   return prisma.customer.findMany({
     where: { tenantId: actor.tenantId, active: true },
-    select: { id: true, name: true, paidByCustomerId: true },
+    select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
 }
@@ -1242,8 +1232,6 @@ export async function getCustomer(id: number) {
     where: { id, tenantId },
     include: {
       area: true,
-      paidBy: { select: { id: true, name: true } },
-      paysFor: { select: { id: true, name: true } },
       tags: { include: { tag: true } },
       jobs: {
         include: {
@@ -1915,13 +1903,11 @@ export async function createCustomer(data: AddressInput & {
   goCardlessMandateId?: string;
   nextDueDate?: Date;
   slip?: boolean;
-  paidByCustomerId?: number | null;
 }) {
   const actor = await requirePerm("customers");
   const tenantId = actor.tenantId;
   // Frequency defaults to the area's, but each customer can have their own (e.g. 8-weekly in a 4-weekly area).
   const area = await requireTenantArea(tenantId, data.areaId);
-  const paidByCustomerId = await resolvePaidBy(tenantId, data.paidByCustomerId, null);
   const lastInArea = await prisma.customer.findFirst({
     where: { tenantId, areaId: data.areaId },
     orderBy: { sortOrder: "desc" },
@@ -1944,7 +1930,6 @@ export async function createCustomer(data: AddressInput & {
       frequencyWeeks: area?.frequencyWeeks ?? 4, // frequency belongs to the area
       nextDueDate: data.nextDueDate ?? null,   // null = never cleaned; picked up on first area run
       slip: data.slip ?? true,
-      paidByCustomerId: paidByCustomerId ?? null,
       sortOrder: (lastInArea?.sortOrder ?? -1) + 1, // new customers go to the end of the round
     },
   });
@@ -1973,8 +1958,7 @@ export async function updateCustomer(
     goCardlessCustomerId?: string;
     goCardlessMandateId?: string;
     slip?: boolean;
-    paidByCustomerId?: number | null;
-  }
+    }
 ) {
   const actor = await requirePerm("customers");
   const tenantId = actor.tenantId;
@@ -1992,13 +1976,11 @@ export async function updateCustomer(
     throw new Error("Pick an area for them first: open the customer and use Change Area, then switch them on.");
   }
 
-  const { paidByCustomerId: rawPaidBy, address: _a, houseNameNumber: _h, street: _s, town: _t, postcode: _p, ...rest } = data;
-  const paidByCustomerId = await resolvePaidBy(tenantId, rawPaidBy, id);
+  const { address: _a, houseNameNumber: _h, street: _s, town: _t, postcode: _p, ...rest } = data;
   const addressFields = resolveAddress(data);
   const updateData = {
     ...rest,
     ...(addressFields ?? {}),
-    ...(paidByCustomerId !== undefined && { paidByCustomerId }),
     ...(data.goCardlessCustomerReference !== undefined && {
       goCardlessCustomerReference: data.goCardlessCustomerReference.trim(),
     }),
@@ -2201,27 +2183,6 @@ function workDayInclude(actor: Actor) {
                   },
                 },
                 orderBy: [{ workDay: { date: "asc" } }, { createdAt: "asc" }],
-              },
-              // Customers this customer pays for ("paid by"), so their balance can be settled here too.
-              paysFor: {
-                select: {
-                  id: true,
-                  name: true,
-                  jobs: {
-                    where: { status: "COMPLETE" },
-                    select: {
-                      id: true,
-                      name: true,
-                      price: true,
-                      isOneOff: true,
-                      workDay: { select: { date: true } },
-                      allocations: {
-                        where: { payment: { voidedAt: null } },
-                        select: { amount: true },
-                      },
-                    },
-                  },
-                },
               },
             },
           },
@@ -2983,7 +2944,7 @@ export async function completeJob(jobId: number) {
     data: { status: "COMPLETE", completedAt: now, completedByUserId: job.completedByUserId ?? actor.userId },
   });
   // Credit (paid in advance / paid extra) pays this clean straight away, in full or part.
-  await applyCredit(tenantId, [job.customerId, job.customer.paidByCustomerId]);
+  await applyCredit(tenantId, [job.customerId]);
 
   // Auto-start the work day if still PLANNED — removes the need to tap "Start Area" separately
   const autoStarted = await prisma.workDay.updateMany({
@@ -6031,14 +5992,14 @@ export async function getBankImportData() {
     prisma.tenantSettings.findUnique({ where: { tenantId }, select: { goCardlessReferencePrefix: true, allowCustomerCredit: true } }),
     prisma.customer.findMany({
       where: { tenantId, isProspect: false },
-      select: { id: true, name: true, address: true, active: true, paidByCustomerId: true },
+      select: { id: true, name: true, address: true, active: true },
       orderBy: { name: "asc" },
     }),
     prisma.job.findMany({
       where: { tenantId, status: "COMPLETE", isQuote: false },
       select: {
         id: true, price: true, customerId: true, name: true,
-        customer: { select: { paidByCustomerId: true, name: true } },
+        customer: { select: { name: true } },
         workDay: { select: { date: true } },
         allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
       },
@@ -6055,13 +6016,11 @@ export async function getBankImportData() {
       jobId: job.id,
       due,
       date: job.workDay?.date ? job.workDay.date.toISOString().slice(0, 10) : null,
-      label: job.customer.paidByCustomerId ? `${job.name} (${job.customer.name})` : job.name,
+      label: job.name,
     };
-    for (const payerId of new Set([job.customerId, job.customer.paidByCustomerId].filter((id): id is number => typeof id === "number"))) {
-      const list = unpaidBy.get(payerId) ?? [];
-      list.push(entry);
-      unpaidBy.set(payerId, list);
-    }
+    const list = unpaidBy.get(job.customerId) ?? [];
+    list.push(entry);
+    unpaidBy.set(job.customerId, list);
   }
   return {
     tenantId,

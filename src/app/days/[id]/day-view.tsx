@@ -1574,12 +1574,8 @@ function JobActionModal({
 
   const customerUnpaidJobs = useMemo(() => {
     if (!job) return [];
-    // Include jobs of customers this customer pays for ("paid by"), labelled with their name.
     const own = job.customer.jobs.map((j) => ({ ...j, label: j.name ?? undefined }));
-    const others = (job.customer.paysFor ?? []).flatMap((other) =>
-      other.jobs.map((j) => ({ ...j, label: `${other.name} — ${j.name ?? "Window Cleaning"}` })),
-    );
-    return [...own, ...others]
+    return own
       .sort((a, b) => new Date(a.workDay.date).getTime() - new Date(b.workDay.date).getTime() || a.id - b.id)
       .map((j) => {
         const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);

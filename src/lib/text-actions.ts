@@ -451,9 +451,9 @@ export async function getDayCleanedTextStatus(workDayIds: number[]) {
   const tenantId = actor.tenantId;
   const jobs = await prisma.job.findMany({
     where: { tenantId, workDayId: { in: workDayIds }, status: "COMPLETE", isQuote: false },
-    select: { id: true, customer: { select: { phone: true, preferredPaymentMethod: true, paidByCustomerId: true } } },
+    select: { id: true, customer: { select: { phone: true, preferredPaymentMethod: true } } },
   });
-  const textable = jobs.filter((j) => ukMobile(j.customer.phone) && j.customer.preferredPaymentMethod !== "DD" && !j.customer.paidByCustomerId);
+  const textable = jobs.filter((j) => ukMobile(j.customer.phone) && j.customer.preferredPaymentMethod !== "DD");
   const sent = await prisma.messageLog.count({ where: { tenantId, kind: "CLEANED", jobId: { in: textable.map((j) => j.id) } } });
   return { textable: textable.length, notSent: Math.max(0, textable.length - sent) };
 }
