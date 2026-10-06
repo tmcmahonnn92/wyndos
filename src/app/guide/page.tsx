@@ -21,6 +21,7 @@ const STEPS = [
   { id: "import", title: "Bring in your customers" },
   { id: "plan", title: "Plan your round" },
   { id: "day", title: "Work a day" },
+  { id: "order", title: "Set the order of your day" },
   { id: "texts", title: "Text your customers" },
   { id: "workers", title: "Add your workers" },
   { id: "payments", title: "Keep track of money" },
@@ -193,7 +194,7 @@ export default async function GuidePage() {
               With Done &amp; Paid you can change <strong>Price this time</strong> (front only, say) and <strong>They paid</strong>
               (if they gave you £10 for an £8 clean, the extra is kept as credit for next time).
             </li>
-            <li>The arrow button opens the route in Google Maps. <strong>By street</strong> groups houses by street.</li>
+            <li>The arrow button opens the houses still to do in Google Maps, in the day&apos;s order.</li>
             <li>
               Press <strong>Complete Day</strong> at the end. Anyone you didn&apos;t get to can be skipped or moved,
               and everyone&apos;s next visit is booked automatically.
@@ -205,7 +206,31 @@ export default async function GuidePage() {
           </p>
         </Step>
 
-        <Step n={6} id="texts" title="Text your customers">
+        <Step n={6} id="order" title="Set the order of your day">
+          <p>
+            Each area has its own walking order, and a day uses it. When you have more than one area on a date, open the
+            <strong> whole day</strong> (in the Scheduler, click the date or any empty part of the day) to set the order you do them in.
+          </p>
+          <ul>
+            <li><strong>Areas:</strong> drag the area rows at the top, or use the ▲▼ arrows. This is for that day only.</li>
+            <li>
+              <strong>Houses:</strong> press <strong>Reorder</strong>, then drag a house or use its arrows. Moving a house within its
+              own area changes that area&apos;s walking order for every run.
+            </li>
+            <li>
+              <strong>A house from another area</strong> (say an 8-weekly on the same street as your 4-weeklies): drag it in among them.
+              Wyndos asks <strong>Just today</strong> or <strong>Yes, always</strong>. Always means it goes straight after that house
+              whenever they&apos;re on the same day.
+            </li>
+            <li><strong>Sort each area by street</strong> puts each area in street order for that day, then tidy it by hand.</li>
+            <li><strong>Back to normal order</strong> undoes that day&apos;s changes.</li>
+          </ul>
+          <Shot src="d-day-order" alt="A whole day with two areas: the area list with arrows, and Reorder on with Sort each area by street and Back to normal order" caption="The whole day: area order at the top, houses below" />
+          <div className="mx-auto max-w-md"><Shot src="d-day-always" alt="A popup asking whether a house should always come straight after another house on the same day" caption="Moved a house in among another area: today only, or always" /></div>
+          <Tip>Extra jobs and one-offs go at the end of their area. Printed run sheets and the PDF follow the same order. To remove an &quot;always&quot; link, open the customer.</Tip>
+        </Step>
+
+        <Step n={7} id="texts" title="Text your customers">
           <p>
             Texts go from <strong>your own phone</strong>, so there are no text credits to buy. Wyndos fills in each message
             (name, date, amount owed) and opens it in your Messages app. You press Send, come back, and the next one is ready.
@@ -223,7 +248,7 @@ export default async function GuidePage() {
           <Tip>On a computer? Wyndos shows a code. Point your phone&apos;s camera at it and the same texts open on your phone, ready to send.</Tip>
         </Step>
 
-        <Step n={7} id="workers" title="Add your workers">
+        <Step n={8} id="workers" title="Add your workers">
           <p>Workers are included in the price. Each gets their own login and only sees what you allow.</p>
           <ol>
             <li>Go to <strong>Settings → Team</strong>.</li>
@@ -238,6 +263,11 @@ export default async function GuidePage() {
           </p>
           <Shot src="d-assign" alt="A day with the worker bar open: Day set to Jamie Brooks, with Print, Share, Assign / move jobs, Take back day and Rained off" caption="Choosing who does the day" />
           <p>Your worker sees their own days on their phone, and nothing else unless you allow it.</p>
+          <p>
+            <strong>Change job order:</strong> tick this for a worker if they may reorder their day. Leave it off and they always see
+            their whole day in the order you set, with no Reorder button.
+          </p>
+          <Shot src="d-team-reorder" alt="Editing a worker's permissions, with Change Job Order next to Their Days" caption="Settings → Team → edit permissions" />
           <Pair>
             <Shot phone src="p-worker" alt="A worker's dashboard on the phone: their work this month, coming up and cash to hand over" caption="A worker's dashboard" />
             <Shot phone src="p-worker-day" alt="A worker's day on the phone, the same Done and Done & Paid list" caption="Their day" />
@@ -245,7 +275,7 @@ export default async function GuidePage() {
           <Tip>Cash your workers collect is tracked. They hand it over to you under <strong>Payments → Cash</strong>, so you always know who&apos;s holding what.</Tip>
         </Step>
 
-        <Step n={8} id="payments" title="Keep track of money">
+        <Step n={9} id="payments" title="Keep track of money">
           <p>
             <strong>Payments</strong> shows who owes you, for which cleans, and for how long. From here you can
             <strong> Log payment</strong>, send a <strong>Remind</strong> text, or add <strong>credit</strong> for someone who&apos;s paid in advance.
@@ -257,7 +287,7 @@ export default async function GuidePage() {
           </ul>
         </Step>
 
-        <Step n={9} id="dashboard" title="Your dashboard">
+        <Step n={10} id="dashboard" title="Your dashboard">
           <div className="grid items-start gap-6 sm:grid-cols-[1fr_280px]">
             <div className="space-y-4">
               <p>
@@ -270,7 +300,7 @@ export default async function GuidePage() {
           </div>
         </Step>
 
-        <Step n={10} id="help" title="Help and the app">
+        <Step n={11} id="help" title="Help and the app">
           <div className="grid items-start gap-6 sm:grid-cols-[1fr_280px]">
             <div className="space-y-4">
               <p>

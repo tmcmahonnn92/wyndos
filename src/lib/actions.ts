@@ -3325,6 +3325,30 @@ export async function assignWorkDayWorker(workDayId: number, assignedUserId?: st
 }
 
 /**
+ * Give a whole date to one person: every unfinished area day on it, and every job on
+ * those days (any job given to someone else comes back to follow the day). Null = the owner.
+ */
+export async function assignWholeDate(workDayIds: number[], assignedUserId: string | null) {
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
+  const ids = (Array.isArray(workDayIds) ? workDayIds : []).filter((n) => Number.isSafeInteger(n));
+  const days = await prisma.workDay.findMany({ where: { tenantId, id: { in: ids }, status: { not: "COMPLETE" } }, select: { id: true, date: true, assignedUserId: true } });
+  if (new Set(days.map((d) => d.date.getTime())).size > 1) throw new Error("Those areas aren't all on the same day.");
+  const workerId = await resolveAssignedWorkerId(tenantId, assignedUserId);
+  const openIds = days.map((d) => d.id);
+  await prisma.$transaction([
+    prisma.workDay.updateMany({ where: { tenantId, id: { in: openIds } }, data: { assignedUserId: workerId ?? null } }),
+    prisma.job.updateMany({ where: { tenantId, workDayId: { in: openIds }, status: "PENDING" }, data: { assignedUserId: null } }),
+  ]);
+  const firstNew = days.find((d) => d.assignedUserId !== workerId);
+  if (workerId && firstNew) {
+    await queueNotification({ tenantId, kind: "WORK_ASSIGNED", workDayId: firstNew.id, userId: workerId, actorUserId: actor.userId });
+  }
+  revalidatePath("/scheduler");
+  revalidatePath("/days", "layout");
+}
+
+/**
  * Assign individual jobs to a worker (or to the owner), optionally moving them to
  * another date. userId null = follow the day's worker.
  *
