@@ -13,6 +13,7 @@ import { getExpenseCategory, getOtherIncomeCategory, getTaxTreatment, EXPENSE_CA
 import { calcNextDue } from "@/lib/utils";
 import { addDays, startOfDay } from "date-fns";
 import { requireAuth } from "@/lib/tenant-context";
+import { stampNote } from "@/lib/text-format";
 import { orderDays } from "@/lib/day-order";
 import {
   getActor,
@@ -119,6 +120,12 @@ async function removeDayIfEmpty(tenantId: number, dayId: number) {
  * area's day on the new date (made as a "part" of the same run if there isn't one), so the
  * area stays one run: its next visit is booked once every part is done.
  */
+/** First name (or email) of a user, for stamping notes. */
+async function nameOf(userId: string) {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+  return u?.name?.trim() || u?.email?.split("@")[0] || "";
+}
+
 /** Position at the end of a day's jobs, so added or moved jobs go last, not first. */
 async function endOfDay(workDayId: number) {
   const m = await prisma.job.aggregate({ where: { workDayId }, _max: { sortOrder: true } });
@@ -3769,12 +3776,13 @@ export async function recordPayment(data: {
     if (visible !== new Set(jobIds).size) throw new AccessDeniedError();
   }
   // Only what a payment needs; tenantId always comes from the signed-in user.
+  const paymentNote = typeof data.notes === "string" && data.notes.trim() ? stampNote(data.notes.slice(0, 500), await nameOf(actor.userId)) : undefined;
   await createAllocatedPayment({
     tenantId,
     customerId: Number(data.customerId),
     allocations: (Array.isArray(data.allocations) ? data.allocations : []).map((a) => ({ jobId: Number(a.jobId), amount: Number(a.amount) })),
     method: data.method,
-    notes: typeof data.notes === "string" ? data.notes.slice(0, 500) : undefined,
+    notes: paymentNote,
     paidAt: data.paidAt instanceof Date ? data.paidAt : undefined,
     clientRequestId: typeof data.clientRequestId === "string" ? data.clientRequestId.slice(0, 100) : undefined,
     extra: typeof data.extra === "number" ? data.extra : undefined,
@@ -5773,10 +5781,14 @@ export async function setWorkDayRouteOrderingMode(workDayId: number, mode: Route
 export async function updateJobNotes(jobId: number, notes: string) {
   const actor = await requirePerm("schedule");
   const tenantId = actor.tenantId;
-  await requireTenantJob(tenantId, jobId);
+  const existing = await prisma.job.findFirst({ where: { id: jobId, tenantId, ...visibleJobWhere(actor) }, select: { notes: true } });
+  if (!existing) throw new Error("Job not found");
+  // Unchanged text keeps its stamp; a new or edited note gets who wrote it and when.
+  const text = String(notes ?? "").trim();
+  const same = text === (existing.notes ?? "").trim();
   const job = await prisma.job.update({
     where: { id: jobId },
-    data: { notes: notes.trim() || null },
+    data: { notes: !text ? null : same ? existing.notes : stampNote(text, await nameOf(actor.userId)) },
   });
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath("/scheduler");
