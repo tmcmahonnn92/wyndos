@@ -222,6 +222,8 @@ export function DayView({
   // Drag-to-reorder state for pending jobs (any job, anywhere in the day).
   const dragJobIdRef = useRef<number | null>(null);
   const [dragOverJobId, setDragOverJobId] = useState<number | null>(null);
+  // Drop above or below the card under the pointer (shown as a line between cards).
+  const [dropWhere, setDropWhere] = useState<"before" | "after">("before");
   const [reorderMode, setReorderMode] = useState(false);
   // Order shown straight away after a move, until the saved order comes back from the server.
   const [optimistic, setOptimistic] = useState<{ jobs: number[] | null; days: number[] | null }>({ jobs: null, days: null });
@@ -499,7 +501,7 @@ export function DayView({
     ids.splice(to, 0, jobId);
     placeJob(ids, jobId);
   };
-  const handleJobDrop = (targetJobId: number) => {
+  const handleJobDrop = (targetJobId: number, where: "before" | "after") => {
     const dragId = dragJobIdRef.current;
     dragJobIdRef.current = null;
     setDragJobId(null);
@@ -507,10 +509,11 @@ export function DayView({
     if (!dragId || dragId === targetJobId) return;
     const ids = pendingIds();
     const from = ids.indexOf(dragId);
-    const to = ids.indexOf(targetJobId);
-    if (from === -1 || to === -1) return;
+    if (from === -1 || !ids.includes(targetJobId)) return;
     ids.splice(from, 1);
-    ids.splice(to, 0, dragId);
+    const at = ids.indexOf(targetJobId) + (where === "after" ? 1 : 0);
+    ids.splice(at, 0, dragId);
+    if (ids.indexOf(dragId) === from) return; // dropped where it already was
     placeJob(ids, dragId);
   };
   /** Drag an area row onto another to put it in that place. */
@@ -697,14 +700,32 @@ export function DayView({
       draggable={canReorder}
       onDragStart={() => { if (!canReorder) return; dragJobIdRef.current = job.id; setDragJobId(job.id); }}
       onDragEnd={() => { dragJobIdRef.current = null; setDragJobId(null); setDragOverJobId(null); }}
-      onDragOver={(e) => { if (!canReorder) return; e.preventDefault(); setDragOverJobId(job.id); }}
+      onDragOver={(e) => {
+        if (!canReorder || dragJobIdRef.current === null) return;
+        e.preventDefault();
+        const box = e.currentTarget.getBoundingClientRect();
+        setDropWhere(e.clientY < box.top + box.height / 2 ? "before" : "after");
+        setDragOverJobId(job.id);
+      }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverJobId(null); }}
-      onDrop={(e) => { e.preventDefault(); handleJobDrop(job.id); }}
-      className={cn(
-        "rounded-xl transition-all",
-        dragOverJobId === job.id && dragJobId !== job.id && "ring-2 ring-blue-400 ring-offset-1"
-      )}
+      onDrop={(e) => { e.preventDefault(); handleJobDrop(job.id, dropWhere); }}
+      className={cn("relative rounded-xl transition-opacity", dragJobId === job.id && "opacity-40")}
     >
+      {dragOverJobId === job.id && dragJobId !== null && dragJobId !== job.id && (() => {
+        // A clear line where it will land, saying which area it's going in with.
+        const dragged = allJobs.find((j) => j.id === dragJobId);
+        const other = dragged && dragged.workDayId !== job.workDayId ? areaOf(job) : null;
+        return (
+          <div className={cn("pointer-events-none absolute inset-x-0 z-20 flex items-center", dropWhere === "before" ? "-top-[5px]" : "-bottom-[5px]")}>
+            <span className="h-2 w-2 rounded-full bg-blue-600" />
+            <span className="h-[3px] flex-1 bg-blue-600" />
+            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow">
+              {dropWhere === "before" ? "Before" : "After"} {job.customer.name}{other ? ` · in among ${other.name}` : ""}
+            </span>
+            <span className="h-[3px] w-3 bg-blue-600" />
+          </div>
+        );
+      })()}
       {reorderMode && canReorder && (
         <div className="mb-1 flex gap-1">
           <button type="button" aria-label={`Move ${job.customer.name} up`} onClick={() => moveJob(job.id, -1)}
