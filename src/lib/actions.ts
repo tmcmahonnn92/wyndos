@@ -1,7 +1,7 @@
 "use server";
 
 import { normalisePreference } from "@/lib/payment-preference";
-import { INACTIVE_AREA_NAME } from "@/lib/system-areas";
+import { INACTIVE_AREA_NAME, AREA_IN_USE } from "@/lib/system-areas";
 import { pickPlain } from "@/lib/safe-input";
 
 import { revalidatePath } from "next/cache";
@@ -808,13 +808,13 @@ export async function getAreas() {
   return prisma.area.findMany({ where: { tenantId, isSystemArea: false }, orderBy: { sortOrder: "asc" } });
 }
 
-export async function getAreaSchedules() {
+export async function getAreaSchedules(opts: { inUseOnly?: boolean } = {}) {
   const actor = await requireMember();
   const tenantId = actor.tenantId;
   if (actor.isWorker && !hasPermission(actor, "scheduler") && !hasPermission(actor, "areas")) {
     return [];
   }
-  const areas = await prisma.area.findMany({ where: { tenantId, isSystemArea: false },
+  const areas = await prisma.area.findMany({ where: { tenantId, isSystemArea: false, ...(opts.inUseOnly === true ? AREA_IN_USE : {}) },
     include: {
       _count: { select: { customers: true } },
       customers: {
@@ -4280,7 +4280,7 @@ export async function getDashboardData() {
     prisma.customer.aggregate({ where: { tenantId, active: true }, _sum: { price: true } }),
     prisma.payment.aggregate({ where: { tenantId, voidedAt: null }, _sum: { amount: true } }),
     prisma.customer.count({ where: { tenantId, active: true } }),
-    prisma.area.count({ where: { tenantId, isSystemArea: false, nextDueDate: { lt: today } } }),
+    prisma.area.count({ where: { tenantId, isSystemArea: false, nextDueDate: { lt: today }, ...AREA_IN_USE } }),
     prisma.job.aggregate({ where: { tenantId, status: "COMPLETE" }, _sum: { price: true } }),
     prisma.payment.findMany({
       where: { tenantId, voidedAt: null },
@@ -4383,7 +4383,7 @@ export async function getSchedulerTodoSummary() {
     customersForDebt,
   ] = await Promise.all([
     prisma.area.findMany({
-      where: { tenantId, isSystemArea: false, nextDueDate: { lt: today } },
+      where: { tenantId, isSystemArea: false, nextDueDate: { lt: today }, ...AREA_IN_USE },
       select: { id: true, name: true, nextDueDate: true },
       orderBy: { nextDueDate: "asc" },
       take: 8,
