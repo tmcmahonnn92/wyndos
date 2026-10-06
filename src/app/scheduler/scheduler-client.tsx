@@ -757,34 +757,14 @@ function CalendarCell({
       ? `${holidayLabel ?? "Holiday"} — cannot schedule`
       : null;
 
-  // Dragging an area within its own day reorders the areas: a line shows where it goes.
-  const [slot, setSlot] = useState<number | null>(null);
-  const sameDayDrag = Boolean(onReorder && canManageSchedule && dragState?.type === "workday"
-    && isoDate(toUTCMidnight(dragState.workDay.date)) === isoDate(toUTCMidnight(date)));
-  const slotAt = (cell: HTMLElement, clientY: number) => {
-    const chips = [...cell.querySelectorAll<HTMLElement>("[data-wd-id]")];
-    for (let i = 0; i < chips.length; i++) {
-      const box = chips[i].getBoundingClientRect();
-      if (clientY < box.top + box.height / 2) return i;
-    }
-    return chips.length;
-  };
-  const draggedIndex = dragState?.type === "workday" ? workDays.findIndex((w) => w.id === dragState.workDay.id) : -1;
-  const lineAt = (i: number) => sameDayDrag && slot === i && i !== draggedIndex && i !== draggedIndex + 1;
+  // ▲▼ on an area moves it earlier / later among the areas on this day.
+  const canOrder = Boolean(onReorder && canManageSchedule && workDays.length > 1);
 
   return (
     <div
-      onDragOver={(e) => {
-        e.preventDefault();
-        if (sameDayDrag) { const next = slotAt(e.currentTarget, e.clientY); if (next !== slot) setSlot(next); return; }
-        if (!isHoliday && canManageSchedule) onDragOver(date);
-      }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setSlot(null); onDragLeave(); }}
-      onDrop={(e) => {
-        e.preventDefault();
-        if (sameDayDrag && dragState?.type === "workday") { onReorder!(dragState.workDay.id, slotAt(e.currentTarget, e.clientY)); setSlot(null); return; }
-        if (!isHoliday && canManageSchedule) onDrop(date);
-      }}
+      onDragOver={(e) => { e.preventDefault(); if (!isHoliday && canManageSchedule) onDragOver(date); }}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => { e.preventDefault(); if (!isHoliday && canManageSchedule) onDrop(date); }}
       className={cn(
         "relative min-h-[130px] rounded-xl border transition-all duration-150 flex flex-col gap-1 p-2",
         isHoliday ? "bg-red-50/60 border-red-200" : isToday ? "bg-blue-50 border-blue-200" : "bg-white border-slate-200",
@@ -826,11 +806,16 @@ function CalendarCell({
             key={wd.id}
             draggable={canManageSchedule && wd.status !== "COMPLETE"}
             onDragStart={(e) => { if (!canManageSchedule || wd.status === "COMPLETE") { e.preventDefault(); return; } e.stopPropagation(); e.dataTransfer.setData("text/plain", String(wd.id)); e.dataTransfer.effectAllowed = "move"; onWorkDayDragStart(wd); }}
-            data-wd-id={wd.id}
-            className={cn("relative group", sameDayDrag && dragState?.type === "workday" && dragState.workDay.id === wd.id && "opacity-40")}
+            className="relative group"
           >
-            {lineAt(index) && <AreaDropLine />}
-            {index === workDays.length - 1 && lineAt(workDays.length) && <AreaDropLine after />}
+            {canOrder && (
+              <span className="absolute bottom-1 right-1 z-20 hidden overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm group-hover:flex">
+                <button type="button" title="Earlier in the day" disabled={index === 0} onClick={(e) => { e.stopPropagation(); onReorder!(wd.id, index - 1); }}
+                  className="px-1.5 text-[10px] leading-[16px] text-slate-600 hover:bg-blue-50 disabled:opacity-30">▲</button>
+                <button type="button" title="Later in the day" disabled={index === workDays.length - 1} onClick={(e) => { e.stopPropagation(); onReorder!(wd.id, index + 2); }}
+                  className="border-l border-slate-200 px-1.5 text-[10px] leading-[16px] text-slate-600 hover:bg-blue-50 disabled:opacity-30">▼</button>
+              </span>
+            )}
             {/* Remove button — top-right, visible on hover, hidden for completed days */}
             {canManageSchedule && wd.status !== "COMPLETE" && (
               <button
@@ -979,34 +964,14 @@ function MonthCalendarCell({
       ? `${holidayLabel ?? "Holiday"} — cannot schedule`
       : null;
 
-  // Dragging an area within its own day reorders the areas: a line shows where it goes.
-  const [slot, setSlot] = useState<number | null>(null);
-  const sameDayDrag = Boolean(onReorder && canManageSchedule && dragState?.type === "workday"
-    && isoDate(toUTCMidnight(dragState.workDay.date)) === isoDate(toUTCMidnight(date)));
-  const slotAt = (cell: HTMLElement, clientY: number) => {
-    const chips = [...cell.querySelectorAll<HTMLElement>("[data-wd-id]")];
-    for (let i = 0; i < chips.length; i++) {
-      const box = chips[i].getBoundingClientRect();
-      if (clientY < box.top + box.height / 2) return i;
-    }
-    return chips.length;
-  };
-  const draggedIndex = dragState?.type === "workday" ? workDays.findIndex((w) => w.id === dragState.workDay.id) : -1;
-  const lineAt = (i: number) => sameDayDrag && slot === i && i !== draggedIndex && i !== draggedIndex + 1;
+  // ▲▼ on an area moves it earlier / later among the areas on this day.
+  const canOrder = Boolean(onReorder && canManageSchedule && workDays.length > 1);
 
   return (
     <div
-      onDragOver={(e) => {
-        e.preventDefault();
-        if (sameDayDrag) { const next = slotAt(e.currentTarget, e.clientY); if (next !== slot) setSlot(next); return; }
-        if (!isHoliday && canManageSchedule) onDragOver(date);
-      }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setSlot(null); onDragLeave(); }}
-      onDrop={(e) => {
-        e.preventDefault();
-        if (sameDayDrag && dragState?.type === "workday") { onReorder!(dragState.workDay.id, slotAt(e.currentTarget, e.clientY)); setSlot(null); return; }
-        if (!isHoliday && canManageSchedule) onDrop(date);
-      }}
+      onDragOver={(e) => { e.preventDefault(); if (!isHoliday && canManageSchedule) onDragOver(date); }}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => { e.preventDefault(); if (!isHoliday && canManageSchedule) onDrop(date); }}
       onClick={openWholeDay}
       title={workDays.length > 0 ? "Open the whole day" : undefined}
       className={cn(
@@ -1063,11 +1028,16 @@ function MonthCalendarCell({
             key={workDay.id}
             draggable={canManageSchedule && workDay.status !== "COMPLETE"}
             onDragStart={(e) => { if (!canManageSchedule || workDay.status === "COMPLETE") { e.preventDefault(); return; } e.stopPropagation(); e.dataTransfer.setData("text/plain", String(workDay.id)); e.dataTransfer.effectAllowed = "move"; onWorkDayDragStart(workDay); }}
-            data-wd-id={workDay.id}
-            className={cn("relative group", sameDayDrag && dragState?.type === "workday" && dragState.workDay.id === workDay.id && "opacity-40")}
+            className="relative group"
           >
-            {lineAt(index) && <AreaDropLine />}
-            {index === visibleDays.length - 1 && lineAt(visibleDays.length) && <AreaDropLine after />}
+            {canOrder && (
+              <span className="absolute bottom-1 right-1 z-20 hidden overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm group-hover:flex">
+                <button type="button" title="Earlier in the day" disabled={index === 0} onClick={(e) => { e.stopPropagation(); onReorder!(workDay.id, index - 1); }}
+                  className="px-1.5 text-[10px] leading-[16px] text-slate-600 hover:bg-blue-50 disabled:opacity-30">▲</button>
+                <button type="button" title="Later in the day" disabled={index === workDays.length - 1} onClick={(e) => { e.stopPropagation(); onReorder!(workDay.id, index + 2); }}
+                  className="border-l border-slate-200 px-1.5 text-[10px] leading-[16px] text-slate-600 hover:bg-blue-50 disabled:opacity-30">▼</button>
+              </span>
+            )}
             {/* Remove button — top-right, visible on hover, hidden for completed days */}
             {canManageSchedule && workDay.status !== "COMPLETE" && (
               <button
@@ -1113,16 +1083,6 @@ function MonthCalendarCell({
           </button>
         )}
       </div>
-    </div>
-  );
-}
-
-/** Blue line between areas on a day: where a dragged area will go. */
-function AreaDropLine({ after = false }: { after?: boolean }) {
-  return (
-    <div className={cn("pointer-events-none absolute inset-x-0 z-30 flex items-center", after ? "-bottom-[5px]" : "-top-[5px]")}>
-      <span className="h-2 w-2 rounded-full border-2 border-blue-600 bg-white" />
-      <span className="h-[3px] flex-1 rounded bg-blue-600" />
     </div>
   );
 }
@@ -3873,7 +3833,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
               <span className="text-[10px] text-slate-500">{label}</span>
             </div>
           ))}
-          <span className="ml-auto text-[10px] text-slate-400">Tip: drag an area up or down within its day to change the order.</span>
+          <span className="ml-auto text-[10px] text-slate-400">Tip: hover an area and use ▲▼ to change the order of areas on a day.</span>
         </div>
       </div>
 
