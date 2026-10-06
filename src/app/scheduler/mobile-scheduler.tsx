@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePickerLoad } from "@/components/date-picker-load";
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -236,8 +237,8 @@ function DayCard({ day, today, open, onToggle, team, pending, onMove, onAssign }
               <p className="mb-1 text-xs font-semibold text-slate-600">
                 {partDone ? `Move the ${day.leftIds.length} not done yet to` : "Move to another date"}
               </p>
+              <DatePickerLoad value={date} onChange={setDate} className="mb-2" />
               <div className="flex gap-2">
-                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} />
                 <button type="button" disabled={pending || !date || date === day.date} onClick={() => onMove(date)}
                   className="flex-shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
                   {pending ? "…" : "Move"}
@@ -292,7 +293,7 @@ function AreaCard({ area, today, open, onToggle, team, pending, onBook }: {
         <div className="space-y-3 border-t border-slate-100 bg-slate-50 px-3 py-3">
           <div>
             <p className="mb-1 text-xs font-semibold text-slate-600">Book the run for</p>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} />
+            <DatePickerLoad value={date} onChange={setDate} />
           </div>
           {team && team.length > 1 && (
             <div>

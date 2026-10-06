@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePickerLoad } from "@/components/date-picker-load";
 import { useState, useTransition, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -849,7 +850,7 @@ export function DayView({
                 type="button"
                 role="radio"
                 aria-checked="false"
-                onClick={() => (days.length === 1 ? router.push(`/days/${days[0].id}`) : setAreaPickerOpen(true))}
+                onClick={() => (days.length === 1 ? router.push(`/days/${days[0].id}?only=1`) : setAreaPickerOpen(true))}
                 className="flex-1 rounded-lg px-3 py-2 text-center text-slate-600 hover:bg-slate-50"
               >
                 One area
@@ -1088,7 +1089,7 @@ export function DayView({
                       Reopen area
                     </button>
                   )}
-                  <Link href={`/days/${day.id}`}
+                  <Link href={`/days/${day.id}?only=1`}
                     className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                     Open area only
                   </Link>
@@ -1359,12 +1360,7 @@ export function DayView({
                 : <strong>{rainOff.dayIds.length} areas</strong>} and all their jobs. Each customer&apos;s next visit
               is worked out from when the area is actually done, so nothing else needs changing.
             </p>
-            <input
-              type="date"
-              value={rainOff.date}
-              onChange={(e) => setRainOff({ ...rainOff, date: e.target.value })}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            />
+            <DatePickerLoad inline value={rainOff.date} onChange={(date) => setRainOff({ ...rainOff, date })} />
             <div className="flex gap-2">
               <Button onClick={handleConfirmRainOff} disabled={isPending || !rainOff.date} className="flex-1">
                 {isPending ? "Moving..." : "Move"}
@@ -1398,7 +1394,7 @@ export function DayView({
           {days.map((day) => (
             <Link
               key={day.id}
-              href={`/days/${day.id}`}
+              href={`/days/${day.id}?only=1`}
               className="flex w-full items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-left text-sm font-semibold text-slate-800 hover:bg-slate-50"
             >
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: day.area?.color ?? "#94a3b8" }} />
@@ -1537,12 +1533,7 @@ export function DayView({
                       {bulkDest === "new" ? (
                         <div className="space-y-1">
                           <label className="block text-xs font-medium text-slate-600">Date for the overdue batch</label>
-                          <input
-                            type="date"
-                            value={bulkNewDate}
-                            onChange={(e) => setBulkNewDate(e.target.value)}
-                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                          />
+                          <DatePickerLoad value={bulkNewDate} onChange={setBulkNewDate} />
                           <p className="text-[11px] text-slate-500">
                             Creates a temporary “Overdue – area” group on this date for each area.
                           </p>

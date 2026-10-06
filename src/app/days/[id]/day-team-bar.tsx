@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePickerLoad } from "@/components/date-picker-load";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -188,13 +189,8 @@ export function DayTeamBar({
       {panel === "rain" && (
         <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50 p-3">
           <p className="text-xs text-sky-900">Move this whole day to another date. Nothing is marked done or skipped.</p>
+          <DatePickerLoad inline value={rainDate} onChange={setRainDate} />
           <div className="flex gap-2">
-            <input
-              type="date"
-              value={rainDate}
-              onChange={(event) => setRainDate(event.target.value)}
-              className="flex-1 rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm"
-            />
             <button
               type="button"
               disabled={isPending || !rainDate}
@@ -256,14 +252,8 @@ export function DayTeamBar({
               Assign {selected.size || ""}
             </button>
           </div>
+          <DatePickerLoad value={assignDate} onChange={setAssignDate} />
           <div className="flex gap-2">
-            <input
-              type="date"
-              aria-label="Move selected jobs to date"
-              value={assignDate}
-              onChange={(event) => setAssignDate(event.target.value)}
-              className="min-w-0 flex-1 rounded-lg border border-blue-200 bg-white px-2 py-2 text-sm"
-            />
             <button
               type="button"
               disabled={isPending || selected.size === 0 || !assignDate}

@@ -180,7 +180,7 @@ export default async function GuidePage() {
 
         <Step n={5} id="day" title="Work a day">
           <p>
-            On the day, open <strong>Schedule</strong> on your phone and tap today. You&apos;ll see everyone in route order,
+            On the day, open <strong>Workday</strong> on your phone and tap today. You&apos;ll see everyone in route order,
             with their price, notes (gate codes, dogs and so on) and how they usually pay.
           </p>
           <Pair>

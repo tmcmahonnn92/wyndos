@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePickerLoad } from "@/components/date-picker-load";
 import { useState, useRef, useTransition, useCallback, useEffect, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -1460,11 +1461,7 @@ function CompletedWorkDayModal({ workDay, onClose }: { workDay: WorkDay | null; 
             </div>
           ) : (
             <div className="flex-1 flex items-center gap-2 flex-wrap">
-              <input
-                type="date" value={dateVal} onChange={(e) => setDateVal(e.target.value)}
-                className="border border-green-300 rounded-lg px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
-                autoFocus
-              />
+              <DatePickerLoad inline value={dateVal} onChange={setDateVal} className="w-full max-w-sm" />
               <button onClick={handleSaveDate} disabled={!dateVal}
                 className="px-3 py-1 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold disabled:opacity-50">
                 Save

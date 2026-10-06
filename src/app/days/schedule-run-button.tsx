@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePickerLoad } from "@/components/date-picker-load";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarCheck, ChevronDown, X } from "lucide-react";
@@ -62,17 +63,8 @@ export function ScheduleRunButton({ area }: { area: Area }) {
 
   return (
     <div className="space-y-2 flex-shrink-0">
+      <DatePickerLoad inline value={date} onChange={(d) => { setDate(d); if (error) setError(null); }} className="w-72 max-w-full" />
       <div className="flex items-center gap-2">
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => {
-            setDate(e.target.value);
-            if (error) setError(null);
-          }}
-          className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white w-32"
-          autoFocus
-        />
         <Button
           size="sm"
           onClick={handleSchedule}
