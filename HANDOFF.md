@@ -146,3 +146,7 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Server: `src/lib/cleanerplanner/actions.ts` (chunks of 250 customers / 1500 history rows), linked by ids, skips name+address+job already in Wyndos.
 - Payment methods not on Wyndos' list ("Under mat") are kept as a note "Usually pays: …" (also in the normal import); history payments keep "Paid by: …".
 - `GUIDED_IMPORT_ENABLED = false` in features.ts: guided import hidden everywhere and its page redirects.
+
+## Inactive customers area
+- Deleting an area with only inactive customers moves them to a hidden system area "Inactive customers" (`src/lib/system-areas.ts`), keeping history and balance; shown as "No area (inactive)". Areas with active customers still can't be deleted.
+- Switching such a customer back on asks for a real area first (Change Area). The one-off area lookup and "one-off" filter ignore this area.

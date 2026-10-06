@@ -697,7 +697,9 @@ interface DeleteModalProps {
 
 function DeleteModal({ open, onClose, area, onConfirm, isPending, error }: DeleteModalProps) {
   if (!area) return null;
-  const hasCustomers = area._count.customers > 0;
+  const activeCount = area.customers.length; // the list only holds active customers
+  const inactiveCount = Math.max(0, area._count.customers - activeCount);
+  const hasCustomers = activeCount > 0;
   return (
     <Modal open={open} onClose={onClose} title="Delete Area">
       <div className="space-y-4">
@@ -705,14 +707,20 @@ function DeleteModal({ open, onClose, area, onConfirm, isPending, error }: Delet
           <div className="flex gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
             <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-amber-800">
-              <strong>{area.name}</strong> has {area._count.customers} customer{area._count.customers === 1 ? "" : "s"} assigned.
-              Move them to another area before deleting.
+              <strong>{area.name}</strong> has {activeCount} active customer{activeCount === 1 ? "" : "s"}.
+              Move them to another area (or switch them off) before deleting.
             </p>
           </div>
         ) : (
-          <p className="text-sm text-slate-600">
-            Are you sure you want to delete <strong>{area.name}</strong>? This cannot be undone.
-          </p>
+          <div className="space-y-2 text-sm text-slate-600">
+            <p>Are you sure you want to delete <strong>{area.name}</strong>? This cannot be undone.</p>
+            {inactiveCount > 0 && (
+              <p className="rounded-lg bg-slate-50 px-3 py-2">
+                Its {inactiveCount} inactive customer{inactiveCount === 1 ? "" : "s"} will be kept, with their history and balance,
+                under <strong>No area (inactive)</strong>. You&apos;ll find them in Customers with &quot;Show inactive&quot; on.
+              </p>
+            )}
+          </div>
         )}
         {error && (
           <div className="flex gap-3 p-3 bg-red-50 border border-red-200 rounded-lg">

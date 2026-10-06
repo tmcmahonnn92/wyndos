@@ -1,6 +1,7 @@
 "use server";
 
 import { normalisePreference } from "@/lib/payment-preference";
+import { INACTIVE_AREA_NAME } from "@/lib/system-areas";
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
@@ -741,17 +742,42 @@ export async function updateArea(
   revalidatePath("/");
 }
 
+/** The hidden area inactive customers are kept in when their old area is deleted. */
+async function getOrCreateInactiveArea(tenantId: number) {
+  const existing = await prisma.area.findFirst({ where: { tenantId, isSystemArea: true, name: INACTIVE_AREA_NAME } });
+  if (existing) return existing;
+  return prisma.area.create({
+    data: { tenantId, name: INACTIVE_AREA_NAME, color: "#94A3B8", isSystemArea: true, sortOrder: 9997, frequencyWeeks: 9999 },
+  });
+}
+
+/**
+ * Delete an area. Active customers must be moved first. Inactive ones are moved to the
+ * hidden "Inactive customers" area, keeping their details, history and balance.
+ */
 export async function deleteArea(id: number) {
   const actor = await requirePerm("areas");
   const tenantId = actor.tenantId;
   const area = await requireTenantArea(tenantId, id);
-  const customerCount = await prisma.customer.count({ where: { tenantId, areaId: area.id } });
-  if (customerCount > 0) {
+  if (area.isSystemArea) throw new Error("That area can't be deleted.");
+  const activeCount = await prisma.customer.count({ where: { tenantId, areaId: area.id, active: true } });
+  if (activeCount > 0) {
     throw new Error(
-      `Cannot delete this area — ${customerCount} customer${customerCount === 1 ? "" : "s"} still assigned. Move them to another area first.`
+      `${area.name} still has ${activeCount} active customer${activeCount === 1 ? "" : "s"}. Move them to another area (or switch them off) first.`
     );
   }
+  const inactive = await prisma.customer.findMany({ where: { tenantId, areaId: area.id }, select: { id: true } });
+  if (inactive.length) {
+    const ids = inactive.map((c) => c.id);
+    const keep = await getOrCreateInactiveArea(tenantId);
+    // Anything still waiting on an unfinished day for them goes; done work stays as history.
+    await prisma.job.deleteMany({
+      where: { tenantId, customerId: { in: ids }, status: "PENDING", workDay: { status: { not: "COMPLETE" } }, allocations: { none: {} } },
+    });
+    await prisma.customer.updateMany({ where: { tenantId, id: { in: ids } }, data: { areaId: keep.id, nextDueDate: null } });
+  }
   await prisma.area.delete({ where: { id: area.id } });
+  revalidatePath("/customers");
   revalidatePath("/areas");
   revalidatePath("/scheduler");
   revalidatePath("/days");
@@ -816,7 +842,7 @@ export async function getAreaSchedules() {
 async function getOrCreateOneOffSystemArea(tenantId: number) {
   // The one-off bucket is the system area that is NOT one of the temporary "Overdue – …" groups.
   const existing = await prisma.area.findFirst({
-    where: { tenantId, isSystemArea: true, NOT: { name: { startsWith: "Overdue – " } } },
+    where: { tenantId, isSystemArea: true, NOT: [{ name: { startsWith: "Overdue – " } }, { name: INACTIVE_AREA_NAME }] },
     orderBy: { createdAt: "asc" },
   });
   if (existing) return existing;
@@ -1155,7 +1181,7 @@ export async function getCustomers(areaIds?: number[], search?: string, includeI
   const customers = await prisma.customer.findMany({ where: { tenantId,
       ...(includeInactive ? {} : { active: true }),
       ...(onlyOneOff
-        ? { area: { isSystemArea: true } }
+        ? { area: { isSystemArea: true, NOT: { name: INACTIVE_AREA_NAME } } }
         : areaIds && areaIds.length > 0 ? { areaId: { in: areaIds } } : {}),
       ...(tagIds && tagIds.length > 0 ? { tags: { some: { tagId: { in: tagIds } } } } : {}),
     },
@@ -1947,6 +1973,10 @@ export async function updateCustomer(
   const resolvedAreaId = data.areaId ?? current.areaId;
   const areaChanged = current.areaId !== resolvedAreaId;
   const area = await requireTenantArea(tenantId, resolvedAreaId);
+  // Switching someone back on who's in the hidden "Inactive customers" area: they need a real area.
+  if (data.active === true && !current.active && area.isSystemArea && area.name === INACTIVE_AREA_NAME) {
+    throw new Error("Pick an area for them first: open the customer and use Change Area, then switch them on.");
+  }
 
   const { paidByCustomerId: rawPaidBy, address: _a, houseNameNumber: _h, street: _s, town: _t, postcode: _p, ...rest } = data;
   const paidByCustomerId = await resolvePaidBy(tenantId, rawPaidBy, id);

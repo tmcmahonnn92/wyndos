@@ -2,6 +2,7 @@
 import { TableProperties, Sparkles, Upload, MapPin } from "lucide-react";
 import { getCustomers, getAreas, getTags } from "@/lib/actions";
 import { AREA_SORT_ENABLED } from "@/lib/features";
+import { isInactiveArea } from "@/lib/system-areas";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -161,8 +162,8 @@ function CustomerRow({
     const paid = job.allocations.reduce((paidSum, allocation) => paidSum + allocation.amount, 0);
     return sum + Math.max(0, job.price - paid);
   }, 0);
-  const areaName = customer.area?.isSystemArea ? "One-off" : customer.area?.name ?? "Unassigned";
-  const areaColor = customer.area?.color || (customer.area?.isSystemArea ? "#A855F7" : "#3B82F6");
+  const areaName = isInactiveArea(customer.area) ? "No area (inactive)" : customer.area?.isSystemArea ? "One-off" : customer.area?.name ?? "Unassigned";
+  const areaColor = isInactiveArea(customer.area) ? "#94A3B8" : customer.area?.color || (customer.area?.isSystemArea ? "#A855F7" : "#3B82F6");
 
   return (
     <li className={cn("flex items-center gap-3 px-4 py-3", isInactive && "bg-red-50")}>

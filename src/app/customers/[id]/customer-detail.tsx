@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { AddCreditForm } from "@/app/payments/add-credit-form";
+import { isInactiveArea } from "@/lib/system-areas";
 import { MapPinEditor } from "@/components/map-pin-editor";
 import { mapsHref } from "@/lib/maps-link";
 import { GOCARDLESS_ENABLED } from "@/lib/features";
@@ -541,7 +542,11 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
           <CardContent className="py-3 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-500">Area</span>
-              {customer.area.isSystemArea ? (
+              {isInactiveArea(customer.area) ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">
+                  No area (inactive)
+                </span>
+              ) : customer.area.isSystemArea ? (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
                   One-off Customer
                 </span>
@@ -625,7 +630,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
             <Zap size={15} />
             One-off Job
           </Button>
-          {customer.area.isSystemArea ? (
+          {customer.area.isSystemArea && !isInactiveArea(customer.area) ? (
             <Button onClick={() => setConvertOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">
               <UserCheck size={15} />
               Convert to Regular
@@ -814,7 +819,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               <select value={form.areaId} onChange={(e) => setForm(f => ({ ...f, areaId: e.target.value }))}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                 {customer.area.isSystemArea && (
-                  <option value={String(customer.areaId)}>One-off Customer (no schedule)</option>
+                  <option value={String(customer.areaId)}>{isInactiveArea(customer.area) ? "No area (inactive)" : "One-off Customer (no schedule)"}</option>
                 )}
                 {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
