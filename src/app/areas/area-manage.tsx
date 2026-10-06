@@ -340,7 +340,7 @@ function EditAreaModal({ open, onClose, area, onSaveSettings, isSettingsPending 
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Keep together: include customers due up to</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Clean customers early so the area stays together</label>
             <div className="flex items-center gap-2">
               <input
                 type="number"
@@ -348,13 +348,14 @@ function EditAreaModal({ open, onClose, area, onSaveSettings, isSettingsPending 
                 max={90}
                 value={form.dueWindowDays}
                 onChange={(e) => setField("dueWindowDays", e.target.value)}
-                placeholder="Business setting"
+                placeholder="Same as Settings"
                 className="w-40 border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <span className="text-sm text-slate-600">days after the run</span>
+              <span className="text-sm text-slate-600">days early</span>
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Leave blank to use Settings → Business. Anyone due later than this waits for the next run.
+              Customers due up to this many days after the run go on it too. E.g. 7: someone due 3 days after the run is
+              cleaned with it; someone due 10 days after waits for the next one. Blank uses Settings → Business.
             </p>
           </div>
 
