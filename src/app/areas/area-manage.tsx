@@ -844,6 +844,9 @@ export function AreaManage({ areas }: { areas: Area[] }) {
                 <p className="text-[11px] text-slate-400">
                   {cadenceLabel(area)} · <span className="text-blue-600">{area._count.customers} customer{area._count.customers === 1 ? "" : "s"} →</span>
                 </p>
+                {area.customers.length === 0 && (
+                  <p className="text-[11px] font-medium text-amber-700">Empty: not shown on the scheduler and never overdue</p>
+                )}
               </Link>
               <div className="hidden sm:flex flex-col items-center min-w-[72px]">
                 <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">Next due</p>

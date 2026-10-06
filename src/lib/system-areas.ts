@@ -10,3 +10,14 @@ export const INACTIVE_AREA_NAME = "Inactive customers";
 export function isInactiveArea(area: { isSystemArea?: boolean | null; name?: string | null } | null | undefined) {
   return Boolean(area?.isSystemArea && area.name === INACTIVE_AREA_NAME);
 }
+
+/**
+ * An area that has something in it: an active customer, or a job still to do (quote or
+ * one-off). Empty areas are left off the scheduler and don't count as overdue.
+ */
+export const AREA_IN_USE = {
+  OR: [
+    { customers: { some: { active: true } } },
+    { workDays: { some: { status: { not: "COMPLETE" as const }, jobs: { some: { status: "PENDING" as const } } } } },
+  ],
+};

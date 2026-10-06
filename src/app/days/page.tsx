@@ -16,7 +16,7 @@ export default async function DaysPage({
   const hidePrices = user.role === "WORKER" && !(user.permissions ?? []).includes("viewprices");
   const [days, areas, holidays] = await Promise.all([
     getWorkDays(),
-    getAreaSchedules(),
+    getAreaSchedules({ inUseOnly: true }),
     getHolidays(),
   ]);
   const focusAreaId = Number.parseInt(params.focusArea ?? "", 10);

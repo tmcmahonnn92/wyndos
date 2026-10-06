@@ -1,5 +1,6 @@
 "use server";
 
+import { AREA_IN_USE } from "@/lib/system-areas";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { getActor, hasPermission, requirePerm } from "@/lib/guards";
@@ -215,7 +216,7 @@ export async function getAdminTodo(): Promise<TodoItem[]> {
 
   // 5. Areas past their due date with nothing booked.
   const overdue = await prisma.area.findMany({
-    where: { tenantId, isSystemArea: false, nextDueDate: { lt: today } },
+    where: { tenantId, isSystemArea: false, nextDueDate: { lt: today }, ...AREA_IN_USE },
     select: { id: true },
   });
   if (overdue.length > 0) {

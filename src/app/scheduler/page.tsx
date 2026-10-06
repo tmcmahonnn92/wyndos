@@ -14,7 +14,7 @@ export default async function SchedulerPage() {
   const viewer = await getActiveUserContext();
   const thisMonth = new Date().toISOString().slice(0, 7);
   const [areas, workDays, holidays, team, todoSummary, mobile, mobileMonth] = await Promise.all([
-    getAreaSchedules(),
+    getAreaSchedules({ inUseOnly: true }),
     getWorkDays(),
     getHolidays(),
     listTeamMembers().catch(() => []),
