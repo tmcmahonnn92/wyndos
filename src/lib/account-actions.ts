@@ -22,6 +22,8 @@ export async function getMyNotifyPrefs() {
     followsDays: role === "OWNER" || parsePermissions(membership?.permissions).includes("scheduler"),
     emailReady: platformEmailConfigured(),
     isOwner: role === "OWNER",
+    // Has a business of their own somewhere (else they can start one).
+    ownsBusiness: role === "OWNER" || (await prisma.membership.count({ where: { userId: actor.userId, role: "OWNER" } })) > 0,
   };
 }
 

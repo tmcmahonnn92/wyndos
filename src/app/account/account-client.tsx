@@ -5,11 +5,13 @@ import { Bell, Clock } from "lucide-react";
 import { saveMyNotifyPrefs } from "@/lib/account-actions";
 import type { NotifyPrefs } from "@/lib/notifications";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StartBusiness } from "./start-business";
 
-export function AccountClient({ prefs: initial, email, followsDays, emailReady, isOwner }: {
+export function AccountClient({ prefs: initial, email, followsDays, emailReady, isOwner, ownsBusiness = true }: {
   prefs: NotifyPrefs;
   email: string;
   followsDays: boolean;
+  ownsBusiness?: boolean;
   emailReady: boolean;
   isOwner?: boolean;
 }) {
@@ -67,6 +69,7 @@ export function AccountClient({ prefs: initial, email, followsDays, emailReady, 
           <p className="text-xs text-slate-400">Sent to {email || "your sign-in email"}. {saved}</p>
         </CardContent>
       </Card>
+      {!ownsBusiness && <StartBusiness />}
     </div>
   );
 }

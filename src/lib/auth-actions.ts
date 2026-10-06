@@ -166,6 +166,64 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
   }
 }
 
+/**
+ * Someone who already has a login (e.g. a worker in another business) starts their own
+ * business. Same login; they switch between businesses from the menu. Nothing from the
+ * other business comes across, and they can be removed from it later without affecting this.
+ */
+export async function startOwnBusiness(input: { companyName: string; acceptTerms: boolean; acceptDataPermission: boolean }): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const session = await auth();
+    const userId = session?.user?.id;
+    if (!userId) return { ok: false, error: "Please sign in again." };
+    const companyName = String(input?.companyName ?? "").trim().slice(0, 120);
+    if (!companyName) return { ok: false, error: "Add your business name." };
+    if (input.acceptTerms !== true || input.acceptDataPermission !== true) return { ok: false, error: "Please tick both boxes to agree to the terms." };
+    if (!allow(`startbiz:user:${userId}`, 3, 60 * MINUTE)) return { ok: false, error: TOO_MANY };
+    const user = await db.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true } });
+    if (!user) return { ok: false, error: "Please sign in again." };
+    const owns = await db.membership.findFirst({ where: { userId, role: "OWNER" }, select: { id: true } });
+    if (owns) return { ok: false, error: "You already have your own business. Use Switch business in the menu." };
+
+    const slug = await uniqueSlug(toSlug(companyName));
+    const tenantId: number = await db.$transaction(async (tx: any) => {
+      const tenant = await tx.tenant.create({
+        data: {
+          name: companyName,
+          slug,
+          termsVersion: TERMS_VERSION,
+          termsAcceptedAt: new Date(),
+          termsAcceptedByUserId: userId,
+          dataPermissionAcceptedAt: new Date(),
+        },
+      });
+      await tx.membership.create({ data: { userId, tenantId: tenant.id, role: "OWNER", permissions: "[]" } });
+      await tx.tenantSettings.create({ data: { tenantId: tenant.id, businessName: companyName, ownerName: user.name ?? "", email: user.email ?? "" } });
+      await tx.area.create({ data: { tenantId: tenant.id, name: "One-Off Jobs", color: "#9CA3AF", sortOrder: 9999, isSystemArea: true } });
+      return tenant.id;
+    });
+
+    const cookieStore = await cookies();
+    cookieStore.set(ACTIVE_TENANT_COOKIE, String(tenantId), {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30,
+    });
+    if (platformEmailConfigured()) {
+      void sendSignupEmails({
+        email: user.email ?? "", ownerName: user.name ?? "", companyName, phone: "", address: "", website: "",
+        signupInfo: { customerCount: "", teamSize: "", paymentMethods: [], heardFrom: "Worker starting their own business" },
+      }).catch((e) => console.error("[startOwnBusiness] email", e));
+    }
+    return { ok: true };
+  } catch (err) {
+    console.error("[startOwnBusiness]", err);
+    return { ok: false, error: "Couldn't set that up. Please try again." };
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Owner onboarding — save company details after first sign-in
 // -----------------------------------------------------------------------------
