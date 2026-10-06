@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePickerLoad } from "@/components/date-picker-load";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Plus, Zap, UserPlus, ClipboardList } from "lucide-react";
@@ -19,6 +20,8 @@ interface SearchResult {
 interface Area {
   id: number;
   name: string;
+  frequencyWeeks?: number;
+  isSystemArea?: boolean;
 }
 
 interface Props {
@@ -48,7 +51,6 @@ export function OneOffJobModal({ open, onClose, initialMode = "search" }: Props)
   const [newNotes, setNewNotes] = useState("");
   const [areas, setAreas] = useState<Area[]>([]);
   const [newAreaId, setNewAreaId] = useState("");
-  const [newFrequency, setNewFrequency] = useState("4");
   // Quote visit fields
   const [quotePhone, setQuotePhone] = useState("");
   const [quoteEmail, setQuoteEmail] = useState("");
@@ -68,7 +70,6 @@ export function OneOffJobModal({ open, onClose, initialMode = "search" }: Props)
     setNewPrice("");
     setNewNotes("");
     setNewAreaId("");
-    setNewFrequency("4");
     setQuotePhone("");
     setQuoteEmail("");
     setQuoteEstimate("");
@@ -145,7 +146,6 @@ export function OneOffJobModal({ open, onClose, initialMode = "search" }: Props)
         notes: newNotes || undefined,
         jobName: jobName.trim() || "Window Cleaning",
         areaId: newAreaId ? Number(newAreaId) : undefined,
-        frequencyWeeks: newAreaId ? (Number(newFrequency) || 4) : undefined,
       }, new Date(date));
       router.refresh();
       handleClose();
@@ -158,12 +158,7 @@ export function OneOffJobModal({ open, onClose, initialMode = "search" }: Props)
         {/* Date */}
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          <DatePickerLoad value={date} onChange={setDate} />
         </div>
 
         {/* Mode switch */}
@@ -420,44 +415,32 @@ export function OneOffJobModal({ open, onClose, initialMode = "search" }: Props)
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-slate-700 mb-1">Area <span className="text-slate-400 font-normal">(optional)</span></label>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Make them a regular? <span className="text-slate-400 font-normal">(optional)</span></label>
                 <select
                   value={newAreaId}
-                  onChange={(e) => { setNewAreaId(e.target.value); setNewFrequency("4"); }}
+                  onChange={(e) => setNewAreaId(e.target.value)}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
-                  <option value="">– No area (one-off only) –</option>
-                  {areas.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
+                  <option value="">No, just this one job</option>
+                  {areas.filter((a) => !a.isSystemArea).map((a) => (
+                    <option key={a.id} value={a.id}>Yes, in {a.name}</option>
                   ))}
                 </select>
               </div>
-              {newAreaId && (
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Frequency</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {["1", "2", "4", "6", "8", "12"].map((w) => (
-                      <button
-                        key={w}
-                        type="button"
-                        onClick={() => setNewFrequency(w)}
-                        className={cn(
-                          "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors",
-                          newFrequency === w
-                            ? "bg-blue-600 text-white border-blue-600"
-                            : "bg-white text-slate-600 border-slate-200 hover:border-blue-400"
-                        )}
-                      >
-                        {w}w
-                      </button>
-                    ))}
+              {newAreaId && (() => {
+                const area = areas.find((a) => String(a.id) === newAreaId);
+                return (
+                  <div className="col-span-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
+                    <p className="text-[11px] text-blue-800">
+                      They join {area?.name ?? "that area"} and are cleaned with it{area?.frequencyWeeks ? `, every ${area.frequencyWeeks} week${area.frequencyWeeks === 1 ? "" : "s"}` : ""}. This job is their first clean.
+                    </p>
                   </div>
-                </div>
-              )}
+                );
+              })()}
               {!newAreaId && (
                 <div className="col-span-2 bg-purple-50 border border-purple-200 rounded-xl px-3 py-2">
                   <p className="text-[11px] text-purple-700">
-                    No area selected — this customer will be created without a regular schedule and added to this day as a one-off.
+                    Just this one job: they&apos;re saved as a one-off customer, with no regular cleans.
                   </p>
                 </div>
               )}

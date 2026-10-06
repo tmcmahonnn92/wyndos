@@ -8,10 +8,11 @@ export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ only?: string }>;
 }
 
 /** One area on one date. The whole date (all areas) is at /days/date/[date]. */
-export default async function DayPage({ params }: Props) {
+export default async function DayPage({ params, searchParams }: Props) {
   await requirePermission("schedule");
   const user = await getActiveUserContext();
   const hidePrices = user.role === "WORKER" && !(user.permissions ?? []).includes("viewprices");
@@ -33,6 +34,9 @@ export default async function DayPage({ params }: Props) {
   const otherAreasOnDate = allDays.filter(
     (d) => d.id !== day.id && new Date(d.date).toISOString().slice(0, 10) === dateISO
   ).length;
+
+  // The whole day is the normal view; "?only=1" (the One area switch) shows just this area.
+  if (otherAreasOnDate > 0 && (await searchParams).only !== "1") redirect(`/days/date/${dateISO}`);
 
   const isOwner = user.role === "OWNER" || user.role === "SUPER_ADMIN";
   const team = isOwner ? await getAssignableTeam() : null;
