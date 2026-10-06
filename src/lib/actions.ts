@@ -5783,12 +5783,15 @@ export async function updateJobNotes(jobId: number, notes: string) {
   const tenantId = actor.tenantId;
   const existing = await prisma.job.findFirst({ where: { id: jobId, tenantId, ...visibleJobWhere(actor) }, select: { notes: true } });
   if (!existing) throw new Error("Job not found");
-  // Unchanged text keeps its stamp; a new or edited note gets who wrote it and when.
-  const text = String(notes ?? "").trim();
-  const same = text === (existing.notes ?? "").trim();
+  // One note per line. Lines already there keep their stamp; new or edited lines get who
+  // wrote them and when.
+  const before = new Set((existing.notes ?? "").split("\n").map((l) => l.trim()).filter(Boolean));
+  const lines = String(notes ?? "").split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 30);
+  const who = lines.some((l) => !before.has(l)) ? await nameOf(actor.userId) : "";
+  const text = lines.map((l) => (before.has(l) ? l : stampNote(l, who))).join("\n").slice(0, 4000);
   const job = await prisma.job.update({
     where: { id: jobId },
-    data: { notes: !text ? null : same ? existing.notes : stampNote(text, await nameOf(actor.userId)) },
+    data: { notes: text || null },
   });
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath("/scheduler");

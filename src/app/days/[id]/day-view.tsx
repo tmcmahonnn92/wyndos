@@ -434,6 +434,12 @@ export function DayView({
   /** Note / price changes made at the door: saved on the phone if there's no signal. */
   const doNote = (job: Job, notes: string) =>
     runOrQueue({ kind: "note", jobId: job.id, workDayId: job.workDayId, notes }, () => updateJobNotes(job.id, notes));
+  /** Add a note as its own line (bullet) under any notes already on the job. */
+  const addNote = (job: Job, ...lines: Array<string | null | undefined>) => {
+    const added = lines.map((l) => (l ?? "").trim()).filter(Boolean);
+    if (added.length === 0) return Promise.resolve();
+    return doNote(job, [job.notes?.trim(), ...added].filter(Boolean).join("\n"));
+  };
   const doPrice = (job: Job, price: number) =>
     runOrQueue({ kind: "price", jobId: job.id, workDayId: job.workDayId, price }, () => updateJobPrice(job.id, price));
   const doPay = async (
@@ -1612,7 +1618,7 @@ export function DayView({
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            if (note.trim()) await doNote(job, note.trim());
+            await addNote(job, note);
             if (price !== job.price) await doPrice(job, price);
             await doComplete(job);
             setSelectedJob(null); setOpenJobInPayMode(false);
@@ -1635,7 +1641,7 @@ export function DayView({
           const job = selectedJob;
           safely(async () => {
             if (cleanedBy !== null) await updateJobCompletedBy(job.id, cleanedBy);
-            if (note !== null) await doNote(job, note);
+            if (note !== null) await addNote(job, note);
             if (price !== null) await doPrice(job, price);
             setSelectedJob(null); setOpenJobInPayMode(false);
             refreshIfOnline();
@@ -1645,7 +1651,7 @@ export function DayView({
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            if (note.trim()) await doNote(job, note.trim());
+            await addNote(job, note);
             if (price !== job.price) await doPrice(job, price);
             await doSkip(job);
             setSelectedJob(null); setOpenJobInPayMode(false);
@@ -1656,7 +1662,7 @@ export function DayView({
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            if (notes?.trim()) await doNote(job, notes.trim());
+            await addNote(job, notes?.trim() ? `Payment note: ${notes.trim()}` : null);
             if (visitPrice !== job.price) await doPrice(job, visitPrice);
             await doComplete(job);
             await doPay(job, allocations, method, notes, extra);
@@ -1673,11 +1679,11 @@ export function DayView({
             refreshIfOnline();
           });
         }}
-        onDoneAndPaidJobs={(visitPrice, allocations, method, notes, extra) => {
+        onDoneAndPaidJobs={(visitPrice, allocations, method, notes, extra, completionNote) => {
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            if (notes?.trim()) await doNote(job, notes.trim());
+            await addNote(job, completionNote, notes?.trim() ? `Payment note: ${notes.trim()}` : null);
             if (visitPrice !== job.price) await doPrice(job, visitPrice);
             await doComplete(job);
             await doPay(job, allocations, method, notes, extra);
@@ -1735,7 +1741,7 @@ function JobActionModal({
   onClose: () => void;
   onDone: (price: number, note: string) => void;
   onDoneAndPaid: (visitPrice: number, allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string, extra?: number) => void;
-  onDoneAndPaidJobs: (visitPrice: number, allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string, extra?: number) => void;
+  onDoneAndPaidJobs: (visitPrice: number, allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string, extra?: number, completionNote?: string) => void;
   onMarkPaid: (allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string, extra?: number) => void;
   onMarkPaidJobs: (allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string, extra?: number) => void;
   /** Business setting: keep overpayments as credit. */
@@ -1799,7 +1805,7 @@ function JobActionModal({
       setPayMethod(preferredMethod(job));
       setEditingCompletedDate(false);
       setCompletedDateInput(job.completedAt ? new Date(job.completedAt).toISOString().split("T")[0] : "");
-      setWorkerNote(job.notes ?? "");
+      setWorkerNote("");
       setCleanedBy(job.completedByUserId ?? "");
       setReceived("");
       setPriceInput(String(job.price));
@@ -1942,7 +1948,7 @@ function JobActionModal({
                     </select>
                   </label>
                 )}
-                <p className="text-[11px] font-semibold text-slate-600">Completion notes <span className="font-normal text-slate-400">(this visit only)</span></p>
+                <p className="text-[11px] font-semibold text-slate-600">Add a completion note <span className="font-normal text-slate-400">(added as a new line; edit existing notes from the card)</span></p>
                 <textarea
                   value={workerNote}
                   onChange={(e) => setWorkerNote(e.target.value)}
@@ -1953,7 +1959,7 @@ function JobActionModal({
                 {(() => {
                   const nextPrice = parseFloat(priceInput);
                   const priceChanged = !hidePrices && Number.isFinite(nextPrice) && Math.abs(nextPrice - job.price) > 0.004;
-                  const noteChanged = workerNote.trim() !== (job.notes ?? "").trim();
+                  const noteChanged = workerNote.trim() !== "";
                   const byChanged = Boolean(cleanedBy) && cleanedBy !== (job.completedByUserId ?? "");
                   return (
                     <button
@@ -2168,7 +2174,7 @@ function JobActionModal({
                   onClick={() => {
                     const allJobsForMode = [{ id: job.id, name: job.name ?? undefined, price: currentVisitAmount, paid: 0, due: visitToCollect, date: null as null, isOneOff: job.isOneOff ?? false }, ...customerUnpaidJobs];
                     setPayJobIds(new Set(allJobsForMode.map(j => j.id)));
-                    setPayNotes(workerNote);
+                    setPayNotes("");
                     setPayMethod("CASH");
                     setShowPayForm(true);
                   }}
@@ -2250,7 +2256,7 @@ function JobActionModal({
                           <Button disabled={isPending || payJobIds.size === 0 || (!allowCredit && splitReceived(allJobsForMode.filter((j) => payJobIds.has(j.id))).extra > 0)}
                             onClick={() => {
                               const split = splitReceived(allJobsForMode.filter((j) => payJobIds.has(j.id)));
-                              onDoneAndPaidJobs(currentVisitAmount, split.allocations, payMethod, payNotes || undefined, split.extra);
+                              onDoneAndPaidJobs(currentVisitAmount, split.allocations, payMethod, payNotes || undefined, split.extra, workerNote);
                             }} className="flex-1" size="sm">
                             {isPending ? "Saving..." : `Confirm - ${fmtCurrency(splitReceived(allJobsForMode.filter((j) => payJobIds.has(j.id))).got)}`}
                           </Button>
@@ -2658,7 +2664,13 @@ function JobCard({
               <StickyNote size={11} className="mt-0.5 flex-shrink-0" />
               <ul className="min-w-0 flex-1 space-y-0.5">
                 {job.customer.notes && <li className="line-clamp-2">• {job.customer.notes}</li>}
-                {job.notes && <li className="line-clamp-2">• <b className="font-semibold">{isDone ? "Completion: " : "This visit: "}</b>{job.notes}</li>}
+                {(job.notes ?? "").split("\n").map((line) => line.trim()).filter(Boolean).map((line, i) => (
+                  <li key={i} className="line-clamp-2">
+                    • {line.startsWith("Payment note:")
+                      ? <><b className="font-semibold">Payment note:</b>{line.slice("Payment note:".length)}</>
+                      : <><b className="font-semibold">{isDone ? "Completion: " : "This visit: "}</b>{line}</>}
+                  </li>
+                ))}
               </ul>
               <span className="ml-1 inline-flex flex-shrink-0 items-center gap-0.5 self-start rounded-full border border-amber-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
                 <Pencil size={9} /> Edit
