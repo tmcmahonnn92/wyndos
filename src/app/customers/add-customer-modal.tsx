@@ -141,7 +141,18 @@ export function AddCustomerModal({ areas: initialAreas }: { areas: Area[] }) {
           {/* Area + Price */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Area *</label>
+              <div className="mb-1 flex min-h-[1.375rem] items-center justify-between gap-2">
+                <label className="block text-sm font-medium text-slate-700">Area *</label>
+                {!addingArea && (
+                  <button
+                    type="button"
+                    onClick={() => { set("areaId", NEW_AREA); setAreaError(""); }}
+                    className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                  >
+                    + New area
+                  </button>
+                )}
+              </div>
               <select
                 value={form.areaId}
                 onChange={(e) => set("areaId", e.target.value)}
@@ -155,7 +166,7 @@ export function AddCustomerModal({ areas: initialAreas }: { areas: Area[] }) {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Price (£) *</label>
+              <label className="mb-1 flex min-h-[1.375rem] items-center text-sm font-medium text-slate-700">Price (£) *</label>
               <input
                 type="number"
                 min="0"
