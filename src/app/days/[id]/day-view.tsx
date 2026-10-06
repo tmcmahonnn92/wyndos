@@ -161,6 +161,16 @@ type PendingResolution = {
 
 type ViewMode = "area" | "street";
 
+/** Blue line between cards showing where a dragged job will land. */
+function DropLine({ after = false }: { after?: boolean }) {
+  return (
+    <div className={cn("pointer-events-none absolute inset-x-0 z-20 flex items-center", after ? "-bottom-[6px]" : "-top-[6px]")}>
+      <span className="h-2.5 w-2.5 rounded-full border-2 border-blue-600 bg-white" />
+      <span className="h-[3px] flex-1 rounded bg-blue-600" />
+    </div>
+  );
+}
+
 function areaLabel(day: Day) {
   return day.area?.name ?? day.jobs[0]?.customer?.address?.split(",")[0] ?? "One-off";
 }
@@ -221,9 +231,8 @@ export function DayView({
 
   // Drag-to-reorder state for pending jobs (any job, anywhere in the day).
   const dragJobIdRef = useRef<number | null>(null);
-  const [dragOverJobId, setDragOverJobId] = useState<number | null>(null);
-  // Drop above or below the card under the pointer (shown as a line between cards).
-  const [dropWhere, setDropWhere] = useState<"before" | "after">("before");
+  // Where a dragged job would go: its position in the pending list (shown as a line).
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [reorderMode, setReorderMode] = useState(false);
   // Order shown straight away after a move, until the saved order comes back from the server.
   const [optimistic, setOptimistic] = useState<{ jobs: number[] | null; days: number[] | null }>({ jobs: null, days: null });
@@ -507,20 +516,57 @@ export function DayView({
     ids.splice(to, 0, jobId);
     placeJob(ids, jobId);
   };
-  const handleJobDrop = (targetJobId: number, where: "before" | "after") => {
-    const dragId = dragJobIdRef.current;
-    dragJobIdRef.current = null;
-    setDragJobId(null);
-    setDragOverJobId(null);
-    if (!dragId || dragId === targetJobId) return;
+  /** Pointer position over the list -> the slot (0..n) between pending cards. */
+  const slotAt = (list: HTMLElement, clientY: number) => {
+    const cards = [...list.querySelectorAll<HTMLElement>("[data-job-id]")];
+    for (let i = 0; i < cards.length; i++) {
+      const box = cards[i].getBoundingClientRect();
+      if (clientY < box.top + box.height / 2) return i;
+    }
+    return cards.length;
+  };
+  /** Drag and drop anywhere over the pending list (cards, gaps or area headings). */
+  const listDrop = canReorder ? {
+    onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+      if (dragJobIdRef.current === null) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const slot = slotAt(e.currentTarget, e.clientY);
+      if (slot !== dropIndex) setDropIndex(slot);
+    },
+    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropIndex(null);
+    },
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const dragId = dragJobIdRef.current;
+      const slot = slotAt(e.currentTarget, e.clientY);
+      dragJobIdRef.current = null;
+      setDragJobId(null);
+      setDropIndex(null);
+      if (dragId === null) return;
+      const ids = pendingIds();
+      const from = ids.indexOf(dragId);
+      if (from === -1) return;
+      const to = slot > from ? slot - 1 : slot;
+      if (to === from) return; // dropped where it already was
+      ids.splice(from, 1);
+      ids.splice(to, 0, dragId);
+      placeJob(ids, dragId);
+    },
+  } : {};
+  // The line sits above the card at the slot, or below the last card. No line next to the
+  // card being dragged (dropping there changes nothing).
+  const dropLineBefore = (jobId: number) => {
     const ids = pendingIds();
-    const from = ids.indexOf(dragId);
-    if (from === -1 || !ids.includes(targetJobId)) return;
-    ids.splice(from, 1);
-    const at = ids.indexOf(targetJobId) + (where === "after" ? 1 : 0);
-    ids.splice(at, 0, dragId);
-    if (ids.indexOf(dragId) === from) return; // dropped where it already was
-    placeJob(ids, dragId);
+    const i = ids.indexOf(jobId);
+    const from = dragJobId === null ? -1 : ids.indexOf(dragJobId);
+    return dropIndex === i && i !== from && i !== from + 1;
+  };
+  const dropLineAfter = (jobId: number) => {
+    const ids = pendingIds();
+    const from = dragJobId === null ? -1 : ids.indexOf(dragJobId);
+    return dropIndex === ids.length && ids[ids.length - 1] === jobId && from !== ids.length - 1;
   };
   /** Drag an area row onto another to put it in that place. */
   const dragAreaRef = useRef<number | null>(null);
@@ -703,35 +749,20 @@ export function DayView({
   const renderPendingCard = (job: Job) => (
     <div
       key={job.id}
+      data-job-id={job.id}
       draggable={canReorder}
-      onDragStart={() => { if (!canReorder) return; dragJobIdRef.current = job.id; setDragJobId(job.id); }}
-      onDragEnd={() => { dragJobIdRef.current = null; setDragJobId(null); setDragOverJobId(null); }}
-      onDragOver={(e) => {
-        if (!canReorder || dragJobIdRef.current === null) return;
-        e.preventDefault();
-        const box = e.currentTarget.getBoundingClientRect();
-        setDropWhere(e.clientY < box.top + box.height / 2 ? "before" : "after");
-        setDragOverJobId(job.id);
+      onDragStart={(e) => {
+        if (!canReorder) return;
+        // Firefox only starts a drag when something is put on it.
+        e.dataTransfer.setData("text/plain", String(job.id));
+        e.dataTransfer.effectAllowed = "move";
+        dragJobIdRef.current = job.id; setDragJobId(job.id);
       }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverJobId(null); }}
-      onDrop={(e) => { e.preventDefault(); handleJobDrop(job.id, dropWhere); }}
+      onDragEnd={() => { dragJobIdRef.current = null; setDragJobId(null); setDropIndex(null); }}
       className={cn("relative rounded-xl transition-opacity", dragJobId === job.id && "opacity-40")}
     >
-      {dragOverJobId === job.id && dragJobId !== null && dragJobId !== job.id && (() => {
-        // A clear line where it will land, saying which area it's going in with.
-        const dragged = allJobs.find((j) => j.id === dragJobId);
-        const other = dragged && dragged.workDayId !== job.workDayId ? areaOf(job) : null;
-        return (
-          <div className={cn("pointer-events-none absolute inset-x-0 z-20 flex items-center", dropWhere === "before" ? "-top-[5px]" : "-bottom-[5px]")}>
-            <span className="h-2 w-2 rounded-full bg-blue-600" />
-            <span className="h-[3px] flex-1 bg-blue-600" />
-            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow">
-              {dropWhere === "before" ? "Before" : "After"} {job.customer.name}{other ? ` · in among ${other.name}` : ""}
-            </span>
-            <span className="h-[3px] w-3 bg-blue-600" />
-          </div>
-        );
-      })()}
+      {dropIndex !== null && dropLineBefore(job.id) && <DropLine />}
+      {dropIndex !== null && dropLineAfter(job.id) && <DropLine after />}
       {reorderMode && canReorder && (
         <div className="mb-1 flex gap-1">
           <button type="button" aria-label={`Move ${job.customer.name} up`} onClick={() => moveJob(job.id, -1)}
@@ -1067,7 +1098,7 @@ export function DayView({
             <div
               key={day.id}
               draggable={multi && !filtering && canReorderWork}
-              onDragStart={(e) => { if (!multi || filtering || !canReorderWork) return; e.stopPropagation(); dragAreaRef.current = day.id; }}
+              onDragStart={(e) => { if (!multi || filtering || !canReorderWork) return; e.stopPropagation(); e.dataTransfer.setData("text/plain", String(day.id)); e.dataTransfer.effectAllowed = "move"; dragAreaRef.current = day.id; }}
               onDragEnd={() => { dragAreaRef.current = null; setDragOverAreaId(null); }}
               onDragOver={(e) => { if (dragAreaRef.current === null) return; e.preventDefault(); setDragOverAreaId(day.id); }}
               onDrop={(e) => { if (dragAreaRef.current === null) return; e.preventDefault(); dropArea(day.id); }}
@@ -1230,7 +1261,7 @@ export function DayView({
               </div>
             )}
             {multi && !routeOrder ? (
-              <div className="space-y-2">
+              <div className="space-y-2" {...listDrop}>
                 {(() => {
                   // Flat list in working order; an area heading where each area's own jobs start.
                   const out: React.ReactNode[] = [];
@@ -1257,7 +1288,7 @@ export function DayView({
                 })()}
               </div>
             ) : (
-              <div className="space-y-2">{pendingJobs.map(renderPendingCard)}</div>
+              <div className="space-y-2" {...listDrop}>{pendingJobs.map(renderPendingCard)}</div>
             )}
           </section>
         )}
