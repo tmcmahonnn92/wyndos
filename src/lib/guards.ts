@@ -106,6 +106,16 @@ export function visibleJobWhere(actor: Actor) {
   };
 }
 
+/**
+ * May change the order of work on a day: owners, planners (scheduler), or workers given
+ * "Change job order". Everyone else works the day in the order they're given.
+ */
+export async function requireReorder(): Promise<Actor> {
+  const actor = await requirePerm("schedule");
+  if (actor.isWorker && !hasPermission(actor, "reorder") && !hasPermission(actor, "scheduler")) throw new AccessDeniedError();
+  return actor;
+}
+
 /** Work days a worker may open: any day holding at least one of their jobs. */
 export function visibleWorkDayWhere(actor: Actor) {
   if (!actor.isWorker) return {};

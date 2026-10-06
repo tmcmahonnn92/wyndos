@@ -139,6 +139,8 @@ interface Props {
   runSiblings?: Record<number, Array<{ id: number; date: string; status: string }>>;
   /** May change areas' walking order and always-after links (owner, or Areas permission). */
   canEditAreas?: boolean;
+  /** May change the order of work on the day. False: they see it in the order they're given. */
+  canReorderWork?: boolean;
 }
 
 /** After moving a job: offer to make it permanent. */
@@ -170,6 +172,7 @@ export function DayView({
   allowCredit = true,
   runSiblings = {},
   canEditAreas = false,
+  canReorderWork = true,
 }: Props) {
   const todayDateValue = new Date().toISOString().slice(0, 10);
   const scheduledDateValue = dateISO;
@@ -387,7 +390,7 @@ export function DayView({
   const openDays = days.filter((d) => d.status !== "COMPLETE");
   const plannedDays = days.filter((d) => d.status === "PLANNED");
   const shouldPromptForCompletedDate = scheduledDateValue !== todayDateValue;
-  const canReorder = !routeOrder && !filtering;
+  const canReorder = canReorderWork && !routeOrder && !filtering;
   const areaOf = (job: Job) => {
     const area = dayById.get(job.workDayId)?.area;
     return area ? { name: area.name, color: area.color } : null;
@@ -834,7 +837,7 @@ export function DayView({
         {actionError && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</div>}
 
         {/* This area / whole day switch (only when the date has more than one area) */}
-        {((single && otherAreasOnDate > 0) || multi) && (
+        {canReorderWork && ((single && otherAreasOnDate > 0) || multi) && (
           <div role="radiogroup" aria-label="Show" className="flex rounded-xl border border-slate-200 bg-white p-0.5 text-xs font-semibold">
             {single ? (
               <span role="radio" aria-checked="true" className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-center text-white">
@@ -992,7 +995,7 @@ export function DayView({
 
         {/* One card per area on this date: its worker, notes, and area-only actions */}
         <div className={multi ? "space-y-1.5" : "space-y-4"}>
-        {multi && !filtering && (
+        {multi && !filtering && canReorderWork && (
           <p className="px-1 text-[11px] text-slate-400">Drag the areas, or use the arrows, to change the order you do them in today.</p>
         )}
         {orderedDays.map((day, position) => {
@@ -1003,8 +1006,8 @@ export function DayView({
           return (
             <div
               key={day.id}
-              draggable={multi && !filtering}
-              onDragStart={(e) => { if (!multi || filtering) return; e.stopPropagation(); dragAreaRef.current = day.id; }}
+              draggable={multi && !filtering && canReorderWork}
+              onDragStart={(e) => { if (!multi || filtering || !canReorderWork) return; e.stopPropagation(); dragAreaRef.current = day.id; }}
               onDragEnd={() => { dragAreaRef.current = null; setDragOverAreaId(null); }}
               onDragOver={(e) => { if (dragAreaRef.current === null) return; e.preventDefault(); setDragOverAreaId(day.id); }}
               onDrop={(e) => { if (dragAreaRef.current === null) return; e.preventDefault(); dropArea(day.id); }}
@@ -1013,7 +1016,7 @@ export function DayView({
             >
               {multi && (
                 <div className="flex items-center gap-1.5">
-                {!filtering && (
+                {!filtering && canReorderWork && (
                   <span className="flex flex-shrink-0 flex-col">
                     <button type="button" aria-label={`Do ${areaLabel(day)} earlier`} disabled={position === 0 || isPending} onClick={() => moveArea(day.id, -1)}
                       className="rounded px-1 text-[11px] leading-4 font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-25">▲</button>

@@ -9,6 +9,7 @@
 export const PERMISSIONS = {
   DASHBOARD:   "dashboard",   // access the main dashboard
   SCHEDULE:    "schedule",    // view & manage work days / runs
+  REORDER:     "reorder",     // change the order of jobs on their day (otherwise: the order they are given)
   SCHEDULER:   "scheduler",   // access the drag-drop scheduler
   ROUTE_OPTIMISER: "routeoptimiser", // optimise daily route order in scheduler
   CUSTOMERS:   "customers",   // view & manage customers
@@ -24,7 +25,7 @@ export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
 
 export const ALL_PERMISSIONS: Permission[] = [
   // Their own work
-  "dashboard", "schedule", "viewprices",
+  "dashboard", "schedule", "reorder", "viewprices",
   // Customers and money
   "customers", "payments", "messaging",
   // Planning
@@ -48,13 +49,13 @@ export const ROLE_PRESETS: Array<{ key: string; label: string; description: stri
     key: "senior",
     label: "Senior worker",
     description: "Also sees customers and payments, and can plan days.",
-    permissions: ["dashboard", "schedule", "viewprices", "customers", "payments", "scheduler", "routeoptimiser"],
+    permissions: ["dashboard", "schedule", "reorder", "viewprices", "customers", "payments", "scheduler", "routeoptimiser"],
   },
   {
     key: "office",
     label: "Office / admin",
     description: "Everything except business settings.",
-    permissions: ["dashboard", "schedule", "scheduler", "routeoptimiser", "customers", "areas", "payments", "viewprices", "messaging", "accounting"],
+    permissions: ["dashboard", "schedule", "reorder", "scheduler", "routeoptimiser", "customers", "areas", "payments", "viewprices", "messaging", "accounting"],
   },
 ];
 
@@ -64,6 +65,7 @@ export const DEFAULT_WORKER_PERMISSIONS: Permission[] = ["dashboard", "schedule"
 export const PERMISSION_LABELS: Record<Permission, { label: string; description: string }> = {
   dashboard:  { label: "Dashboard",     description: "Home screen with today's work"                          },
   schedule:   { label: "Their days",    description: "See and work their own days, take payment at the door"  },
+  reorder:    { label: "Change job order", description: "Reorder their day. Off: they see the whole day in the order you set" },
   viewprices: { label: "See prices",    description: "Prices and amounts owed on their jobs"                  },
   customers:  { label: "Customers",     description: "Customer list: view, add and edit; quotes"              },
   payments:   { label: "All payments",  description: "Every customer payment, log or edit any, invoices"      },

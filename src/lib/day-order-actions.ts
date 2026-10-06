@@ -4,7 +4,7 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
-import { requirePerm, visibleJobWhere, type Actor } from "@/lib/guards";
+import { requirePerm, requireReorder, visibleJobWhere, type Actor } from "@/lib/guards";
 
 const int = (v: unknown) => (typeof v === "number" && Number.isSafeInteger(v) ? v : NaN);
 
@@ -27,7 +27,7 @@ async function visibleJob(actor: Actor, jobId: number) {
  * The moved job stops following any link today (so it stays where it was put).
  */
 export async function placeJobInArea(workDayId: number, orderedJobIds: number[], movedJobId: number) {
-  const actor = await requirePerm("schedule");
+  const actor = await requireReorder();
   const moved = await visibleJob(actor, movedJobId);
   const ids = (Array.isArray(orderedJobIds) ? orderedJobIds : []).map(int);
   const jobs = await prisma.job.findMany({
@@ -44,7 +44,7 @@ export async function placeJobInArea(workDayId: number, orderedJobIds: number[],
 
 /** Today only: put a job straight after another job on the same date (any area), or first (0). */
 export async function placeJobAfter(jobId: number, afterJobId: number) {
-  const actor = await requirePerm("schedule");
+  const actor = await requireReorder();
   const job = await visibleJob(actor, jobId);
   const after = int(afterJobId);
   if (after !== 0) {
@@ -105,7 +105,7 @@ export async function placeCustomerInArea(customerId: number, place: { after?: n
 
 /** Order of the areas on one date (the area days, first to last). */
 export async function setDateAreaOrder(workDayIds: number[]) {
-  const actor = await requirePerm("schedule");
+  const actor = await requireReorder();
   const ids = (Array.isArray(workDayIds) ? workDayIds : []).map(int);
   const days = await prisma.workDay.findMany({ where: { tenantId: actor.tenantId, id: { in: ids } }, select: { id: true, date: true } });
   if (days.length !== new Set(ids).size || new Set(days.map((d) => d.date.getTime())).size > 1) throw new Error("Those areas aren't all on the same day.");
@@ -115,7 +115,7 @@ export async function setDateAreaOrder(workDayIds: number[]) {
 
 /** Back to normal: area order, each area's walking order, today's links removed. */
 export async function resetDayOrder(workDayIds: number[]) {
-  const actor = await requirePerm("schedule");
+  const actor = await requireReorder();
   const tenantId = actor.tenantId;
   const ids = (Array.isArray(workDayIds) ? workDayIds : []).map(int);
   const days = await prisma.workDay.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true } });

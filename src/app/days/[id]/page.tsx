@@ -1,5 +1,5 @@
 import { getBusinessSettings } from "@/lib/actions";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getAssignableTeam, getRunSiblings, getWorkDay, getWorkDays } from "@/lib/actions";
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { DayView } from "./day-view";
@@ -20,6 +20,9 @@ export default async function DayPage({ params }: Props) {
   if (!day) notFound();
 
   const dateISO = new Date(day.date).toISOString().slice(0, 10);
+  const canReorderWork = user.role !== "WORKER" || (user.permissions ?? []).some((p) => p === "reorder" || p === "scheduler");
+  // Workers who can't change the order always get their whole day, in the order they're given.
+  if (!canReorderWork) redirect(`/days/date/${dateISO}`);
   const allDays = await getWorkDays();
   const futureDays = allDays.filter(
     (d) =>
@@ -48,6 +51,7 @@ export default async function DayPage({ params }: Props) {
       canText={canText}
       allowCredit={(await getBusinessSettings().catch(() => null))?.allowCustomerCredit ?? true}
       runSiblings={runSiblings}
+      canReorderWork={canReorderWork}
       canEditAreas={user.role === "OWNER" || user.role === "SUPER_ADMIN" || (user.permissions ?? []).includes("areas")}
       otherAreasOnDate={otherAreasOnDate}
     />

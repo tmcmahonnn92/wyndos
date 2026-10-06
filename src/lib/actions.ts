@@ -23,6 +23,7 @@ import {
   visibleJobWhere,
   visibleWorkDayWhere,
   requireVisibleWorkDay,
+  requireReorder,
   AccessDeniedError,
   type Actor,
 } from "@/lib/guards";
@@ -5679,7 +5680,7 @@ export async function reorderDayJobs(
   orderedJobIds: number[],
   mode: RouteOrderingMode = "MANUAL",
 ) {
-  const actor = await requirePerm("schedule");
+  const actor = await requireReorder();
   const tenantId = actor.tenantId;
   await requireTenantWorkDay(tenantId, workDayId);
   const jobs = await prisma.job.findMany({ where: { tenantId, workDayId, id: { in: orderedJobIds } }, select: { id: true } });
