@@ -56,6 +56,7 @@ import {
   createCustomerAndAddToDay,
   createOneOffCustomerAndAddToDay,
   reorderDayJobs,
+  assignWholeDate,
   updateJobNotes,
   updateJobCompletedAt,
   updateJobPrice,
@@ -995,6 +996,33 @@ export function DayView({
 
         {/* One card per area on this date: its worker, notes, and area-only actions */}
         <div className={multi ? "space-y-1.5" : "space-y-4"}>
+        {multi && team && openDays.length > 0 && (() => {
+          // One person for the whole day: every area and every job on it.
+          const owners = new Set(openDays.flatMap((d) => [d.assignedUserId ?? "", ...d.jobs.filter((j) => j.status === "PENDING" && j.assignedUserId).map((j) => j.assignedUserId!)]));
+          const value = owners.size === 1 ? [...owners][0] : "mixed";
+          const me = team.find((m) => m.isMe);
+          return (
+            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <Users size={15} className="flex-shrink-0 text-slate-400" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Whole day</span>
+              <select
+                aria-label="Who is doing the whole day"
+                value={value}
+                disabled={isPending}
+                onChange={(e) => {
+                  if (e.target.value === "mixed") return;
+                  const who = e.target.value || null;
+                  safely(async () => { await assignWholeDate(openDays.map((d) => d.id), who); router.refresh(); });
+                }}
+                className="min-w-0 flex-1 bg-transparent text-sm font-medium text-slate-800 focus:outline-none"
+              >
+                {value === "mixed" && <option value="mixed">Split between people</option>}
+                <option value="">{me?.name ?? "Me"} (you)</option>
+                {team.filter((m) => !m.isMe).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </label>
+          );
+        })()}
         {multi && !filtering && canReorderWork && (
           <p className="px-1 text-[11px] text-slate-400">Drag the areas, or use the arrows, to change the order you do them in today.</p>
         )}
