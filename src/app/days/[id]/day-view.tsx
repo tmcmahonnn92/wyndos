@@ -222,6 +222,8 @@ export function DayView({
   // Drag-to-reorder state for pending jobs (any job, anywhere in the day).
   const dragJobIdRef = useRef<number | null>(null);
   const [dragOverJobId, setDragOverJobId] = useState<number | null>(null);
+  // Drop above or below the card under the pointer (shown as a line between cards).
+  const [dropWhere, setDropWhere] = useState<"before" | "after">("before");
   const [reorderMode, setReorderMode] = useState(false);
   // Order shown straight away after a move, until the saved order comes back from the server.
   const [optimistic, setOptimistic] = useState<{ jobs: number[] | null; days: number[] | null }>({ jobs: null, days: null });
@@ -499,7 +501,7 @@ export function DayView({
     ids.splice(to, 0, jobId);
     placeJob(ids, jobId);
   };
-  const handleJobDrop = (targetJobId: number) => {
+  const handleJobDrop = (targetJobId: number, where: "before" | "after") => {
     const dragId = dragJobIdRef.current;
     dragJobIdRef.current = null;
     setDragJobId(null);
@@ -507,10 +509,11 @@ export function DayView({
     if (!dragId || dragId === targetJobId) return;
     const ids = pendingIds();
     const from = ids.indexOf(dragId);
-    const to = ids.indexOf(targetJobId);
-    if (from === -1 || to === -1) return;
+    if (from === -1 || !ids.includes(targetJobId)) return;
     ids.splice(from, 1);
-    ids.splice(to, 0, dragId);
+    const at = ids.indexOf(targetJobId) + (where === "after" ? 1 : 0);
+    ids.splice(at, 0, dragId);
+    if (ids.indexOf(dragId) === from) return; // dropped where it already was
     placeJob(ids, dragId);
   };
   /** Drag an area row onto another to put it in that place. */
@@ -697,14 +700,32 @@ export function DayView({
       draggable={canReorder}
       onDragStart={() => { if (!canReorder) return; dragJobIdRef.current = job.id; setDragJobId(job.id); }}
       onDragEnd={() => { dragJobIdRef.current = null; setDragJobId(null); setDragOverJobId(null); }}
-      onDragOver={(e) => { if (!canReorder) return; e.preventDefault(); setDragOverJobId(job.id); }}
+      onDragOver={(e) => {
+        if (!canReorder || dragJobIdRef.current === null) return;
+        e.preventDefault();
+        const box = e.currentTarget.getBoundingClientRect();
+        setDropWhere(e.clientY < box.top + box.height / 2 ? "before" : "after");
+        setDragOverJobId(job.id);
+      }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverJobId(null); }}
-      onDrop={(e) => { e.preventDefault(); handleJobDrop(job.id); }}
-      className={cn(
-        "rounded-xl transition-all",
-        dragOverJobId === job.id && dragJobId !== job.id && "ring-2 ring-blue-400 ring-offset-1"
-      )}
+      onDrop={(e) => { e.preventDefault(); handleJobDrop(job.id, dropWhere); }}
+      className={cn("relative rounded-xl transition-opacity", dragJobId === job.id && "opacity-40")}
     >
+      {dragOverJobId === job.id && dragJobId !== null && dragJobId !== job.id && (() => {
+        // A clear line where it will land, saying which area it's going in with.
+        const dragged = allJobs.find((j) => j.id === dragJobId);
+        const other = dragged && dragged.workDayId !== job.workDayId ? areaOf(job) : null;
+        return (
+          <div className={cn("pointer-events-none absolute inset-x-0 z-20 flex items-center", dropWhere === "before" ? "-top-[5px]" : "-bottom-[5px]")}>
+            <span className="h-2 w-2 rounded-full bg-blue-600" />
+            <span className="h-[3px] flex-1 bg-blue-600" />
+            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow">
+              {dropWhere === "before" ? "Before" : "After"} {job.customer.name}{other ? ` · in among ${other.name}` : ""}
+            </span>
+            <span className="h-[3px] w-3 bg-blue-600" />
+          </div>
+        );
+      })()}
       {reorderMode && canReorder && (
         <div className="mb-1 flex gap-1">
           <button type="button" aria-label={`Move ${job.customer.name} up`} onClick={() => moveJob(job.id, -1)}
@@ -1921,11 +1942,12 @@ function JobActionModal({
                     </select>
                   </label>
                 )}
+                <p className="text-[11px] font-semibold text-slate-600">Completion notes <span className="font-normal text-slate-400">(this visit only)</span></p>
                 <textarea
                   value={workerNote}
                   onChange={(e) => setWorkerNote(e.target.value)}
                   rows={2}
-                  placeholder="Note for this job (shows on Payments too)"
+                  placeholder="e.g. fronts only, gate locked (shows on Payments too)"
                   className="w-full resize-none rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
                 />
                 {(() => {
@@ -2117,7 +2139,7 @@ function JobActionModal({
                     />
                   </div>
                   <div className="flex gap-2 items-center">
-                    <label className="text-xs text-slate-600 font-medium whitespace-nowrap w-14 flex-shrink-0">Note</label>
+                    <label className="text-xs text-slate-600 font-medium whitespace-nowrap flex-shrink-0">Completion notes</label>
                     <input
                       type="text"
                       value={workerNote}
@@ -2311,7 +2333,7 @@ function CustomerNotesModal({ job, onClose, hidePrices = false, canEditCustomer 
           </div>
         )}
         <div>
-          <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wide mb-1">Job Notes (this visit)</p>
+          <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wide mb-1">{job.status === "COMPLETE" ? "Completion notes (this visit)" : "Job notes (this visit only)"}</p>
           <textarea
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
@@ -2632,7 +2654,10 @@ function JobCard({
               className="mt-1 flex w-full items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-left text-[11px] leading-snug text-amber-900 hover:bg-amber-100 active:scale-[0.99] transition-all"
             >
               <StickyNote size={11} className="mt-0.5 flex-shrink-0" />
-              <span className="line-clamp-2">{[job.notes, job.customer.notes].filter(Boolean).join(" · ")}</span>
+              <ul className="min-w-0 flex-1 space-y-0.5">
+                {job.customer.notes && <li className="line-clamp-2">• {job.customer.notes}</li>}
+                {job.notes && <li className="line-clamp-2">• <b className="font-semibold">{isDone ? "Completion: " : "This visit: "}</b>{job.notes}</li>}
+              </ul>
             </button>
           )}
           {!job.customer.notes && !job.notes && onNotesClick && !isDone && (

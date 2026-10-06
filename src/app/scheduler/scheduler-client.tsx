@@ -3,6 +3,8 @@
 import { DatePickerLoad } from "@/components/date-picker-load";
 import { useState, useRef, useTransition, useCallback, useEffect, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { orderDays } from "@/lib/day-order";
+import { setDateAreaOrder } from "@/lib/day-order-actions";
 import Link from "next/link";
 import {
   ChevronLeft,
@@ -120,11 +122,14 @@ type WorkDay = {
   manualRouteOrder: string | null;
   optimizedRouteOrder: string | null;
   areaId: number | null;
+  /** Order of this area among the areas on its date (null = normal area order). */
+  dayOrder?: number | null;
   assignedUser: { id: string; name: string | null; email: string | null } | null;
   area: {
     id: number;
     name: string;
     color: string;
+    sortOrder?: number;
     scheduleType?: string;
     frequencyWeeks?: number;
     monthlyDay?: number | null;
@@ -714,8 +719,9 @@ function CalendarCell({
   date, workDays, isToday, dragState,
   onDragOver, onDragLeave, onDrop, isDragOver,
   isHoliday, holidayLabel, isExpectedForDrag,
-  onWorkDayDragStart, onNotesClick, onExpand, onRemove, canManageSchedule,
+  onWorkDayDragStart, onNotesClick, onExpand, onRemove, canManageSchedule, onReorder,
 }: {
+  onReorder?: (dragId: number, targetId: number) => void;
   date: Date;
   workDays: WorkDay[];
   isToday: boolean;
@@ -750,6 +756,22 @@ function CalendarCell({
       : isHoliday && isDragOver && dragState
       ? `${holidayLabel ?? "Holiday"} — cannot schedule`
       : null;
+
+  // Dropping an area on another area of the same day changes their order for that day.
+  const [overChip, setOverChip] = useState<number | null>(null);
+  const reorderTarget = (wd: WorkDay) => {
+    const sameDay = dragState?.type === "workday" && dragState.workDay.id !== wd.id
+      && isoDate(toUTCMidnight(dragState.workDay.date)) === isoDate(toUTCMidnight(wd.date));
+    if (!onReorder || !canManageSchedule || !sameDay) return {};
+    return {
+      onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setOverChip(wd.id); },
+      onDragLeave: () => setOverChip(null),
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault(); e.stopPropagation(); setOverChip(null);
+        if (dragState?.type === "workday") onReorder(dragState.workDay.id, wd.id);
+      },
+    };
+  };
 
   return (
     <div
@@ -797,7 +819,8 @@ function CalendarCell({
             key={wd.id}
             draggable={canManageSchedule && wd.status !== "COMPLETE"}
             onDragStart={(e) => { if (!canManageSchedule || wd.status === "COMPLETE") { e.preventDefault(); return; } e.stopPropagation(); onWorkDayDragStart(wd); }}
-            className="relative group"
+            {...reorderTarget(wd)}
+            className={cn("relative group", overChip === wd.id && "rounded-lg ring-2 ring-blue-500 ring-offset-1")}
           >
             {/* Remove button — top-right, visible on hover, hidden for completed days */}
             {canManageSchedule && wd.status !== "COMPLETE" && (
@@ -897,7 +920,9 @@ function MonthCalendarCell({
   onWorkDayDragStart,
   onRemove,
   canManageSchedule,
+  onReorder,
 }: {
+  onReorder?: (dragId: number, targetId: number) => void;
   date: Date;
   monthStart: Date;
   workDays: WorkDay[];
@@ -944,6 +969,22 @@ function MonthCalendarCell({
       : isHoliday && isDragOver && dragState
       ? `${holidayLabel ?? "Holiday"} — cannot schedule`
       : null;
+
+  // Dropping an area on another area of the same day changes their order for that day.
+  const [overChip, setOverChip] = useState<number | null>(null);
+  const reorderTarget = (wd: WorkDay) => {
+    const sameDay = dragState?.type === "workday" && dragState.workDay.id !== wd.id
+      && isoDate(toUTCMidnight(dragState.workDay.date)) === isoDate(toUTCMidnight(wd.date));
+    if (!onReorder || !canManageSchedule || !sameDay) return {};
+    return {
+      onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setOverChip(wd.id); },
+      onDragLeave: () => setOverChip(null),
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault(); e.stopPropagation(); setOverChip(null);
+        if (dragState?.type === "workday") onReorder(dragState.workDay.id, wd.id);
+      },
+    };
+  };
 
   return (
     <div
@@ -1006,7 +1047,8 @@ function MonthCalendarCell({
             key={workDay.id}
             draggable={canManageSchedule && workDay.status !== "COMPLETE"}
             onDragStart={(e) => { if (!canManageSchedule || workDay.status === "COMPLETE") { e.preventDefault(); return; } e.stopPropagation(); onWorkDayDragStart(workDay); }}
-            className="relative group"
+            {...reorderTarget(workDay)}
+            className={cn("relative group", overChip === workDay.id && "rounded-lg ring-2 ring-blue-500 ring-offset-1")}
           >
             {/* Remove button — top-right, visible on hover, hidden for completed days */}
             {canManageSchedule && workDay.status !== "COMPLETE" && (
@@ -2892,6 +2934,18 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
     arr.push(wd);
     workDaysByDate.set(key, arr);
   }
+  for (const [key, list] of workDaysByDate) workDaysByDate.set(key, orderDays(list));
+
+  /** Drag an area onto another on the same day: it goes in that place, for that day. */
+  const reorderOnDate = (iso: string, dragId: number, targetId: number) => {
+    const ids = (workDaysByDate.get(iso) ?? []).map((w) => w.id);
+    const from = ids.indexOf(dragId);
+    const to = ids.indexOf(targetId);
+    if (from === -1 || to === -1 || from === to) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, dragId);
+    void setDateAreaOrder(ids).then(() => router.refresh()).catch(() => {});
+  };
 
   const today0 = toUTCMidnight(new Date());
 
@@ -3680,6 +3734,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                       onWorkDayDragStart={handleWorkDayDragStart}
                       onNotesClick={handleNotesClick}
                       canManageSchedule={canManageSchedule}
+                      onReorder={(dragId, targetId) => reorderOnDate(iso, dragId, targetId)}
                       onExpand={(wd) => {
                         if (wd.status === "COMPLETE") setCompletedExpandedDay(wd);
                         else setExpandedDay(wd);
@@ -3718,6 +3773,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
                     isDragOver={isDragOver}
                     onWorkDayDragStart={handleWorkDayDragStart}
                     canManageSchedule={canManageSchedule}
+                    onReorder={(dragId, targetId) => reorderOnDate(iso, dragId, targetId)}
                     onExpand={(wd) => {
                       if (wd.status === "COMPLETE") setCompletedExpandedDay(wd);
                       else setExpandedDay(wd);
@@ -3788,6 +3844,7 @@ export function SchedulerClient({ areas, workDays, holidays: initialHolidays, wo
               <span className="text-[10px] text-slate-500">{label}</span>
             </div>
           ))}
+          <span className="ml-auto text-[10px] text-slate-400">Tip: drag an area onto another on the same day to swap their order.</span>
         </div>
       </div>
 

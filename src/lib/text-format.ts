@@ -41,6 +41,19 @@ export function fillPlaceholders(template: string, vars: Record<string, string |
   });
 }
 
+/**
+ * Who wrote a note and when, added to the end: "fronts only (Jamie, 6 Oct)". Any earlier
+ * stamp is replaced, so an edited note shows who changed it last.
+ */
+export function stampNote(note: string | null | undefined, who: string, when: Date = new Date()): string {
+  const text = String(note ?? "").replace(NOTE_STAMP, "").trim();
+  if (!text) return "";
+  const date = when.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" });
+  const name = who.trim().split(/\s+/)[0] || "Someone";
+  return `${text} (${name}, ${date})`;
+}
+const NOTE_STAMP = /\s*\([^()]{1,40}, \d{1,2} [A-Z][a-z]{2,3}\)$/;
+
 const PLACE_WORDS = /\b(road|rd|street|st|lane|ln|close|avenue|ave|drive|way|court|view|cottage|cottages|house|bungalow|farm|hall|pub|barn|lodge|mill|croft|nook|green|hill|place|terrace|crescent|grove)\b/i;
 
 /**

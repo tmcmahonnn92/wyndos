@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
         owes: debt > 0.005 ? fmtCurrency(debt) : null,
         usually: preferenceLabel(job.customer.preferredPaymentMethod, "short") || "",
         slip: job.customer.slip === false ? "No" : "Yes",
-        notes: [job.notes, job.customer.notes].filter(Boolean).join(" · "),
+        notes: [job.customer.notes, job.notes ? `This visit: ${job.notes}` : ""].filter(Boolean).join(" / "),
         done: job.status === "COMPLETE",
       };
     });

@@ -185,7 +185,7 @@ export function PaymentsBody({
                           {job.notes && (
                             <p className="mt-0.5 flex items-start gap-1 text-[11px] text-amber-800">
                               <StickyNote size={10} className="mt-0.5 flex-shrink-0" />
-                              <span>{job.notes}</span>
+                              <span><b className="font-semibold">Completion notes:</b> {job.notes}</span>
                             </p>
                           )}
                         </li>

@@ -324,7 +324,7 @@ export function LogPaymentForm({
                                   {job.isOneOff ? " · one-off" : ""}
                                   {job.paid > 0 ? ` · paid ${fmtCurrency(job.paid)}` : ""}
                                 </p>
-                                {job.notes && <p className="text-[11px] text-amber-800 truncate">Note: {job.notes}</p>}
+                                {job.notes && <p className="text-[11px] text-amber-800 truncate">Completion notes: {job.notes}</p>}
                               </div>
                               <div className="text-right flex-shrink-0">
                                 <p className="text-xs text-slate-400">{fmtCurrency(job.price)}</p>
