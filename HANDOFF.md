@@ -173,3 +173,10 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - nginx: upstream `wyndos_app` (3000 + 3002) with `proxy_next_upstream`; `/_next/static` served from `/opt/wyndos/shared/next-static` (every build's files, 30 days). One-off: `sudo ./deploy/setup-zero-downtime.sh`.
 - App: `next.config.ts` `deploymentId` from `.release-meta.json` (skew protection: old pages do a full load on navigation); `/api/version` + `UpdateBanner` show "Wyndos has been updated · Refresh".
 - Dashboard: its service status check should use `wyndos@3000`.
+
+## Smart import (AI)
+- `/customers/import/smart` (owner only). Upload any file → Wyndos export read directly; CleanerPlanner zip → its importer; Wyndos backup → Settings.
+- Anything else: AI sees headings + ~16 sample rows (emails/phones masked) and returns a *plan* (which column is which). Code applies the plan to every row in the browser → preview → `bulkImportCustomers` (skip existing, match name+address).
+- "Not quite" = owner feedback (500 chars, max 4 tries) used only to change the reading plan; off-topic requests are refused and the plan stays the same. 25 AI calls per business per day.
+- "Ask Wyndos to import it" sends the file to support.
+- Needs `ANTHROPIC_API_KEY` in appEnv. Optional `ANTHROPIC_IMPORT_MODEL` (default `claude-opus-5-5`). Flag: `SMART_IMPORT_ENABLED` in `src/lib/features.ts`.

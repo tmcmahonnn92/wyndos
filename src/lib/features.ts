@@ -16,3 +16,6 @@ export const AREA_SORT_ENABLED = false;
 
 /** The AI guided import (/customers/import/guided). Off: not linked or mentioned anywhere, and the page sends people to the normal import. */
 export const GUIDED_IMPORT_ENABLED = false;
+
+/** Smart import: the AI reads any customer file and shows a preview (needs ANTHROPIC_API_KEY on the server). */
+export const SMART_IMPORT_ENABLED = true;
