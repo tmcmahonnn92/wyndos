@@ -16,11 +16,16 @@ export function ukMobile(raw: string | null | undefined): string | null {
  * "1234 567890" -> "01234 567890". Numbers starting +44 / 44 / 0, or that aren't 10 digits, are left alone.
  */
 export function fixUkPhone(raw: string | null | undefined): string {
-  const text = String(raw ?? "").trim();
+  let text = String(raw ?? "").trim();
   if (!text) return "";
+  // Spreadsheets sometimes save numbers as 7700900001.0
+  text = text.replace(/^(\d+)\.0+$/, "$1");
   if (/^\+/.test(text)) return text;
   const digits = text.replace(/[\s\-().]/g, "");
-  if (!/^\d+$/.test(digits) || digits.startsWith("0") || digits.startsWith("44")) return text;
+  if (!/^\d+$/.test(digits)) return text;
+  if (/^00/.test(digits)) return `+${digits.slice(2)}`;
+  if (/^44[1-9]\d{9}$/.test(digits)) return `+${digits}`;
+  if (digits.startsWith("0")) return text;
   return digits.length === 10 && /^[1-9]/.test(digits) ? `0${text}` : text;
 }
 

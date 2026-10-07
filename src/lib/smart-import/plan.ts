@@ -172,12 +172,15 @@ export function applyPlan(grid: string[][], plan: ImportPlan): SmartRow[] {
     const postcode = get(row, "postcode", " ").toUpperCase();
     const parts = { houseNameNumber, street, town, postcode };
     const address = get(row, "fullAddress", ", ") || composeAddress(parts);
-    let name = get(row, "name", " ");
+    // Blank-ish names ("Mr", "-", "n/a", "?") count as no name: use the first line of the address.
+    let name = get(row, "name", " ").replace(/^(mr|mrs|ms|miss|dr)\.?$/i, "").replace(/^[-–?.\s]*$|^(n\/?a|none|unknown|tbc)$/i, "").trim();
     const problems: string[] = [];
-    if (!name) name = (address.split(",")[0] ?? "").trim();
+    if (!name) name = (address.split(",")[0] ?? "").trim() || [houseNameNumber, street].filter(Boolean).join(" ");
     if (!name && !address) continue; // nothing to go on
     if (!address) problems.push("No address");
 
+    // Excel can save phone numbers as 7.7009E+09, losing digits: can't be rebuilt, so flag it.
+    if (plan.columns.phone.some((i) => /^\d(\.\d+)?e\+\d+$/i.test(cell(row, i)))) problems.push("Phone number cut short by the spreadsheet");
     const priceText = parsePrice(first(row, "price"));
     const price = priceText && !Number.isNaN(Number(priceText)) ? Math.max(0, Number(priceText)) : null;
     if (price === null) problems.push("No price");
@@ -199,7 +202,7 @@ export function applyPlan(grid: string[][], plan: ImportPlan): SmartRow[] {
       name: name.slice(0, 120),
       address: address.slice(0, 300),
       houseNameNumber, street, town, postcode,
-      phone: fixUkPhone(first(row, "phone")).slice(0, 40),
+      phone: (plan.columns.phone.map((i) => fixUkPhone(cell(row, i))).find((p) => !/e\+/i.test(p) && /\d{6}/.test(p.replace(/\D/g, ""))) ?? "").slice(0, 40),
       email: first(row, "email").slice(0, 160),
       price,
       frequencyWeeks,
