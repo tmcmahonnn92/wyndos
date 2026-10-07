@@ -1333,6 +1333,8 @@ export async function bulkImportCustomers(
 ): Promise<{
   created: number; updated: number; skipped: number; errors: Array<{ row: number; message: string }>; areasCreated: string[];
   runsBooked: Array<{ area: string; date: string }>;
+  /** Areas that got customers with dates: pass to bookAreaRunsAfterImport when importing in batches. */
+  datedAreaIds: number[];
 }> {
   const actor = await requireOwner();
   const tenantId = actor.tenantId;
@@ -1524,7 +1526,7 @@ export async function bulkImportCustomers(
   revalidatePath("/customers");
   revalidatePath("/areas");
   revalidatePath("/scheduler");
-  return { created, updated, skipped, errors, areasCreated, runsBooked };
+  return { created, updated, skipped, errors, areasCreated, runsBooked, datedAreaIds: [...datedAreaIds] };
 }
 
 /** Book imported areas' next runs (used by the CleanerPlanner import). Owner only, own areas only. */
@@ -1549,7 +1551,12 @@ async function bookImportedAreaRuns(tenantId: number, areaIds: number[]) {
       select: { nextDueDate: true, lastCompletedDate: true },
     });
     const lastCleaned = customers.reduce<Date | null>((m, c) => (c.lastCompletedDate && (!m || c.lastCompletedDate > m) ? c.lastCompletedDate : m), null);
-    const firstDue = customers.reduce<Date | null>((m, c) => (c.nextDueDate && (!m || c.nextDueDate < m) ? c.nextDueDate : m), null);
+    // The round's date is the one most of its customers share (earliest if tied), so one
+    // customer with an old or odd date doesn't drag the whole round.
+    const dueCounts = new Map<string, number>();
+    for (const c of customers) if (c.nextDueDate) { const k = utcDay(c.nextDueDate).toISOString().slice(0, 10); dueCounts.set(k, (dueCounts.get(k) ?? 0) + 1); }
+    const commonDue = [...dueCounts.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0]?.[0];
+    const firstDue = commonDue ? new Date(`${commonDue}T00:00:00Z`) : null;
     if (lastCleaned && (!area.lastCompletedDate || lastCleaned > area.lastCompletedDate)) {
       await prisma.area.update({ where: { id: areaId }, data: { lastCompletedDate: lastCleaned } });
     }

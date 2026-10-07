@@ -7,7 +7,7 @@ import { unzipSync, strFromU8, gunzipSync } from "fflate";
 import { parseCSVText } from "@/lib/import-parsing";
 import { applyPlan, looksLikeCleanerPlanner, wyndosExportPlan, PLAN_FIELDS, type ImportPlan, type PlanField, type SmartRow } from "@/lib/smart-import/plan";
 import { aiImportPlan, type PlanRequest } from "@/lib/smart-import/actions";
-import { bulkImportCustomers, importQuotes } from "@/lib/actions";
+import { bookAreaRunsAfterImport, bulkImportCustomers, importQuotes } from "@/lib/actions";
 import { cn, fmtCurrency } from "@/lib/utils";
 
 type AreaOption = { id: number; name: string; frequencyWeeks: number };
@@ -178,6 +178,7 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
     }
     let created = 0, skipped = 0, errors = 0, quotes = 0;
     const areasMade = new Set<string>();
+    const datedAreas = new Set<number>();
     try {
       for (let i = 0; i < custRows.length; i += 400) {
         const chunk = custRows.slice(i, i + 400);
@@ -206,12 +207,15 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
             frequencyWeeks: r.frequencyWeeks ?? undefined,
             active: r.active,
           };
-        }), { createMissingAreas: true, existingMode: "skip", matchField: "nameAddress", bookRuns: bookRuns && i + 400 >= custRows.length });
+        }), { createMissingAreas: true, existingMode: "skip", matchField: "nameAddress", bookRuns: false });
+        res.datedAreaIds.forEach((id) => datedAreas.add(id));
         created += res.created;
         skipped += res.skipped;
         errors += res.errors.length;
         res.areasCreated.forEach((a) => areasMade.add(a));
       }
+      // Book runs once every batch is in, so each round's date comes from all its customers.
+      if (bookRuns && datedAreas.size) await bookAreaRunsAfterImport([...datedAreas]);
       for (let i = 0; i < quoteRows.length; i += 400) {
         const res = await importQuotes(quoteRows.slice(i, i + 400).map((r) => ({
           name: r.name, address: r.address, houseNameNumber: r.houseNameNumber || undefined, street: r.street || undefined,
