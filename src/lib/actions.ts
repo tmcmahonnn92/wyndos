@@ -2636,6 +2636,55 @@ export async function createQuoteVisit(
   return { customerId: customer.id, workDayId: workDay.id };
 }
 
+/**
+ * Owner, import: people who were quoted but aren't customers yet (e.g. "Estimate" in another
+ * program). Each becomes a prospect with a quote marked as given, waiting for an answer on Quotes.
+ * Anyone already in Wyndos with the same name and address is skipped.
+ */
+export async function importQuotes(records: Array<{ name: string; address: string; houseNameNumber?: string; street?: string; town?: string; postcode?: string; phone?: string; email?: string; notes?: string; price: number; frequencyWeeks?: number; preferredPaymentMethod?: string }>) {
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
+  const list = (Array.isArray(records) ? records : []).slice(0, 500);
+  if (list.length === 0) return { created: 0, skipped: 0 };
+  const area = await getOrCreateOneOffSystemArea(tenantId);
+  const existing = await prisma.customer.findMany({ where: { tenantId }, select: { name: true, address: true } });
+  const key = (n: string, a: string) => `${n.trim().toLowerCase()}|${a.trim().toLowerCase().replace(/\s+/g, " ")}`;
+  const seen = new Set(existing.map((c) => key(c.name, c.address)));
+  const today = startOfDay(new Date());
+  const date = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  let workDayId: number | null = null;
+  let created = 0, skipped = 0;
+  const now = new Date();
+  for (const r of list) {
+    const name = String(r.name ?? "").trim().slice(0, 120);
+    const fields = resolveAddress({ address: r.address, houseNameNumber: r.houseNameNumber, street: r.street, town: r.town, postcode: r.postcode });
+    if (!name || !fields?.address || seen.has(key(name, fields.address))) { skipped++; continue; }
+    seen.add(key(name, fields.address));
+    const price = Math.max(0, Number(r.price) || 0);
+    const frequencyWeeks = r.frequencyWeeks && r.frequencyWeeks > 0 && r.frequencyWeeks <= 52 ? Math.round(r.frequencyWeeks) : null;
+    const customer = await prisma.customer.create({ data: {
+      tenantId, name, ...fields,
+      phone: String(r.phone ?? "").trim().slice(0, 40),
+      email: String(r.email ?? "").trim().slice(0, 160),
+      notes: String(r.notes ?? "").trim().slice(0, 2000) || null,
+      preferredPaymentMethod: normalisePreference(r.preferredPaymentMethod ?? "") || undefined,
+      areaId: area.id, price, frequencyWeeks: frequencyWeeks ?? 4,
+      active: false, isProspect: true,
+    } });
+    if (workDayId === null) workDayId = (await prisma.workDay.create({ data: { tenantId, date, status: "COMPLETE" } })).id;
+    await prisma.job.create({ data: {
+      tenantId, workDayId, customerId: customer.id, name: "Quote", price: 0,
+      isOneOff: true, isQuote: true, status: "COMPLETE", completedAt: now, completedByUserId: actor.userId,
+      quoteStatus: "QUOTED", quotedPrice: price, quotedFrequencyWeeks: frequencyWeeks, quotedAt: now,
+      notes: "Imported quote",
+    } });
+    created++;
+  }
+  revalidatePath("/quotes");
+  revalidatePath("/customers");
+  return { created, skipped };
+}
+
 /** Worker or owner: the quote visit happened and a price was given. */
 export async function markQuoted(jobId: number, data: { price: number; frequencyWeeks?: number; notes?: string }) {
   const actor = await requirePerm("schedule");

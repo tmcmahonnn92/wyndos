@@ -43,7 +43,7 @@ How to read the file:
 - Area: the round, area, day or route a customer is cleaned on. If there isn't one, set defaultArea to a sensible name (e.g. the town most rows share) and leave area empty.
 - frequency: give weeks for every distinct frequency value you're shown (4 weekly, 4w, monthly → 4; 8 weekly, 2 monthly, bi-monthly → 8; fortnightly → 2; quarterly → 13). defaultFrequencyWeeks is used when a row has none (4 if unsure).
 - payment: CASH, BACS (bank transfer, BACS, online), CARD, DD (direct debit, GoCardless, standing order), INVOICE (pays on invoice / later), or "" if it isn't a way of paying.
-- status: give the values that mean the customer has stopped (e.g. "inactive", "cancelled", "no", "stopped"). Leave status empty if there's no such column.
+- status: give the values that mean the customer has stopped (e.g. "inactive", "cancelled", "no", "stopped") in inactiveValues, and the values that mean they've only been quoted and aren't a customer yet (e.g. "estimate", "quote", "prospect", "lead") in quoteValues. Leave status empty if there's no such column.
 - dateOrder: DMY for UK dates, MDY only if days above 12 appear in the second position, YMD for 2026-03-14.
 - kind: "customers" for a customer list; "job_history" if each row is a past clean or payment rather than a customer; "not_customers" if it isn't customer data at all.
 - summary: two or three plain sentences for the owner saying what you found (which program it looks like, which columns you used, anything you guessed). No markdown.
@@ -71,12 +71,13 @@ const PLAN_TOOL = {
       defaultFrequencyWeeks: { type: "integer", minimum: 1, maximum: 52 },
       paymentMap: { type: "array", items: { type: "object", properties: { text: { type: "string" }, method: { type: "string", enum: [...PAY_METHODS] } }, required: ["text", "method"] } },
       inactiveValues: { type: "array", items: { type: "string" } },
+      quoteValues: { type: "array", items: { type: "string" } },
       defaultArea: { type: "string" },
       summary: { type: "string" },
       warnings: { type: "array", items: { type: "string" } },
       feedbackOffTopic: { type: "boolean" },
     },
-    required: ["kind", "headerRow", "firstDataRow", "columns", "dateOrder", "frequencyMap", "defaultFrequencyWeeks", "paymentMap", "inactiveValues", "defaultArea", "summary", "warnings", "feedbackOffTopic"],
+    required: ["kind", "headerRow", "firstDataRow", "columns", "dateOrder", "frequencyMap", "defaultFrequencyWeeks", "paymentMap", "inactiveValues", "quoteValues", "defaultArea", "summary", "warnings", "feedbackOffTopic"],
   },
 };
 

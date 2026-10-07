@@ -34,6 +34,8 @@ export type ImportPlan = {
   paymentMap: Array<{ text: string; method: (typeof PAY_METHODS)[number] }>;
   /** Values in the status column that mean the customer has stopped / is inactive. */
   inactiveValues: string[];
+  /** Status values meaning "quoted, not a customer yet" (e.g. estimate). Imported as quotes. */
+  quoteValues: string[];
   /** Area to use when the file has none for a row. */
   defaultArea: string;
   summary: string;
@@ -78,6 +80,7 @@ export function cleanPlan(raw: unknown, columnCount: number, rowCount: number): 
       return text && (PAY_METHODS as readonly string[]).includes(method) ? [{ text, method: method as ImportPlan["paymentMap"][number]["method"] }] : [];
     }),
     inactiveValues: (Array.isArray(r.inactiveValues) ? r.inactiveValues : []).slice(0, 30).map((v) => clip(v, 40).toLowerCase()).filter(Boolean),
+    quoteValues: (Array.isArray(r.quoteValues) ? r.quoteValues : []).slice(0, 30).map((v) => clip(v, 40).toLowerCase()).filter(Boolean),
     defaultArea: clip(r.defaultArea, 60) || "Imported",
     summary: clip(r.summary, 600),
     warnings: (Array.isArray(r.warnings) ? r.warnings : []).slice(0, 6).map((w) => clip(w, 200)).filter(Boolean),
@@ -105,6 +108,8 @@ export type SmartRow = {
   area: string;
   jobName: string;
   active: boolean;
+  /** Quoted but not a customer yet: imported as a quote waiting for an answer. */
+  quote: boolean;
   problems: string[];
 };
 
@@ -196,6 +201,7 @@ export function applyPlan(grid: string[][], plan: ImportPlan): SmartRow[] {
       payText && !preferredPaymentMethod ? `Usually pays: ${payText}` : "",
     ].filter(Boolean).join("\n");
     const status = get(row, "status", " ").toLowerCase();
+    const quote = Boolean(status) && (plan.quoteValues.some((v) => status === v || status.includes(v)) || /^(estimate|quote|quoted|prospect|enquiry|lead)s?$/.test(status));
 
     out.push({
       sheetRow: r + 1,
@@ -212,7 +218,8 @@ export function applyPlan(grid: string[][], plan: ImportPlan): SmartRow[] {
       preferredPaymentMethod,
       area: (get(row, "area", " ") || plan.defaultArea).slice(0, 60),
       jobName: first(row, "jobName").slice(0, 80),
-      active: !(status && plan.inactiveValues.some((v) => status === v || status.includes(v))),
+      active: !quote && !(status && plan.inactiveValues.some((v) => status === v || status.includes(v))),
+      quote,
       problems,
     });
   }
@@ -235,7 +242,7 @@ export function wyndosExportPlan(headers: string[]): ImportPlan | null {
   });
   return {
     kind: "customers", headerRow: 0, firstDataRow: 1, columns, dateOrder: "YMD", frequencyMap: [], defaultFrequencyWeeks: 4,
-    paymentMap: [], inactiveValues: ["no"], defaultArea: "Imported",
+    paymentMap: [], inactiveValues: ["no"], quoteValues: [], defaultArea: "Imported",
     summary: "This is a Wyndos customer export, so it's read exactly as Wyndos wrote it.", warnings: [], feedbackOffTopic: false,
   };
 }
