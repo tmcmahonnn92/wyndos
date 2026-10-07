@@ -331,6 +331,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
   const [importHistory, setImportHistory] = useState(false);
   // Book each area's next run from the Last Cleaned / Next Due columns.
   const [bookRuns, setBookRuns] = useState(true);
+  const [nameFromAddress, setNameFromAddress] = useState(true);
   const [historyDragOver, setHistoryDragOver] = useState(false);
   const [historyHeaders, setHistoryHeaders] = useState<string[]>([]);
   const [historyRows, setHistoryRows] = useState<string[][]>([]);
@@ -428,7 +429,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
       const errors: string[] = [];
 
       // No name: use the first line of the address (house name/number and street).
-      const name = g("name").trim() || firstAddressLine(g("address"), g("houseNameNumber"), g("street"));
+      const name = g("name").trim() || (nameFromAddress ? firstAddressLine(g("address"), g("houseNameNumber"), g("street")) : "");
       const partValues: AddressParts = {
         houseNameNumber: g("houseNameNumber").trim(),
         street: g("street").trim(),
@@ -1072,6 +1073,12 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-slate-800">{field.label}</span>
                       {field.required && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">Required</span>}
+                      {field.key === "name" && (
+                        <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                          <input type="checkbox" checked={nameFromAddress} onChange={(e) => setNameFromAddress(e.target.checked)} className="accent-blue-600" />
+                          If blank, use first line of address
+                        </label>
+                      )}
                     </div>
                     {/* Source selector */}
                     <div className="flex gap-1">
