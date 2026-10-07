@@ -22,7 +22,7 @@ import {
 import { bulkImportCustomers, deleteAllCustomers, bulkImportJobHistory } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { AREA_SORT_ENABLED, GUIDED_IMPORT_ENABLED } from "@/lib/features";
+import { AREA_SORT_ENABLED, GUIDED_IMPORT_ENABLED, SMART_IMPORT_ENABLED } from "@/lib/features";
 import { composeAddress, type AddressParts } from "@/lib/address";
 import { fixUkPhone, ukMobile } from "@/lib/text-format";
 
@@ -780,6 +780,12 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         </Link>
       )}
 
+      {SMART_IMPORT_ENABLED && (
+        <Link href="/customers/import/smart" className="flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:bg-blue-100">
+          <span><b>Smart import:</b> upload your list in any layout (or from another program). Wyndos works out the columns and shows you a preview first.</span>
+          <span className="flex-shrink-0 font-semibold text-blue-700">Try it →</span>
+        </Link>
+      )}
       <Link href="/customers/import/cleanerplanner" className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 hover:bg-slate-50">
         <span><b>Moving from CleanerPlanner?</b> Upload your CleanerPlanner backup and bring customers, rounds, due dates and balances across.</span>
         <span className="flex-shrink-0 font-semibold text-blue-700">Start →</span>

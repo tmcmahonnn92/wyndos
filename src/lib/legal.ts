@@ -1,4 +1,4 @@
-import { AREA_SORT_ENABLED, GUIDED_IMPORT_ENABLED } from "@/lib/features";
+import { AREA_SORT_ENABLED, GUIDED_IMPORT_ENABLED, SMART_IMPORT_ENABLED } from "@/lib/features";
 /**
  * Legal details shown in the Terms, Privacy and Cookie pages.
  *
@@ -40,7 +40,7 @@ export const SUB_PROCESSORS: Array<{ name: string; purpose: string; location: st
   { name: "Google", purpose: "Optional 'Sign in with Google'", location: "EU / US" },
   { name: "OpenStreetMap (Nominatim)", purpose: "Turning addresses into map positions", location: "EU / UK" },
   // Only while an AI feature is switched on.
-  ...(AREA_SORT_ENABLED || GUIDED_IMPORT_ENABLED
-    ? [{ name: "Anthropic (Claude)", purpose: "Optional AI help sorting customers into areas: streets, towns, postcodes, prices and due dates only (no names or contact details)", location: "US" }]
+  ...(AREA_SORT_ENABLED || GUIDED_IMPORT_ENABLED || SMART_IMPORT_ENABLED
+    ? [{ name: "Anthropic (Claude)", purpose: "Optional AI help importing a customer file: the column headings and a few sample rows (emails and phone numbers partly hidden), only when the owner uses Smart import. Not used to train AI.", location: "US" }]
     : []),
 ];

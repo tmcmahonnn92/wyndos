@@ -542,13 +542,15 @@ function nextRunAfter(
 /**
  * How many days after a run's date a customer can be due and still go on it. Keeps an area
  * together: someone slightly out of step is cleaned a little early rather than waiting a
- * whole extra cycle. Area setting, else business setting, else half the area's frequency.
+ * whole extra cycle. Area setting, else business setting, else 7 days (3 for weekly areas).
  */
 async function runDueWindow(tenantId: number, area: { frequencyWeeks: number; dueWindowDays?: number | null }) {
   if (area.dueWindowDays != null && area.dueWindowDays >= 0) return area.dueWindowDays;
   const settings = await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { runDueWindowDays: true } });
   if (settings?.runDueWindowDays != null && settings.runDueWindowDays >= 0) return settings.runDueWindowDays;
-  return Math.max(3, Math.round(((area.frequencyWeeks || 4) * 7) / 2));
+  // Default 7 days, but never more than half the area's cycle (a weekly area uses 3), so
+  // nobody is pulled forward into a run a whole visit early.
+  return Math.min(7, Math.max(3, Math.round(((area.frequencyWeeks || 4) * 7) / 2)));
 }
 
 /** Customers actually cleaned on a day: last cleaned that day, next due one area-cycle later. */
