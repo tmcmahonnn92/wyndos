@@ -7,7 +7,7 @@ import { unzipSync, strFromU8, gunzipSync } from "fflate";
 import { parseCSVText } from "@/lib/import-parsing";
 import { applyPlan, looksLikeCleanerPlanner, wyndosExportPlan, PLAN_FIELDS, type ImportPlan, type PlanField, type SmartRow } from "@/lib/smart-import/plan";
 import { aiImportPlan, type PlanRequest } from "@/lib/smart-import/actions";
-import { bulkImportCustomers } from "@/lib/actions";
+import { bookAreaRunsAfterImport, bulkImportCustomers, importQuotes } from "@/lib/actions";
 import { cn, fmtCurrency } from "@/lib/utils";
 
 type AreaOption = { id: number; name: string; frequencyWeeks: number };
@@ -74,17 +74,19 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
   const [elsewhere, setElsewhere] = useState<{ title: string; text: string; href?: string; link?: string } | null>(null);
   const [problemsOnly, setProblemsOnly] = useState(false);
   const [bookRuns, setBookRuns] = useState(true);
-  const [result, setResult] = useState<{ created: number; skipped: number; errors: number; areas: string[] } | null>(null);
+  const [result, setResult] = useState<{ created: number; skipped: number; errors: number; areas: string[]; quotes: number } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpText, setHelpText] = useState("");
   const [helpSent, setHelpSent] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const rows: SmartRow[] = useMemo(() => (plan && plan.kind === "customers" ? applyPlan(grid, plan) : []), [grid, plan]);
+  const custRows = useMemo(() => rows.filter((r) => !r.quote), [rows]);
+  const quoteRows = useMemo(() => rows.filter((r) => r.quote), [rows]);
   const headings = plan && plan.headerRow >= 0 ? grid[plan.headerRow] ?? [] : [];
   const areaSummary = useMemo(() => {
     const map = new Map<string, { name: string; count: number; value: number; existing: AreaOption | undefined }>();
-    for (const r of rows) {
+    for (const r of custRows) {
       const key = r.area.toLowerCase();
       const e = map.get(key) ?? { name: r.area, count: 0, value: 0, existing: areas.find((a) => a.name.toLowerCase() === key) };
       e.count++;
@@ -92,9 +94,9 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
       map.set(key, e);
     }
     return [...map.values()].sort((a, b) => b.count - a.count);
-  }, [rows, areas]);
+  }, [custRows, areas]);
   const withProblems = rows.filter((r) => r.problems.length > 0);
-  const inactive = rows.filter((r) => !r.active).length;
+  const inactive = custRows.filter((r) => !r.active).length;
   const shown = (problemsOnly ? withProblems : rows).slice(0, 60);
 
   const reset = () => {
@@ -171,14 +173,15 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
     const freqOf = new Map<string, number>();
     for (const a of areaSummary) {
       const counts = new Map<number, number>();
-      for (const r of rows) if (r.area.toLowerCase() === a.name.toLowerCase() && r.frequencyWeeks) counts.set(r.frequencyWeeks, (counts.get(r.frequencyWeeks) ?? 0) + 1);
+      for (const r of custRows) if (r.area.toLowerCase() === a.name.toLowerCase() && r.frequencyWeeks) counts.set(r.frequencyWeeks, (counts.get(r.frequencyWeeks) ?? 0) + 1);
       freqOf.set(a.name.toLowerCase(), [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? plan.defaultFrequencyWeeks);
     }
-    let created = 0, skipped = 0, errors = 0;
+    let created = 0, skipped = 0, errors = 0, quotes = 0;
     const areasMade = new Set<string>();
+    const datedAreas = new Set<number>();
     try {
-      for (let i = 0; i < rows.length; i += 400) {
-        const chunk = rows.slice(i, i + 400);
+      for (let i = 0; i < custRows.length; i += 400) {
+        const chunk = custRows.slice(i, i + 400);
         const res = await bulkImportCustomers(chunk.map((r) => {
           const existing = areas.find((a) => a.name.toLowerCase() === r.area.toLowerCase());
           const newIndex = areaSummary.findIndex((a) => a.name.toLowerCase() === r.area.toLowerCase());
@@ -204,17 +207,30 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
             frequencyWeeks: r.frequencyWeeks ?? undefined,
             active: r.active,
           };
-        }), { createMissingAreas: true, existingMode: "skip", matchField: "nameAddress", bookRuns: bookRuns && i + 400 >= rows.length });
+        }), { createMissingAreas: true, existingMode: "skip", matchField: "nameAddress", bookRuns: false });
+        res.datedAreaIds.forEach((id) => datedAreas.add(id));
         created += res.created;
         skipped += res.skipped;
         errors += res.errors.length;
         res.areasCreated.forEach((a) => areasMade.add(a));
       }
-      setResult({ created, skipped, errors, areas: [...areasMade] });
+      // Book runs once every batch is in, so each round's date comes from all its customers.
+      if (bookRuns && datedAreas.size) await bookAreaRunsAfterImport([...datedAreas]);
+      for (let i = 0; i < quoteRows.length; i += 400) {
+        const res = await importQuotes(quoteRows.slice(i, i + 400).map((r) => ({
+          name: r.name, address: r.address, houseNameNumber: r.houseNameNumber || undefined, street: r.street || undefined,
+          town: r.town || undefined, postcode: r.postcode || undefined, phone: r.phone || undefined, email: r.email || undefined,
+          notes: r.notes || undefined, price: r.price ?? 0, frequencyWeeks: r.frequencyWeeks ?? undefined,
+          preferredPaymentMethod: r.preferredPaymentMethod || undefined,
+        })));
+        quotes += res.created;
+        skipped += res.skipped;
+      }
+      setResult({ created, skipped, errors, areas: [...areasMade], quotes });
       setStage("done");
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : "The import stopped part way. Check Customers before trying again.");
-      setResult({ created, skipped, errors, areas: [...areasMade] });
+      setResult({ created, skipped, errors, areas: [...areasMade], quotes });
       setStage("done");
     }
   };
@@ -287,6 +303,7 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
       <div className="space-y-3 rounded-2xl border border-green-200 bg-white p-5">
         <p className="flex items-center gap-2 text-base font-semibold text-green-700"><CheckCircle2 size={18} /> {result.created} customer{result.created === 1 ? "" : "s"} added</p>
         <ul className="list-disc space-y-1 pl-5 text-sm text-slate-600">
+          {result.quotes > 0 && <li>{result.quotes} quote{result.quotes === 1 ? "" : "s"} added, waiting for an answer (see Quotes)</li>}
           {result.areas.length > 0 && <li>New areas: {result.areas.join(", ")}</li>}
           {result.skipped > 0 && <li>{result.skipped} already in Wyndos, left as they were</li>}
           {result.errors > 0 && <li>{result.errors} couldn&apos;t be added</li>}
@@ -339,9 +356,9 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
         <>
           {/* Totals */}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="Customers" value={String(rows.length)} />
+            <Stat label="Customers" value={String(custRows.length)} sub={quoteRows.length ? `+ ${quoteRows.length} quote${quoteRows.length === 1 ? "" : "s"}` : undefined} />
             <Stat label="Areas" value={String(areaSummary.length)} sub={`${areaSummary.filter((a) => !a.existing).length} new`} />
-            <Stat label="Round value" value={fmtCurrency(rows.reduce((s, r) => s + (r.price ?? 0), 0))} />
+            <Stat label="Round value" value={fmtCurrency(custRows.filter((r) => r.active).reduce((s, r) => s + (r.price ?? 0), 0))} />
             <Stat label="To check" value={String(withProblems.length)} sub={inactive ? `${inactive} inactive` : undefined} warn={withProblems.length > 0} />
           </div>
 
@@ -390,7 +407,7 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
                       <td className="px-2.5 py-1.5 whitespace-nowrap">{r.phone || "—"}</td>
                       <td className="px-2.5 py-1.5">{r.preferredPaymentMethod || "—"}</td>
                       <td className="max-w-[200px] truncate px-2.5 py-1.5 text-slate-500">{r.notes.replace(/\n/g, " · ")}</td>
-                      <td className="px-2.5 py-1.5 text-amber-700">{[...r.problems, r.active ? "" : "Inactive"].filter(Boolean).join(", ")}</td>
+                      <td className="px-2.5 py-1.5 text-amber-700">{[...r.problems, r.quote ? "Quote" : r.active ? "" : "Inactive"].filter(Boolean).join(", ")}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -417,7 +434,7 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
               <button type="button" disabled={stage === "importing" || rows.length === 0} onClick={doImport}
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
                 {stage === "importing" ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-                {stage === "importing" ? "Adding customers…" : `Yes, add ${rows.length} customers`}
+                {stage === "importing" ? "Adding customers…" : `Yes, add ${custRows.length} customers${quoteRows.length ? ` + ${quoteRows.length} quote${quoteRows.length === 1 ? "" : "s"}` : ""}`}
               </button>
             )}
             {available && (

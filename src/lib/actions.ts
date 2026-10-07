@@ -1333,6 +1333,8 @@ export async function bulkImportCustomers(
 ): Promise<{
   created: number; updated: number; skipped: number; errors: Array<{ row: number; message: string }>; areasCreated: string[];
   runsBooked: Array<{ area: string; date: string }>;
+  /** Areas that got customers with dates: pass to bookAreaRunsAfterImport when importing in batches. */
+  datedAreaIds: number[];
 }> {
   const actor = await requireOwner();
   const tenantId = actor.tenantId;
@@ -1524,7 +1526,7 @@ export async function bulkImportCustomers(
   revalidatePath("/customers");
   revalidatePath("/areas");
   revalidatePath("/scheduler");
-  return { created, updated, skipped, errors, areasCreated, runsBooked };
+  return { created, updated, skipped, errors, areasCreated, runsBooked, datedAreaIds: [...datedAreaIds] };
 }
 
 /** Book imported areas' next runs (used by the CleanerPlanner import). Owner only, own areas only. */
@@ -1549,7 +1551,12 @@ async function bookImportedAreaRuns(tenantId: number, areaIds: number[]) {
       select: { nextDueDate: true, lastCompletedDate: true },
     });
     const lastCleaned = customers.reduce<Date | null>((m, c) => (c.lastCompletedDate && (!m || c.lastCompletedDate > m) ? c.lastCompletedDate : m), null);
-    const firstDue = customers.reduce<Date | null>((m, c) => (c.nextDueDate && (!m || c.nextDueDate < m) ? c.nextDueDate : m), null);
+    // The round's date is the one most of its customers share (earliest if tied), so one
+    // customer with an old or odd date doesn't drag the whole round.
+    const dueCounts = new Map<string, number>();
+    for (const c of customers) if (c.nextDueDate) { const k = utcDay(c.nextDueDate).toISOString().slice(0, 10); dueCounts.set(k, (dueCounts.get(k) ?? 0) + 1); }
+    const commonDue = [...dueCounts.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0]?.[0];
+    const firstDue = commonDue ? new Date(`${commonDue}T00:00:00Z`) : null;
     if (lastCleaned && (!area.lastCompletedDate || lastCleaned > area.lastCompletedDate)) {
       await prisma.area.update({ where: { id: areaId }, data: { lastCompletedDate: lastCleaned } });
     }
@@ -2634,6 +2641,55 @@ export async function createQuoteVisit(
   revalidatePath("/scheduler");
   revalidatePath("/quotes");
   return { customerId: customer.id, workDayId: workDay.id };
+}
+
+/**
+ * Owner, import: people who were quoted but aren't customers yet (e.g. "Estimate" in another
+ * program). Each becomes a prospect with a quote marked as given, waiting for an answer on Quotes.
+ * Anyone already in Wyndos with the same name and address is skipped.
+ */
+export async function importQuotes(records: Array<{ name: string; address: string; houseNameNumber?: string; street?: string; town?: string; postcode?: string; phone?: string; email?: string; notes?: string; price: number; frequencyWeeks?: number; preferredPaymentMethod?: string }>) {
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
+  const list = (Array.isArray(records) ? records : []).slice(0, 500);
+  if (list.length === 0) return { created: 0, skipped: 0 };
+  const area = await getOrCreateOneOffSystemArea(tenantId);
+  const existing = await prisma.customer.findMany({ where: { tenantId }, select: { name: true, address: true } });
+  const key = (n: string, a: string) => `${n.trim().toLowerCase()}|${a.trim().toLowerCase().replace(/\s+/g, " ")}`;
+  const seen = new Set(existing.map((c) => key(c.name, c.address)));
+  const today = startOfDay(new Date());
+  const date = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  let workDayId: number | null = null;
+  let created = 0, skipped = 0;
+  const now = new Date();
+  for (const r of list) {
+    const name = String(r.name ?? "").trim().slice(0, 120);
+    const fields = resolveAddress({ address: r.address, houseNameNumber: r.houseNameNumber, street: r.street, town: r.town, postcode: r.postcode });
+    if (!name || !fields?.address || seen.has(key(name, fields.address))) { skipped++; continue; }
+    seen.add(key(name, fields.address));
+    const price = Math.max(0, Number(r.price) || 0);
+    const frequencyWeeks = r.frequencyWeeks && r.frequencyWeeks > 0 && r.frequencyWeeks <= 52 ? Math.round(r.frequencyWeeks) : null;
+    const customer = await prisma.customer.create({ data: {
+      tenantId, name, ...fields,
+      phone: String(r.phone ?? "").trim().slice(0, 40),
+      email: String(r.email ?? "").trim().slice(0, 160),
+      notes: String(r.notes ?? "").trim().slice(0, 2000) || null,
+      preferredPaymentMethod: normalisePreference(r.preferredPaymentMethod ?? "") || undefined,
+      areaId: area.id, price, frequencyWeeks: frequencyWeeks ?? 4,
+      active: false, isProspect: true,
+    } });
+    if (workDayId === null) workDayId = (await prisma.workDay.create({ data: { tenantId, date, status: "COMPLETE" } })).id;
+    await prisma.job.create({ data: {
+      tenantId, workDayId, customerId: customer.id, name: "Quote", price: 0,
+      isOneOff: true, isQuote: true, status: "COMPLETE", completedAt: now, completedByUserId: actor.userId,
+      quoteStatus: "QUOTED", quotedPrice: price, quotedFrequencyWeeks: frequencyWeeks, quotedAt: now,
+      notes: "Imported quote",
+    } });
+    created++;
+  }
+  revalidatePath("/quotes");
+  revalidatePath("/customers");
+  return { created, skipped };
 }
 
 /** Worker or owner: the quote visit happened and a price was given. */
