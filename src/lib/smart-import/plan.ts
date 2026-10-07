@@ -14,13 +14,15 @@ import { normalisePaymentMethod, parsePrice } from "@/lib/import-parsing";
 export const PLAN_FIELDS = [
   "name", "fullAddress", "houseNumber", "street", "town", "postcode", "phone", "email",
   "price", "frequency", "lastCleaned", "nextDue", "notes", "payment", "area", "status", "jobName",
+  // Job history files (one row per clean or payment):
+  "customerRef", "visitDate", "amountPaid", "paidStatus",
 ] as const;
 export type PlanField = (typeof PLAN_FIELDS)[number];
 
 export const PAY_METHODS = ["CASH", "BACS", "CARD", "DD", "INVOICE", ""] as const;
 
 export type ImportPlan = {
-  /** What the file is. Only "customers" can be imported here. */
+  /** What the file is: a customer list, or job history (one row per clean / payment). */
   kind: "customers" | "job_history" | "not_customers";
   /** Row (0-based) holding the column headings; -1 when there are none. */
   headerRow: number;
@@ -36,6 +38,8 @@ export type ImportPlan = {
   inactiveValues: string[];
   /** Status values meaning "quoted, not a customer yet" (e.g. estimate). Imported as quotes. */
   quoteValues: string[];
+  /** History: values in the paidStatus column that mean the clean was paid for. */
+  paidValues: string[];
   /** Area to use when the file has none for a row. */
   defaultArea: string;
   summary: string;
@@ -81,6 +85,7 @@ export function cleanPlan(raw: unknown, columnCount: number, rowCount: number): 
     }),
     inactiveValues: (Array.isArray(r.inactiveValues) ? r.inactiveValues : []).slice(0, 30).map((v) => clip(v, 40).toLowerCase()).filter(Boolean),
     quoteValues: (Array.isArray(r.quoteValues) ? r.quoteValues : []).slice(0, 30).map((v) => clip(v, 40).toLowerCase()).filter(Boolean),
+    paidValues: (Array.isArray(r.paidValues) ? r.paidValues : []).slice(0, 30).map((v) => clip(v, 40).toLowerCase()).filter(Boolean),
     defaultArea: clip(r.defaultArea, 60) || "Imported",
     summary: clip(r.summary, 600),
     warnings: (Array.isArray(r.warnings) ? r.warnings : []).slice(0, 6).map((w) => clip(w, 200)).filter(Boolean),
@@ -91,6 +96,8 @@ export function cleanPlan(raw: unknown, columnCount: number, rowCount: number): 
 export type SmartRow = {
   /** Row number in the file, counting from 1 as a spreadsheet does. */
   sheetRow: number;
+  /** The other program's customer reference, used to link job history to this customer. */
+  ref: string;
   name: string;
   address: string;
   houseNameNumber: string;
@@ -176,7 +183,12 @@ export function applyPlan(grid: string[][], plan: ImportPlan): SmartRow[] {
     const town = get(row, "town", ", ");
     const postcode = get(row, "postcode", " ").toUpperCase();
     const parts = { houseNameNumber, street, town, postcode };
-    const address = get(row, "fullAddress", ", ") || composeAddress(parts);
+    // A full address line plus separate town/postcode columns: add them if the line hasn't got them.
+    const line = get(row, "fullAddress", ", ");
+    const has = (bit: string) => line.toLowerCase().replace(/\s+/g, "").includes(bit.toLowerCase().replace(/\s+/g, ""));
+    const address = line
+      ? [line, !houseNameNumber && !street && town && !has(town) ? town : "", !houseNameNumber && !street && postcode && !has(postcode) ? postcode : ""].filter(Boolean).join(", ")
+      : composeAddress(parts);
     // Blank-ish names ("Mr", "-", "n/a", "?") count as no name: use the first line of the address.
     let name = get(row, "name", " ").replace(/^(mr|mrs|ms|miss|dr)\.?$/i, "").replace(/^[-–?.\s]*$|^(n\/?a|none|unknown|tbc)$/i, "").trim();
     const problems: string[] = [];
@@ -205,6 +217,7 @@ export function applyPlan(grid: string[][], plan: ImportPlan): SmartRow[] {
 
     out.push({
       sheetRow: r + 1,
+      ref: first(row, "customerRef").slice(0, 60),
       name: name.slice(0, 120),
       address: address.slice(0, 300),
       houseNameNumber, street, town, postcode,
@@ -242,7 +255,7 @@ export function wyndosExportPlan(headers: string[]): ImportPlan | null {
   });
   return {
     kind: "customers", headerRow: 0, firstDataRow: 1, columns, dateOrder: "YMD", frequencyMap: [], defaultFrequencyWeeks: 4,
-    paymentMap: [], inactiveValues: ["no"], quoteValues: [], defaultArea: "Imported",
+    paymentMap: [], inactiveValues: ["no"], quoteValues: [], paidValues: [], defaultArea: "Imported",
     summary: "This is a Wyndos customer export, so it's read exactly as Wyndos wrote it.", warnings: [], feedbackOffTopic: false,
   };
 }
@@ -251,4 +264,98 @@ export function wyndosExportPlan(headers: string[]): ImportPlan | null {
 export function looksLikeCleanerPlanner(names: string[]) {
   const base = names.map((n) => (n.split(/[\\/]/).pop() ?? "").toLowerCase());
   return base.includes("jobs.csv") && (base.includes("customers.csv") || base.includes("rounds.csv"));
+}
+
+// ── Job history ─────────────────────────────────────────────────────────────
+
+export type HistoryRow = {
+  sheetRow: number;
+  ref: string;
+  name: string;
+  address: string;
+  postcode: string;
+  /** YYYY-MM-DD */
+  date: string;
+  price: number | null;
+  paid: number | null;
+  paymentMethod: string;
+  notes: string;
+  problems: string[];
+};
+
+/** Turn every row of a job history file into a past clean (and payment) using the plan. */
+export function applyHistoryPlan(grid: string[][], plan: ImportPlan): HistoryRow[] {
+  const out: HistoryRow[] = [];
+  const cell = (row: string[], i: number) => String(row[i] ?? "").trim();
+  const get = (row: string[], f: PlanField, sep: string) => plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep);
+  const first = (row: string[], f: PlanField) => plan.columns[f].map((i) => cell(row, i)).find(Boolean) ?? "";
+  const money = (text: string) => { const t = parsePrice(text); return t && !Number.isNaN(Number(t)) ? Math.max(0, Number(t)) : null; };
+
+  for (let r = Math.max(plan.firstDataRow, plan.headerRow + 1); r < grid.length; r++) {
+    const row = grid[r] ?? [];
+    const filled = row.map((c) => String(c ?? "").trim()).filter(Boolean);
+    if (filled.length === 0) continue;
+    if (/^(total|totals|sub ?total)$/i.test(filled[0])) continue;
+    const postcode = get(row, "postcode", " ").toUpperCase();
+    const address = get(row, "fullAddress", ", ") || composeAddress({
+      houseNameNumber: get(row, "houseNumber", " "), street: get(row, "street", " "), town: get(row, "town", ", "), postcode,
+    });
+    const name = get(row, "name", " ");
+    const ref = first(row, "customerRef");
+    if (!name && !address && !ref) continue;
+    const date = readDate(first(row, "visitDate") || first(row, "lastCleaned"), plan.dateOrder);
+    const price = money(first(row, "price"));
+    let paid = money(first(row, "amountPaid"));
+    const paidText = get(row, "paidStatus", " ").toLowerCase();
+    if (paid === null && paidText && (plan.paidValues.some((v) => paidText === v) || /^(paid|yes|y|true|✓|x)$/.test(paidText))) paid = price;
+    const problems: string[] = [];
+    if (!date) problems.push("No date");
+    out.push({
+      sheetRow: r + 1, ref: ref.slice(0, 60), name: name.slice(0, 120), address: address.slice(0, 300), postcode,
+      date, price, paid: paid && paid > 0 ? paid : null,
+      paymentMethod: first(row, "payment").slice(0, 40),
+      notes: get(row, "notes", " · ").slice(0, 1000),
+      problems,
+    });
+  }
+  return out;
+}
+
+const normText = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+const normPostcode = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+const firstLine = (address: string) => normText(address.split(",")[0] ?? "");
+const postcodeIn = (address: string) => normPostcode(address.match(/[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i)?.[0] ?? "");
+
+export type MatchCandidate<K> = { key: K; name: string; address: string; postcode?: string; ref?: string };
+
+/**
+ * Which customer each history row belongs to: the other program's reference first, then the
+ * first line of the address (checked against the postcode), then the name if only one has it.
+ * null = no safe match.
+ */
+export function matchHistory<K>(rows: HistoryRow[], candidates: Array<MatchCandidate<K>>): Array<K | null> {
+  const byRef = new Map<string, K>();
+  const byLine = new Map<string, Array<MatchCandidate<K>>>();
+  const byName = new Map<string, Array<MatchCandidate<K>>>();
+  for (const c of candidates) {
+    if (c.ref) byRef.set(c.ref.trim().toLowerCase(), c.key);
+    const line = firstLine(c.address);
+    if (line) byLine.set(line, [...(byLine.get(line) ?? []), c]);
+    const n = normText(c.name);
+    if (n) byName.set(n, [...(byName.get(n) ?? []), c]);
+  }
+  return rows.map((h) => {
+    if (h.ref && byRef.has(h.ref.trim().toLowerCase())) return byRef.get(h.ref.trim().toLowerCase())!;
+    const pc = normPostcode(h.postcode) || postcodeIn(h.address);
+    const line = firstLine(h.address);
+    if (line) {
+      let found = byLine.get(line) ?? [];
+      if (pc) found = found.filter((c) => { const cp = normPostcode(c.postcode ?? "") || postcodeIn(c.address); return !cp || cp === pc; });
+      if (found.length > 1 && h.name) found = found.filter((c) => normText(c.name) === normText(h.name));
+      if (found.length === 1) return found[0].key;
+      if (found.length > 1) return null;
+    }
+    const named = h.name ? byName.get(normText(h.name)) ?? [] : [];
+    return named.length === 1 ? named[0].key : null;
+  });
 }

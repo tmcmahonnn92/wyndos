@@ -178,5 +178,7 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - `/customers/import/smart` (owner only). Upload any file → Wyndos export read directly; CleanerPlanner zip → its importer; Wyndos backup → Settings.
 - Anything else: AI sees headings + ~16 sample rows (emails/phones masked) and returns a *plan* (which column is which). Code applies the plan to every row in the browser → preview → `bulkImportCustomers` (skip existing, match name+address).
 - "Not quite" = owner feedback (500 chars, max 4 tries) used only to change the reading plan; off-topic requests are refused and the plan stays the same. 25 AI calls per business per day.
-- "Ask Wyndos to import it" sends the file to support.
+- Several files (or sheets of one workbook) at once, up to 4: each gets its own plan (customers or job history). Customers save first, then quotes, then history, then runs are booked.
+- History rows are matched to customers by the other program's ref (from the customer file in the same upload), then address first line + postcode, then name if unique. Unmatched rows are left out and listed. Cleans already recorded on the same date are skipped.
+- "Ask Wyndos to import it" sends the file(s) to support.
 - Needs `ANTHROPIC_API_KEY` in appEnv. Optional `ANTHROPIC_IMPORT_MODEL` (default `claude-opus-5-5`). Flag: `SMART_IMPORT_ENABLED` in `src/lib/features.ts`.

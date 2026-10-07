@@ -30,7 +30,7 @@ export async function smartImportAvailable() {
   return SMART_IMPORT_ENABLED && Boolean(process.env.ANTHROPIC_API_KEY?.trim());
 }
 
-const SYSTEM = `You work inside Wyndos, an app for UK window cleaners. A business owner is importing their customer list from a file made by another program or by hand. Your only job is to say how to read that file, by calling save_import_plan. You never see the whole file and you never write customer records yourself: ordinary code applies your plan to every row.
+const SYSTEM = `You work inside Wyndos, an app for UK window cleaners. A business owner is importing their customer list (or the history of past cleans and payments) from a file made by another program or by hand. Your only job is to say how to read that file, by calling save_import_plan. You never see the whole file and you never write customer records yourself: ordinary code applies your plan to every row.
 
 What a customer needs: name, address, price per clean, how often they're cleaned (weeks), which round/area they belong to, and optionally phone, email, last cleaned date, next due date, notes, how they usually pay, whether they've stopped (inactive), and the job name if it isn't plain window cleaning.
 
@@ -46,6 +46,8 @@ How to read the file:
 - status: give the values that mean the customer has stopped (e.g. "inactive", "cancelled", "no", "stopped") in inactiveValues, and the values that mean they've only been quoted and aren't a customer yet (e.g. "estimate", "quote", "prospect", "lead") in quoteValues. Leave status empty if there's no such column.
 - dateOrder: DMY for UK dates, MDY only if days above 12 appear in the second position, YMD for 2026-03-14.
 - kind: "customers" for a customer list; "job_history" if each row is a past clean or payment rather than a customer; "not_customers" if it isn't customer data at all.
+- customerRef: the other program's customer number/reference/ID, if there is one (used to link history to customers). Fill it for both kinds of file.
+- For job_history files: fill name and address columns (to find the customer), customerRef, visitDate (the date of the clean or payment), price (what the clean cost), amountPaid (money received), paidStatus (a column saying whether it was paid, if there's no amount) with the values meaning paid in paidValues, payment (how it was paid) and notes. Leave the customer-list fields (frequency, nextDue, area, status) empty.
 - summary: two or three plain sentences for the owner saying what you found (which program it looks like, which columns you used, anything you guessed). No markdown.
 - warnings: short notes about anything odd (e.g. "Some prices are blank", "Column H looks like money owed, not price: not used").
 
@@ -72,12 +74,13 @@ const PLAN_TOOL = {
       paymentMap: { type: "array", items: { type: "object", properties: { text: { type: "string" }, method: { type: "string", enum: [...PAY_METHODS] } }, required: ["text", "method"] } },
       inactiveValues: { type: "array", items: { type: "string" } },
       quoteValues: { type: "array", items: { type: "string" } },
+      paidValues: { type: "array", items: { type: "string" } },
       defaultArea: { type: "string" },
       summary: { type: "string" },
       warnings: { type: "array", items: { type: "string" } },
       feedbackOffTopic: { type: "boolean" },
     },
-    required: ["kind", "headerRow", "firstDataRow", "columns", "dateOrder", "frequencyMap", "defaultFrequencyWeeks", "paymentMap", "inactiveValues", "quoteValues", "defaultArea", "summary", "warnings", "feedbackOffTopic"],
+    required: ["kind", "headerRow", "firstDataRow", "columns", "dateOrder", "frequencyMap", "defaultFrequencyWeeks", "paymentMap", "inactiveValues", "quoteValues", "paidValues", "defaultArea", "summary", "warnings", "feedbackOffTopic"],
   },
 };
 

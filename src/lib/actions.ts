@@ -1393,6 +1393,8 @@ export async function bulkImportCustomers(
   // Towns seen anywhere in the sheet help split "eden house cuckney" into name + town.
   const knownTowns = collectKnownTowns(records.map((r) => r.address ?? ""));
   const importAddress = (r: (typeof records)[number]) => {
+    const merged = mergeLooseAddress(r, knownTowns);
+    if (merged) return merged;
     const hasParts = [r.houseNameNumber, r.street, r.town, r.postcode].some((v) => v && v.trim());
     if (hasParts) {
       const parts: AddressParts = {
@@ -1620,6 +1622,8 @@ export async function deleteAllCustomers(): Promise<{ deleted: number }> {
 export async function bulkImportJobHistory(
   records: Array<{
     customerName: string;
+    /** Already matched (smart import): use this customer instead of looking up the name. */
+    customerId?: number;
     address?: string;
     date: string;           // YYYY-MM-DD
     price?: number;
@@ -1627,12 +1631,13 @@ export async function bulkImportJobHistory(
     paymentMethod?: string;
     notes?: string;
   }>,
-  options: { matchField?: "name" | "nameAddress" } = {}
-): Promise<{ created: number; errors: Array<{ row: number; message: string }> }> {
+  options: { matchField?: "name" | "nameAddress"; skipDuplicates?: boolean } = {}
+): Promise<{ created: number; skipped: number; errors: Array<{ row: number; message: string }> }> {
   const actor = await requireOwner();
   const tenantId = actor.tenantId;
   const errors: Array<{ row: number; message: string }> = [];
-  let created = 0;
+  let created = 0, skipped = 0;
+  const lastCleaned = new Map<number, Date>();
   // Cache "areaId:dateStr" → workDayId so we don't create duplicate work days
   const workDayCache = new Map<string, number>();
 
@@ -1640,14 +1645,20 @@ export async function bulkImportJobHistory(
     const r = records[i];
     try {
       const matchField = options.matchField ?? "name";
-      const customer = await prisma.customer.findFirst({
+      const customer = r.customerId ? await prisma.customer.findFirst({ where: { tenantId, id: Number(r.customerId) } }) : await prisma.customer.findFirst({
         where: matchField === "nameAddress" && r.address?.trim()
           ? { tenantId, name: r.customerName.trim(), address: r.address.trim() }
           : { tenantId, name: r.customerName.trim() },
       });
       if (!customer) throw new Error(`Customer "${r.customerName}" not found`);
 
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date)) throw new Error("No date");
       const workDate = new Date(r.date + "T00:00:00.000Z");
+      // Importing the same history twice shouldn't double up cleans.
+      if (options.skipDuplicates && await prisma.job.findFirst({ where: { tenantId, customerId: customer.id, status: "COMPLETE", isQuote: false, workDay: { date: workDate } }, select: { id: true } })) {
+        skipped++;
+        continue;
+      }
       const cacheKey = `${customer.areaId}:${r.date}`;
 
       let workDayId = workDayCache.get(cacheKey);
@@ -1698,14 +1709,19 @@ export async function bulkImportJobHistory(
       }
 
       created++;
+      if (!lastCleaned.has(customer.id) || workDate > lastCleaned.get(customer.id)!) lastCleaned.set(customer.id, workDate);
     } catch (e) {
       errors.push({ row: i + 1, message: String(e) });
     }
   }
+  // Keep "last cleaned" in step with the newest clean imported (never moves it backwards).
+  for (const [customerId, date] of lastCleaned) {
+    await prisma.customer.updateMany({ where: { tenantId, id: customerId, OR: [{ lastCompletedDate: null }, { lastCompletedDate: { lt: date } }] }, data: { lastCompletedDate: date } });
+  }
 
   revalidatePath("/customers");
   revalidatePath("/days");
-  return { created, errors };
+  return { created, skipped, errors };
 }
 
 /**
@@ -1842,6 +1858,23 @@ async function syncCustomerOpenJobs(
     revalidatePath(`/days/${dayId}`);
   }
   revalidatePath("/days");
+}
+
+/**
+ * Import: a full address line plus only a town and/or postcode column (no house or street).
+ * Keep the whole line, split it into parts, and let the town/postcode columns fill theirs.
+ * (Otherwise the postcode alone would become the address.) null = not this case.
+ */
+function mergeLooseAddress(r: AddressInput, knownTowns: Set<string> = new Set()): ({ address: string } & AddressParts) | null {
+  const line = (r.address ?? "").trim();
+  if (!line || r.houseNameNumber?.trim() || r.street?.trim()) return null;
+  const pc = normalisePostcode(r.postcode ?? "");
+  const town = (r.town ?? "").trim();
+  if (!pc && !town) return null;
+  const has = (bit: string) => line.toLowerCase().replace(/\s+/g, "").includes(bit.toLowerCase().replace(/\s+/g, ""));
+  const full = [line, town && !has(town) ? town : "", pc && !has(pc) ? pc : ""].filter(Boolean).join(", ");
+  const parts = splitAddress(full, knownTowns);
+  return { ...parts, town: town || parts.town, postcode: pc || parts.postcode, address: full };
 }
 
 type AddressInput = {
@@ -2664,7 +2697,7 @@ export async function importQuotes(records: Array<{ name: string; address: strin
   const now = new Date();
   for (const r of list) {
     const name = String(r.name ?? "").trim().slice(0, 120);
-    const fields = resolveAddress({ address: r.address, houseNameNumber: r.houseNameNumber, street: r.street, town: r.town, postcode: r.postcode });
+    const fields = mergeLooseAddress(r) ?? resolveAddress({ address: r.address, houseNameNumber: r.houseNameNumber, street: r.street, town: r.town, postcode: r.postcode });
     if (!name || !fields?.address || seen.has(key(name, fields.address))) { skipped++; continue; }
     seen.add(key(name, fields.address));
     const price = Math.max(0, Number(r.price) || 0);
@@ -2690,6 +2723,16 @@ export async function importQuotes(records: Array<{ name: string; address: strin
   revalidatePath("/quotes");
   revalidatePath("/customers");
   return { created, skipped };
+}
+
+/** Owner, smart import: every customer's name and address, to match job history rows to them. */
+export async function getCustomersForMatching() {
+  const actor = await requireOwner();
+  return prisma.customer.findMany({
+    where: { tenantId: actor.tenantId },
+    select: { id: true, name: true, address: true, postcode: true },
+    take: 20000,
+  });
 }
 
 /** Worker or owner: the quote visit happened and a price was given. */
