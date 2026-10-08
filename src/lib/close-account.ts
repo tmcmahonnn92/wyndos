@@ -59,6 +59,11 @@ export async function closeBusiness(confirmWord: string) {
     await tx.holiday.deleteMany({ where });
     await tx.expense.deleteMany({ where });
     await tx.otherIncome.deleteMany({ where });
+    await tx.mileageTrip.deleteMany({ where });
+    await tx.vehicle.deleteMany({ where });
+    await tx.homeUseMonth.deleteMany({ where });
+    await tx.businessAsset.deleteMany({ where });
+    await tx.mtdQuarterLock.deleteMany({ where });
 
     for (const userId of userIds) {
       const other = await tx.membership.findFirst({ where: { userId, tenantId: { not: tenantId } }, select: { tenantId: true } });

@@ -23,5 +23,5 @@ export default async function AccountingPage({
 
   // After the main loader, which adds any due recurring entries first.
   const monthView = await getAccountingMonth(params.month ?? new Date().toISOString().slice(0, 7));
-  return <AccountingClient {...accounting} initialAction={params.action ?? null} openingFigures={<OpeningFigures {...opening} />} monthView={monthView} />;
+  return <AccountingClient {...accounting} initialAction={params.action ?? null} openingFigures={<OpeningFigures {...opening} />} monthView={monthView} vehicles={accounting.vehicles} />;
 }

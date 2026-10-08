@@ -197,3 +197,11 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - `/accounting/import` (owner): bank/card statement, receipts sheet or template (`public/templates/expense-import-template.csv`, read without AI). AI reads layout + categorises supplier names (merchant keys); rules fallback; preview with per-supplier category changes; transfers/tax/personal left out but can be included; duplicates (date+supplier+amount) skipped.
 - Smart job history: `/customers/import/smart?mode=history`.
 - Every import shows "Not imported" rows with reasons (`src/components/not-imported-list.tsx`), in the preview where known and after saving, with CSV download.
+
+## Making Tax Digital (accounts)
+- `/accounting/mtd` (accounting permission; settings + submit/unlock owner only). Quarters (standard 6 Apr or calendar), per-quarter and cumulative figures per HMRC SE Business API field (+ …Disallowable), consolidated option under £90k, year summary, capital allowances.
+- Calculations: `src/lib/mtd/calc.ts` (pure, tested): cash/accruals turnover, VAT-registered → net figures, business-use % → disallowable, entertainment/depreciation always disallowable, mileage-rate vehicles make their fuel/repairs/tax/insurance disallowable (parking ok), mileage 45p (55p from 2026/27) first 10k then 25p, motorbike 24p, use of home £10/£18/£26, assets (cash basis: equipment/vans expensed, sale = income; accruals: AIA; cars 100%/18%/6% WDA, private use single pool).
+- Data: `Vehicle`, `MileageTrip`, `HomeUseMonth`, `BusinessAsset`, `MtdQuarterLock` (+ Expense.businessPct/vehicleId, TenantSettings.accountingBasis/mtdPeriodType). In backups, account close and clear-all.
+- Submitted quarters block adding/editing/deleting expenses, other income, trips, home hours and assets dated in them; changes from payments show "changed since submitted".
+- Export: Excel for bridging software (About, Cumulative, By quarter, Year end, Transactions, Mileage, Use of home, Assets).
+- Production hides thrown server-action messages (React #441): MTD actions return `{ ok, error }`; accounting forms pre-check `lockedReason`.

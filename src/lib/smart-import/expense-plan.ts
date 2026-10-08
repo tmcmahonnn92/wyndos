@@ -81,7 +81,8 @@ export function merchantKey(text: string) {
 
 /** Everyday suppliers a window cleaner uses, as a fallback when the AI didn't say. */
 const RULES: Array<[RegExp, string]> = [
-  [/\b(shell|bp|esso|texaco|jet|gulf|murco|fuel|petrol|diesel|tesco fuel|asda fuel|sainsburys fuel|morrisons fuel|applegreen|certas|ev charg|pod point|ionity|tfl|congestion|ulez|parking|ringgo|paybyphone|toll|train|trainline)\b/, "FUEL"],
+  [/\b(parking|ringgo|paybyphone|justpark|ncp|toll|dart charge|congestion|ulez|tfl)\b/, "PARKING"],
+  [/\b(shell|bp|esso|texaco|jet|gulf|murco|fuel|petrol|diesel|tesco fuel|asda fuel|sainsburys fuel|morrisons fuel|applegreen|certas|ev charg|pod point|ionity|train|trainline)\b/, "FUEL"],
   [/\b(kwik fit|halfords auto|mot|garage|tyres?|national tyres|ats euromaster|autocentre|car wash)\b/, "VEHICLE_MAINTENANCE"],
   [/\b(dvla|vehicle tax|road tax)\b/, "VEHICLE_COSTS"],
   [/\b(screwfix|toolstation|b&q|wickes|homebase|machine mart|ladder|unger|ettore|pure water|reach & wash|gardiner|window cleaning warehouse|wcw|streamline|clearwater)\b/, "EQUIPMENT"],

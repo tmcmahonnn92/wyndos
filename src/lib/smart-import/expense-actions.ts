@@ -13,6 +13,7 @@ import { callClaudeTool } from "@/lib/claude";
 import { allow } from "@/lib/rate-limit";
 import { SMART_IMPORT_ENABLED } from "@/lib/features";
 import { getExpenseCategory } from "@/lib/accounting";
+import { assertNotLocked } from "@/lib/mtd/data";
 import { cleanExpensePlan, EXPENSE_FIELDS, IMPORT_CATEGORIES, type ExpensePlan } from "@/lib/smart-import/expense-plan";
 
 const MODEL = () => process.env.ANTHROPIC_IMPORT_MODEL?.trim() || "claude-opus-5-5";
@@ -139,6 +140,7 @@ export async function importExpenses(records: Array<{ row: number; date: string;
     const amount = Math.round(Number(r.amount) * 100) / 100;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date))) { notImported.push({ row: r.row, name: supplier, reason: "No date" }); continue; }
     if (!Number.isFinite(amount) || amount <= 0) { notImported.push({ row: r.row, name: supplier, reason: "No amount" }); continue; }
+    try { await assertNotLocked(tenantId, r.date); } catch { notImported.push({ row: r.row, name: supplier, reason: "In a quarter already submitted to HMRC" }); continue; }
     const k = key(r.date, supplier, amount);
     if (seen.has(k)) { notImported.push({ row: r.row, name: supplier, reason: "Already in Wyndos (same date, supplier and amount)" }); continue; }
     seen.add(k);

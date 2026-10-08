@@ -49,6 +49,11 @@ model Tenant {
   workDays  WorkDay[]
   expenses  Expense[]
   otherIncomeEntries OtherIncome[]
+  vehicles  Vehicle[]
+  mileageTrips MileageTrip[]
+  homeUseMonths HomeUseMonth[]
+  businessAssets BusinessAsset[]
+  mtdQuarterLocks MtdQuarterLock[]
   tags      Tag[]
   holidays  Holiday[]
   invites   Invite[]
@@ -96,6 +101,10 @@ model TenantSettings {
   goCardlessAutoCollect     Boolean  @default(false)
   goCardlessAutoCollectFrom DateTime?
   goCardlessLastError       String   @default("")
+  /// Accounts: CASH (money in/out when paid; default for sole traders) or ACCRUALS (income when the clean is done).
+  accountingBasis           String   @default("CASH")
+  /// MTD quarterly periods: STANDARD (6 Apr–5 Jul…) or CALENDAR (1 Apr–30 Jun…).
+  mtdPeriodType             String   @default("STANDARD")
 
   // SMTP
   smtpProvider    String @default("gmail")
@@ -503,6 +512,9 @@ model Expense {
   recurrenceTemplateId Int?
   category        String    @default("OTHER")
   hmrcCategory    String    @default("OTHER")
+  /// Share that's for the business; the rest goes in HMRC's "disallowable" box (e.g. van 80%).
+  businessPct     Int       @default(100)
+  vehicleId       Int?
   supplier        String    @default("")
   amount          Float
   netAmount       Float     @default(0)
@@ -770,4 +782,80 @@ model PayerReference {
 
   @@unique([tenantId, key])
   @@index([tenantId, customerId])
+}
+
+/// A vehicle used in the business (MTD: mileage at flat rates, or actual costs with a private-use split).
+model Vehicle {
+  id             Int       @id @default(autoincrement())
+  tenantId       Int
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name           String
+  registration   String    @default("")
+  /// CAR | VAN | MOTORCYCLE
+  kind           String    @default("VAN")
+  /// MILEAGE (simplified flat rate per mile) | ACTUAL (real costs × business use %)
+  method         String    @default("ACTUAL")
+  businessPct    Int       @default(100)
+  archived       Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  trips          MileageTrip[]
+  @@index([tenantId])
+}
+
+/// Business miles for a vehicle on the mileage method (one line per trip, day or month).
+model MileageTrip {
+  id         Int      @id @default(autoincrement())
+  tenantId   Int
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vehicleId  Int
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  date       DateTime
+  miles      Float
+  notes      String?
+  createdAt  DateTime @default(now())
+  @@index([tenantId, date])
+}
+
+/// Working from home: hours in a month, claimed at HMRC's flat monthly rate.
+model HomeUseMonth {
+  id         Int      @id @default(autoincrement())
+  tenantId   Int
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// First day of the month.
+  month      DateTime
+  hours      Int
+  @@unique([tenantId, month])
+}
+
+/// Something bought to keep (van, ladders, water-fed kit): capital allowances, or an expense on the cash basis.
+model BusinessAsset {
+  id            Int       @id @default(autoincrement())
+  tenantId      Int
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  description   String
+  boughtAt      DateTime
+  cost          Float
+  /// EQUIPMENT | VAN | CAR
+  kind          String    @default("EQUIPMENT")
+  /// Cars only: ZERO (electric) | LOW (≤50g/km CO2) | HIGH (>50g/km)
+  carEmissions  String?
+  businessPct   Int       @default(100)
+  disposedAt    DateTime?
+  disposalValue Float?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  @@index([tenantId])
+}
+
+/// A quarterly update marked as submitted to HMRC: entries in it can't change, and the figures sent are kept.
+model MtdQuarterLock {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  periodStart DateTime
+  periodEnd   DateTime
+  /// The cumulative figures as they were when locked (JSON).
+  snapshot    String
+  lockedAt    DateTime @default(now())
+  @@unique([tenantId, periodStart])
 }

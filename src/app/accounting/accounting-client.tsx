@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Download, Loader2, Pencil, Plus, Receipt, TrendingDown, TrendingUp, Trash2, Upload, Wallet, X } from "lucide-react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Lock } from "lucide-react";
+import { lockedReason } from "@/lib/mtd/actions";
 import { updateOtherIncome, type getAccountingMonth, createExpense, createOtherIncome, deleteExpense, deleteOtherIncome, updateExpense } from "@/lib/actions";
 import type { ExpenseCategoryDefinition, OtherIncomeCategoryDefinition, TaxTreatmentDefinition } from "@/lib/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,6 +43,8 @@ type RecentExpense = {
   repeatEvery?: number | null;
   repeatUnit?: string | null;
   nextScheduledAt?: string | Date | null;
+  businessPct?: number;
+  vehicleId?: number | null;
 };
 
 type RecentPayment = {
@@ -184,6 +187,7 @@ export function AccountingClient({
   exportGeneratedAt,
   initialAction,
   monthView,
+  vehicles = [],
 }: {
   monthlySummaries: MonthlySummary[];
   recentExpenses: RecentExpense[];
@@ -202,6 +206,7 @@ export function AccountingClient({
   initialAction?: string | null;
   openingFigures?: React.ReactNode;
   monthView: MonthViewData;
+  vehicles?: Array<{ id: number; name: string; method: string; businessPct: number }>;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -216,6 +221,8 @@ export function AccountingClient({
   const [editingIncomeId, setEditingIncomeId] = useState<number | null>(null);
   const [dateRange, setDateRange] = useState({ start: activeDateFrom, end: activeDateTo });
   const [expenseForm, setExpenseForm] = useState({
+    businessPct: "100",
+    vehicleId: "",
     category: "",
     supplier: "",
     amount: "",
@@ -330,10 +337,13 @@ export function AccountingClient({
     }
     startTransition(async () => {
       try {
+        { const why = await lockedReason([expenseForm.expenseDate]); if (why) { setFormError(why); return; } }
         await createExpense({
           category: expenseForm.category,
           supplier: expenseForm.supplier,
           amount,
+          businessPct: Number(expenseForm.businessPct) || 0,
+          vehicleId: expenseForm.vehicleId ? Number(expenseForm.vehicleId) : null,
           taxTreatment: expenseForm.taxTreatment,
           expenseDate: new Date(expenseForm.expenseDate),
           notes: expenseForm.notes,
@@ -343,19 +353,7 @@ export function AccountingClient({
           repeatAnchorDate: expenseForm.isRecurring ? new Date(expenseForm.repeatAnchorDate) : null,
           repeatEndsAt: expenseForm.isRecurring && expenseForm.repeatEndsAt ? new Date(expenseForm.repeatEndsAt) : null,
         });
-        setExpenseForm({
-          category: "",
-          supplier: "",
-          amount: "",
-          taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
-          expenseDate: defaultDateString(),
-          notes: "",
-          isRecurring: false,
-          repeatEvery: "1",
-          repeatUnit: "MONTH",
-          repeatAnchorDate: defaultDateString(),
-          repeatEndsAt: "",
-        });
+        setExpenseForm(blankExpense());
         setFormSuccess("Expense saved.");
         setQuickAddOpen(false);
         setEditingExpenseId(null);
@@ -374,6 +372,7 @@ export function AccountingClient({
     }
     startTransition(async () => {
       try {
+        { const why = await lockedReason([incomeForm.receivedAt]); if (why) { setFormError(why); return; } }
         await createOtherIncome({
           category: incomeForm.category,
           source: incomeForm.source,
@@ -414,6 +413,8 @@ export function AccountingClient({
     setDeletingEntryId(`expense-${expenseId}`);
     startTransition(async () => {
       try {
+        const found = [...recentExpenses, ...monthView.expenses].find((e) => e.id === expenseId);
+        if (found) { const why = await lockedReason([new Date(found.expenseDate).toISOString().slice(0, 10)]); if (why) { setFormError(why); return; } }
         await deleteExpense(expenseId);
         router.refresh();
       } catch (error) {
@@ -429,6 +430,8 @@ export function AccountingClient({
     setDeletingEntryId(`income-${incomeId}`);
     startTransition(async () => {
       try {
+        const found = [...recentOtherIncome, ...monthView.otherIncome].find((e) => e.id === incomeId);
+        if (found) { const why = await lockedReason([new Date(found.receivedAt).toISOString().slice(0, 10)]); if (why) { setFormError(why); return; } }
         await deleteOtherIncome(incomeId);
         router.refresh();
       } catch (error) {
@@ -447,6 +450,8 @@ export function AccountingClient({
   const openEditExpense = (expense: RecentExpense) => {
     setEditingExpenseId(expense.id);
     setExpenseForm({
+      businessPct: String(expense.businessPct ?? 100),
+      vehicleId: expense.vehicleId ? String(expense.vehicleId) : "",
       category: expense.category,
       supplier: expense.supplier,
       amount: String(expense.amount),
@@ -476,10 +481,13 @@ export function AccountingClient({
     }
     startTransition(async () => {
       try {
+        { const why = await lockedReason([expenseForm.expenseDate, recentExpenses.find((e) => e.id === editingExpenseId)?.expenseDate ? new Date(recentExpenses.find((e) => e.id === editingExpenseId)!.expenseDate).toISOString().slice(0, 10) : expenseForm.expenseDate]); if (why) { setFormError(why); return; } }
         await updateExpense(editingExpenseId, {
           category: expenseForm.category,
           supplier: expenseForm.supplier,
           amount,
+          businessPct: Number(expenseForm.businessPct) || 0,
+          vehicleId: expenseForm.vehicleId ? Number(expenseForm.vehicleId) : null,
           taxTreatment: expenseForm.taxTreatment,
           expenseDate: new Date(expenseForm.expenseDate),
           notes: expenseForm.notes,
@@ -487,19 +495,7 @@ export function AccountingClient({
         setFormSuccess("Expense updated.");
         setEditingExpenseId(null);
         setQuickAddOpen(false);
-        setExpenseForm({
-          category: "",
-          supplier: "",
-          amount: "",
-          taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
-          expenseDate: defaultDateString(),
-          notes: "",
-          isRecurring: false,
-          repeatEvery: "1",
-          repeatUnit: "MONTH",
-          repeatAnchorDate: defaultDateString(),
-          repeatEndsAt: "",
-        });
+        setExpenseForm(blankExpense());
         router.refresh();
       } catch (error) {
         setFormError(error instanceof Error ? error.message : "Could not update the expense.");
@@ -512,6 +508,7 @@ export function AccountingClient({
     receivedAt: defaultDateString(), notes: "", isRecurring: false, repeatEvery: "1", repeatUnit: "MONTH" as RepeatUnit, repeatAnchorDate: defaultDateString(), repeatEndsAt: "",
   });
   const blankExpense = () => ({
+    businessPct: "100", vehicleId: "",
     category: "", supplier: "", amount: "", taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
     expenseDate: defaultDateString(), notes: "", isRecurring: false, repeatEvery: "1", repeatUnit: "MONTH" as RepeatUnit, repeatAnchorDate: defaultDateString(), repeatEndsAt: "",
   });
@@ -548,6 +545,7 @@ export function AccountingClient({
     if (!Number.isFinite(amount) || amount <= 0) { setFormError("Enter an income amount above zero."); return; }
     startTransition(async () => {
       try {
+        { const why = await lockedReason([incomeForm.receivedAt]); if (why) { setFormError(why); return; } }
         await updateOtherIncome(editingIncomeId, {
           category: incomeForm.category, source: incomeForm.source, amount, taxTreatment: incomeForm.taxTreatment,
           receivedAt: new Date(incomeForm.receivedAt), notes: incomeForm.notes,
@@ -594,6 +592,19 @@ export function AccountingClient({
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-700">Amount (£)</label>
               <input type="number" min="0" step="0.01" value={expenseForm.amount} onChange={(event) => setExpenseForm((prev) => ({ ...prev, amount: event.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-700">Business use %</label>
+              <input type="number" min="0" max="100" step="1" value={expenseForm.businessPct} onChange={(event) => setExpenseForm((prev) => ({ ...prev, businessPct: event.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+              <p className="mt-0.5 text-[11px] text-slate-400">Under 100 if partly personal (e.g. phone 70%).</p>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-700">Vehicle</label>
+              <select value={expenseForm.vehicleId} onChange={(event) => { const v = vehicles.find((x) => String(x.id) === event.target.value); setExpenseForm((prev) => ({ ...prev, vehicleId: event.target.value, businessPct: v && v.method === "ACTUAL" ? String(v.businessPct) : prev.businessPct })); }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <option value="">Not for a vehicle</option>
+                {vehicles.map((v) => <option key={v.id} value={v.id}>{v.name}{v.method === "MILEAGE" ? " (mileage rate)" : ` (${v.businessPct}% business)`}</option>)}
+              </select>
+              {vehicles.find((x) => String(x.id) === expenseForm.vehicleId)?.method === "MILEAGE" && ["FUEL", "VEHICLE_MAINTENANCE", "VEHICLE_COSTS"].includes(expenseForm.category) && <p className="mt-0.5 text-[11px] text-amber-700">This vehicle uses the mileage rate, so this cost isn&apos;t claimed (parking and tolls still are).</p>}
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-xs font-medium text-slate-700">Tax / VAT treatment</label>
@@ -657,6 +668,7 @@ export function AccountingClient({
           <button type="button" onClick={applyDateRange} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Apply range</button>
           <button type="button" onClick={clearDateRange} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Reset range</button>
           <button type="button" onClick={exportMonthlySummary} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><Download size={14} />Export summary CSV</button>
+          <Link href="/accounting/mtd" className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">MTD &amp; tax</Link>
           <Link href="/accounting/import" className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"><Upload size={14} />Import expenses</Link>
           <button type="button" onClick={exportExpenses} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><Receipt size={14} />Export expenses CSV</button>
         </div>

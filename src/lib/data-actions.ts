@@ -77,6 +77,11 @@ export async function clearAllData(confirmWord: string) {
     prisma.holiday.deleteMany({ where: { tenantId } }),
     prisma.expense.deleteMany({ where: { tenantId } }),
     prisma.otherIncome.deleteMany({ where: { tenantId } }),
+    prisma.mileageTrip.deleteMany({ where: { tenantId } }),
+    prisma.vehicle.deleteMany({ where: { tenantId } }),
+    prisma.homeUseMonth.deleteMany({ where: { tenantId } }),
+    prisma.businessAsset.deleteMany({ where: { tenantId } }),
+    prisma.mtdQuarterLock.deleteMany({ where: { tenantId } }),
   ]);
   refreshEverything();
   return { ok: true };

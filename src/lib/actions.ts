@@ -15,6 +15,7 @@ import { addDays, startOfDay } from "date-fns";
 import { requireAuth } from "@/lib/tenant-context";
 import { stampNote } from "@/lib/text-format";
 import { orderDays } from "@/lib/day-order";
+import { assertNotLocked } from "@/lib/mtd/data";
 import {
   getActor,
   requireMember,
@@ -398,6 +399,7 @@ async function createAllocatedPayment(data: {
 }
 
 const round2 = (n: number) => Number(n.toFixed(2));
+const clampPct = (n: unknown) => Math.min(100, Math.max(0, Math.round(Number(n) || 0)));
 
 /**
  * Credit = money paid that isn't on a clean yet (paid extra, or paid in advance).
@@ -4610,6 +4612,8 @@ export async function createExpense(data: {
   category: string;
   supplier?: string;
   amount: number;
+  businessPct?: number;
+  vehicleId?: number | null;
   taxTreatment?: string;
   expenseDate: Date;
   notes?: string;
@@ -4632,6 +4636,8 @@ export async function createExpense(data: {
   if (Number.isNaN(expenseDate.getTime())) {
     throw new Error("Expense date is invalid.");
   }
+  await assertNotLocked(tenantId, expenseDate);
+  const vehicleId = data.vehicleId ? (await prisma.vehicle.findFirst({ where: { id: Number(data.vehicleId), tenantId }, select: { id: true } }))?.id ?? null : null;
 
   const recurringSchedule = normaliseRecurringSchedule({
     isRecurring: data.isRecurring,
@@ -4650,6 +4656,8 @@ export async function createExpense(data: {
       hmrcCategory: category.hmrcCategory,
       supplier: data.supplier?.trim() || "",
       amount,
+      businessPct: clampPct(data.businessPct ?? 100),
+      vehicleId,
       netAmount: taxBreakdown.netAmount,
       vatAmount: taxBreakdown.vatAmount,
       vatRate: taxBreakdown.vatRate,
@@ -4677,6 +4685,8 @@ export async function updateExpense(
     taxTreatment?: string;
     expenseDate?: Date;
     notes?: string;
+    businessPct?: number;
+    vehicleId?: number | null;
   }
 ) {
   const actor = await requirePerm("accounting");
@@ -4685,6 +4695,7 @@ export async function updateExpense(
     where: { id: expenseId, tenantId },
   });
   if (!existing) throw new Error("Expense not found.");
+  await assertNotLocked(tenantId, existing.expenseDate, data.expenseDate ? new Date(data.expenseDate) : null);
 
   const updates: Record<string, unknown> = {};
 
@@ -4695,6 +4706,8 @@ export async function updateExpense(
   }
   if (data.supplier !== undefined) updates.supplier = data.supplier.trim();
   if (data.notes !== undefined) updates.notes = data.notes.trim() || null;
+  if (data.businessPct !== undefined) updates.businessPct = clampPct(data.businessPct);
+  if (data.vehicleId !== undefined) updates.vehicleId = data.vehicleId ? (await prisma.vehicle.findFirst({ where: { id: Number(data.vehicleId), tenantId }, select: { id: true } }))?.id ?? null : null;
 
   if (data.amount !== undefined) {
     const amount = Number(data.amount);
@@ -4828,6 +4841,7 @@ export async function createOtherIncome(data: {
   if (Number.isNaN(receivedAt.getTime())) {
     throw new Error("Income date is invalid.");
   }
+  await assertNotLocked(tenantId, receivedAt);
 
   const recurringSchedule = normaliseRecurringSchedule({
     isRecurring: data.isRecurring,
@@ -4868,6 +4882,7 @@ export async function updateOtherIncome(otherIncomeId: number, data: { category?
   const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
   const existing = await requireTenantOtherIncome(tenantId, otherIncomeId);
+  await assertNotLocked(tenantId, existing.receivedAt, data.receivedAt ? new Date(data.receivedAt) : null);
   const updates: Record<string, unknown> = {};
   if (data.category !== undefined) updates.category = getOtherIncomeCategory(data.category).value;
   if (data.source !== undefined) updates.source = data.source.trim();
@@ -4937,6 +4952,7 @@ export async function deleteExpense(expenseId: number) {
   const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
   const expense = await requireTenantExpense(tenantId, expenseId);
+  await assertNotLocked(tenantId, expense.expenseDate);
   await prisma.expense.delete({ where: { id: expense.id } });
   revalidatePath("/accounting");
 }
@@ -4945,6 +4961,7 @@ export async function deleteOtherIncome(otherIncomeId: number) {
   const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
   const income = await requireTenantOtherIncome(tenantId, otherIncomeId);
+  await assertNotLocked(tenantId, income.receivedAt);
   await prisma.otherIncome.delete({ where: { id: income.id } });
   revalidatePath("/accounting");
 }
@@ -5082,6 +5099,7 @@ export async function getAccountingPage(options?: {
       return { value: yearStart, label: getTaxYearLabel(yearStart) };
     }),
     expenseCategories: EXPENSE_CATEGORIES,
+    vehicles: (await prisma.vehicle.findMany({ where: { tenantId, archived: false }, select: { id: true, name: true, method: true, businessPct: true }, orderBy: { name: "asc" } })),
     otherIncomeCategories: OTHER_INCOME_CATEGORIES,
     taxTreatmentOptions: TAX_TREATMENT_OPTIONS,
     exportGeneratedAt: new Date().toISOString(),

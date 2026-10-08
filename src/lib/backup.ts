@@ -42,12 +42,18 @@ export type BackupFile = {
     payerReferences?: Row[];
     paymentImports?: Row[];
     importedLines?: Row[];
+    /** Added Oct 2026 (Making Tax Digital accounts); older backups don't have them. */
+    vehicles?: Row[];
+    mileageTrips?: Row[];
+    homeUseMonths?: Row[];
+    businessAssets?: Row[];
+    mtdQuarterLocks?: Row[];
   };
 };
 
 export async function buildBackup(tenantId: number): Promise<BackupFile> {
   const where = { tenantId };
-  const [tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines] =
+  const [tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks] =
     await Promise.all([
       prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
       prisma.tenantSettings.findUnique({ where }),
@@ -67,8 +73,13 @@ export async function buildBackup(tenantId: number): Promise<BackupFile> {
       prisma.payerReference.findMany({ where, orderBy: { id: "asc" } }),
       prisma.paymentImport.findMany({ where, orderBy: { id: "asc" } }),
       prisma.importedLine.findMany({ where, orderBy: { id: "asc" } }),
+      prisma.vehicle.findMany({ where, orderBy: { id: "asc" } }),
+      prisma.mileageTrip.findMany({ where, orderBy: { id: "asc" } }),
+      prisma.homeUseMonth.findMany({ where, orderBy: { id: "asc" } }),
+      prisma.businessAsset.findMany({ where, orderBy: { id: "asc" } }),
+      prisma.mtdQuarterLock.findMany({ where, orderBy: { id: "asc" } }),
     ]);
-  const data = { tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines };
+  const data = { tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks };
   return {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
@@ -126,9 +137,14 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
   const payerReferences = rows(d.payerReferences ?? []);
   const paymentImports = rows(d.paymentImports ?? []);
   const importedLines = rows(d.importedLines ?? []);
+  const vehicles = rows(d.vehicles ?? []);
+  const mileageTrips = rows(d.mileageTrips ?? []);
+  const homeUseMonths = rows(d.homeUseMonths ?? []);
+  const businessAssets = rows(d.businessAssets ?? []);
+  const mtdQuarterLocks = rows(d.mtdQuarterLocks ?? []);
 
   // Every row must belong to this business (defends against an edited file).
-  for (const list of [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines]) {
+  for (const list of [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks]) {
     if (list.some((r) => r.tenantId !== tenantId)) throw new Error("The backup file has been changed and can't be used.");
   }
 
@@ -146,6 +162,8 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
   const areaIds = idsOf(areas), tagIds = idsOf(tags), customerIds = idsOf(customers), workDayIds = idsOf(workDays);
   const jobIds = idsOf(jobs), paymentIds = idsOf(payments), handoverIds = idsOf(cashHandovers), importIds = idsOf(paymentImports);
   idsOf(allocations); idsOf(expenses); idsOf(otherIncome); idsOf(holidays); idsOf(messageLogs); idsOf(payerReferences); idsOf(importedLines);
+  const vehicleIds = idsOf(vehicles);
+  idsOf(mileageTrips); idsOf(homeUseMonths); idsOf(businessAssets); idsOf(mtdQuarterLocks);
   const must = (v: unknown, set: Set<number>) => { if (typeof v !== "number" || !set.has(v)) throw bad(); };
   const mayBe = (v: unknown, set: Set<number>) => { if (v != null) must(v, set); };
   const orNull = (v: unknown, set: Set<number>) => (typeof v === "number" && set.has(v) ? v : null);
@@ -167,7 +185,8 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
   }
   const expenseIds = new Set(expenses.map((e) => e.id as number));
   const incomeIds = new Set(otherIncome.map((e) => e.id as number));
-  for (const e of expenses) e.recurrenceTemplateId = orNull(e.recurrenceTemplateId, expenseIds);
+  for (const e of expenses) { e.recurrenceTemplateId = orNull(e.recurrenceTemplateId, expenseIds); e.vehicleId = orNull(e.vehicleId, vehicleIds); }
+  for (const t of mileageTrips) must(t.vehicleId, vehicleIds);
   for (const e of otherIncome) e.recurrenceTemplateId = orNull(e.recurrenceTemplateId, incomeIds);
 
   // Ids can only be ones this database has already handed out, so a file can't claim
@@ -181,8 +200,11 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
     prisma.messageLog.aggregate({ _max: { id: true } }), prisma.cashHandover.aggregate({ _max: { id: true } }),
     prisma.payerReference.aggregate({ _max: { id: true } }), prisma.paymentImport.aggregate({ _max: { id: true } }),
     prisma.importedLine.aggregate({ _max: { id: true } }),
+    prisma.vehicle.aggregate({ _max: { id: true } }), prisma.mileageTrip.aggregate({ _max: { id: true } }),
+    prisma.homeUseMonth.aggregate({ _max: { id: true } }), prisma.businessAsset.aggregate({ _max: { id: true } }),
+    prisma.mtdQuarterLock.aggregate({ _max: { id: true } }),
   ]);
-  const lists = [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines];
+  const lists = [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks];
   lists.forEach((list, i) => {
     const max = maxIds[i]._max.id ?? 0;
     if (list.some((r) => (r.id as number) > max)) throw bad();
@@ -237,6 +259,11 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
     await tx.holiday.deleteMany({ where });
     await tx.expense.deleteMany({ where });
     await tx.otherIncome.deleteMany({ where });
+    await tx.mileageTrip.deleteMany({ where });
+    await tx.vehicle.deleteMany({ where });
+    await tx.homeUseMonth.deleteMany({ where });
+    await tx.businessAsset.deleteMany({ where });
+    await tx.mtdQuarterLock.deleteMany({ where });
 
     // Put the backup back, parents first, with the original ids.
     /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -252,6 +279,11 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
     if (paymentImports.length) await tx.paymentImport.createMany({ data: paymentImports as any });
     if (importedLines.length) await tx.importedLine.createMany({ data: importedLines as any });
     if (payerReferences.length) await tx.payerReference.createMany({ data: payerReferences as any });
+    if (vehicles.length) await tx.vehicle.createMany({ data: vehicles as any });
+    if (mileageTrips.length) await tx.mileageTrip.createMany({ data: mileageTrips as any });
+    if (homeUseMonths.length) await tx.homeUseMonth.createMany({ data: homeUseMonths as any });
+    if (businessAssets.length) await tx.businessAsset.createMany({ data: businessAssets as any });
+    if (mtdQuarterLocks.length) await tx.mtdQuarterLock.createMany({ data: mtdQuarterLocks as any });
     if (expenses.length) await tx.expense.createMany({ data: expenses as any });
     if (otherIncome.length) await tx.otherIncome.createMany({ data: otherIncome as any });
     if (holidays.length) await tx.holiday.createMany({ data: holidays as any });
