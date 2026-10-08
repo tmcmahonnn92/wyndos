@@ -1,4 +1,4 @@
-import { getAccountingPage, getOpeningFigures } from "@/lib/actions";
+import { getAccountingMonth, getAccountingPage, getOpeningFigures } from "@/lib/actions";
 import { requirePermission } from "@/lib/tenant-context";
 import { AccountingClient } from "./accounting-client";
 import { OpeningFigures } from "./opening-figures";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function AccountingPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ taxYear?: string; start?: string; end?: string; action?: string }>;
+  searchParams?: Promise<{ taxYear?: string; start?: string; end?: string; action?: string; month?: string }>;
 }) {
   await requirePermission("accounting");
   const params = (await searchParams) ?? {};
@@ -21,5 +21,7 @@ export default async function AccountingPage({
     dateTo: parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : null,
   }), getOpeningFigures()]);
 
-  return <AccountingClient {...accounting} initialAction={params.action ?? null} openingFigures={<OpeningFigures {...opening} />} />;
+  // After the main loader, which adds any due recurring entries first.
+  const monthView = await getAccountingMonth(params.month ?? new Date().toISOString().slice(0, 7));
+  return <AccountingClient {...accounting} initialAction={params.action ?? null} openingFigures={<OpeningFigures {...opening} />} monthView={monthView} />;
 }
