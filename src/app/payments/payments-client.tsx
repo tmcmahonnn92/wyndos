@@ -97,6 +97,13 @@ export function PaymentsToolbar({
         <RefreshCw size={14} className={cn(isSyncing && "animate-spin")} />
         {isSyncing ? "Syncing..." : "Sync GoCardless"}
       </button>}
+      {GOCARDLESS_ENABLED && goCardlessConfigured && <Link
+        href="/payments/direct-debit"
+        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+        title="Collect by Direct Debit through GoCardless"
+      >
+        Direct Debit
+      </Link>}
       <Link
         href="/payments/import"
         className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"

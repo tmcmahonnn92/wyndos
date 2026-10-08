@@ -182,3 +182,12 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - History rows are matched to customers by the other program's ref (from the customer file in the same upload), then address first line + postcode, then name if unique. Unmatched rows are left out and listed. Cleans already recorded on the same date are skipped.
 - "Ask Wyndos to import it" sends the file(s) to support.
 - Needs `ANTHROPIC_API_KEY` in appEnv. Optional `ANTHROPIC_IMPORT_MODEL` (default `claude-opus-5-5`). Flag: `SMART_IMPORT_ENABLED` in `src/lib/features.ts`.
+
+## GoCardless (Direct Debit)
+- Pasted read-write access token (Settings → Business), no webhooks: sync every 15 min via `/api/cron/gocardless` (CRON_SECRET) or "Sync now".
+- `src/lib/gocardless/core.ts` (server only, takes tenantId), `actions.ts` (owner-only wrappers). Page: `/payments/direct-debit`.
+- One GoCardless payment per completed clean (Job.goCardlessPaymentId/Status), Idempotency-Key `wyndos-t{tenant}-job{id}-{previous id|first}`.
+- Received → Payment (BACS, "Direct Debit (GoCardless)") allocated to the clean. Failed/cancelled → clean owes again. Charged back → payment voided.
+- Sign-up links = billing request + flow; fulfilled request links the mandate on next sync. Public return page `/direct-debit-done`.
+- Auto-collect only for cleans completed after it was switched on; failed ones are never auto-retried.
+- On only with `NEXT_PUBLIC_GOCARDLESS_ENABLED=1` at build. Testing steps: `deploy/GOCARDLESS-TESTING.md`. `GOCARDLESS_API_BASE` overrides the API host (tests).
