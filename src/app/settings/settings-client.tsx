@@ -10,6 +10,8 @@ import {
   Users, UserX, Link2, RefreshCw, KeyRound, Database } from "lucide-react";
 import { updateBusinessSettings, createTag, deleteTag } from "@/lib/actions";
 import { runPaymentRemindersNow } from "@/lib/text-actions";
+import Link from "next/link";
+import { testGoCardless } from "@/lib/gocardless/actions";
 import { DataTab, type DataCounts } from "./data-tab";
 import { AccountTab } from "./account-tab";
 import { UserRound } from "lucide-react";
@@ -680,10 +682,17 @@ export function SettingsClient({
           </Card>
 
           {GOCARDLESS_ENABLED && <Card>
-            <CardHeader><CardTitle><Link2 size={16} className="inline mr-2 text-blue-600" />GoCardless</CardTitle></CardHeader>
+            <CardHeader><CardTitle><Link2 size={16} className="inline mr-2 text-blue-600" />GoCardless (Direct Debit)</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                Store one GoCardless access token per Wyndos account, then sync confirmed payments into the Payments page. Matching works best when each customer has a saved GoCardless reference or mandate ID in their customer profile.
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 space-y-1">
+                <p className="font-semibold">Connect your GoCardless account</p>
+                <ol className="list-decimal space-y-0.5 pl-4">
+                  <li>In GoCardless, go to <b>Developers → Create → Access token</b>.</li>
+                  <li>Give it a name (e.g. Wyndos) and choose <b>Read-write access</b>.</li>
+                  <li>Copy the token, paste it below and press <b>Save</b>.</li>
+                  <li>Press <b>Test connection</b>. Then link your customers on <b>Payments → Direct Debit</b>.</li>
+                </ol>
+                <p>The token is stored encrypted. You can delete it in GoCardless at any time to disconnect Wyndos.</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -724,10 +733,7 @@ export function SettingsClient({
                   {settings.goCardlessAccessTokenConfigured ? "A token is already stored. Leave this blank to keep the current token." : "Use a GoCardless access token for the relevant live or sandbox account."}
                 </p>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
-                <p>To link payments reliably, set the same customer reference in both systems, or save the customer&apos;s GoCardless mandate ID in Wyndos.</p>
-                <p>Last sync: {settings.goCardlessLastSyncedAt ? new Date(settings.goCardlessLastSyncedAt).toLocaleString("en-GB") : "Never"}</p>
-              </div>
+              <GoCardlessTest configured={settings.goCardlessAccessTokenConfigured} lastSyncedAt={settings.goCardlessLastSyncedAt} />
             </CardContent>
           </Card>}
         </div>
@@ -1571,6 +1577,30 @@ export function SettingsClient({
           </Card>
         </div>
       )}
+    </div>
+  );
+}
+
+function GoCardlessTest({ configured, lastSyncedAt }: { configured: boolean; lastSyncedAt: string | null }) {
+  const [state, setState] = useState<{ busy: boolean; ok?: string; error?: string }>({ busy: false });
+  const test = async () => {
+    setState({ busy: true });
+    const res = await testGoCardless().catch(() => ({ ok: false as const, error: "Couldn't reach Wyndos." }));
+    setState(res.ok ? { busy: false, ok: res.name } : { busy: false, error: res.error });
+  };
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={test} disabled={!configured || state.busy}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50">
+          {state.busy ? "Testing…" : "Test connection"}
+        </button>
+        {configured && <Link href="/payments/direct-debit" className="font-semibold text-blue-700 hover:underline">Direct Debit →</Link>}
+        {!configured && <span>Save a token first.</span>}
+      </div>
+      {state.ok && <p className="text-green-700">Connected to <b>{state.ok}</b>.</p>}
+      {state.error && <p className="text-red-700">{state.error}</p>}
+      <p>Last sync: {lastSyncedAt ? new Date(lastSyncedAt).toLocaleString("en-GB") : "Never"}</p>
     </div>
   );
 }

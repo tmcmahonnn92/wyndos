@@ -1393,6 +1393,8 @@ export async function bulkImportCustomers(
   // Towns seen anywhere in the sheet help split "eden house cuckney" into name + town.
   const knownTowns = collectKnownTowns(records.map((r) => r.address ?? ""));
   const importAddress = (r: (typeof records)[number]) => {
+    const merged = mergeLooseAddress(r, knownTowns);
+    if (merged) return merged;
     const hasParts = [r.houseNameNumber, r.street, r.town, r.postcode].some((v) => v && v.trim());
     if (hasParts) {
       const parts: AddressParts = {
@@ -1620,6 +1622,8 @@ export async function deleteAllCustomers(): Promise<{ deleted: number }> {
 export async function bulkImportJobHistory(
   records: Array<{
     customerName: string;
+    /** Already matched (smart import): use this customer instead of looking up the name. */
+    customerId?: number;
     address?: string;
     date: string;           // YYYY-MM-DD
     price?: number;
@@ -1627,12 +1631,13 @@ export async function bulkImportJobHistory(
     paymentMethod?: string;
     notes?: string;
   }>,
-  options: { matchField?: "name" | "nameAddress" } = {}
-): Promise<{ created: number; errors: Array<{ row: number; message: string }> }> {
+  options: { matchField?: "name" | "nameAddress"; skipDuplicates?: boolean } = {}
+): Promise<{ created: number; skipped: number; errors: Array<{ row: number; message: string }> }> {
   const actor = await requireOwner();
   const tenantId = actor.tenantId;
   const errors: Array<{ row: number; message: string }> = [];
-  let created = 0;
+  let created = 0, skipped = 0;
+  const lastCleaned = new Map<number, Date>();
   // Cache "areaId:dateStr" → workDayId so we don't create duplicate work days
   const workDayCache = new Map<string, number>();
 
@@ -1640,14 +1645,20 @@ export async function bulkImportJobHistory(
     const r = records[i];
     try {
       const matchField = options.matchField ?? "name";
-      const customer = await prisma.customer.findFirst({
+      const customer = r.customerId ? await prisma.customer.findFirst({ where: { tenantId, id: Number(r.customerId) } }) : await prisma.customer.findFirst({
         where: matchField === "nameAddress" && r.address?.trim()
           ? { tenantId, name: r.customerName.trim(), address: r.address.trim() }
           : { tenantId, name: r.customerName.trim() },
       });
       if (!customer) throw new Error(`Customer "${r.customerName}" not found`);
 
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date)) throw new Error("No date");
       const workDate = new Date(r.date + "T00:00:00.000Z");
+      // Importing the same history twice shouldn't double up cleans.
+      if (options.skipDuplicates && await prisma.job.findFirst({ where: { tenantId, customerId: customer.id, status: "COMPLETE", isQuote: false, workDay: { date: workDate } }, select: { id: true } })) {
+        skipped++;
+        continue;
+      }
       const cacheKey = `${customer.areaId}:${r.date}`;
 
       let workDayId = workDayCache.get(cacheKey);
@@ -1698,14 +1709,19 @@ export async function bulkImportJobHistory(
       }
 
       created++;
+      if (!lastCleaned.has(customer.id) || workDate > lastCleaned.get(customer.id)!) lastCleaned.set(customer.id, workDate);
     } catch (e) {
       errors.push({ row: i + 1, message: String(e) });
     }
   }
+  // Keep "last cleaned" in step with the newest clean imported (never moves it backwards).
+  for (const [customerId, date] of lastCleaned) {
+    await prisma.customer.updateMany({ where: { tenantId, id: customerId, OR: [{ lastCompletedDate: null }, { lastCompletedDate: { lt: date } }] }, data: { lastCompletedDate: date } });
+  }
 
   revalidatePath("/customers");
   revalidatePath("/days");
-  return { created, errors };
+  return { created, skipped, errors };
 }
 
 /**
@@ -1842,6 +1858,23 @@ async function syncCustomerOpenJobs(
     revalidatePath(`/days/${dayId}`);
   }
   revalidatePath("/days");
+}
+
+/**
+ * Import: a full address line plus only a town and/or postcode column (no house or street).
+ * Keep the whole line, split it into parts, and let the town/postcode columns fill theirs.
+ * (Otherwise the postcode alone would become the address.) null = not this case.
+ */
+function mergeLooseAddress(r: AddressInput, knownTowns: Set<string> = new Set()): ({ address: string } & AddressParts) | null {
+  const line = (r.address ?? "").trim();
+  if (!line || r.houseNameNumber?.trim() || r.street?.trim()) return null;
+  const pc = normalisePostcode(r.postcode ?? "");
+  const town = (r.town ?? "").trim();
+  if (!pc && !town) return null;
+  const has = (bit: string) => line.toLowerCase().replace(/\s+/g, "").includes(bit.toLowerCase().replace(/\s+/g, ""));
+  const full = [line, town && !has(town) ? town : "", pc && !has(pc) ? pc : ""].filter(Boolean).join(", ");
+  const parts = splitAddress(full, knownTowns);
+  return { ...parts, town: town || parts.town, postcode: pc || parts.postcode, address: full };
 }
 
 type AddressInput = {
@@ -2664,7 +2697,7 @@ export async function importQuotes(records: Array<{ name: string; address: strin
   const now = new Date();
   for (const r of list) {
     const name = String(r.name ?? "").trim().slice(0, 120);
-    const fields = resolveAddress({ address: r.address, houseNameNumber: r.houseNameNumber, street: r.street, town: r.town, postcode: r.postcode });
+    const fields = mergeLooseAddress(r) ?? resolveAddress({ address: r.address, houseNameNumber: r.houseNameNumber, street: r.street, town: r.town, postcode: r.postcode });
     if (!name || !fields?.address || seen.has(key(name, fields.address))) { skipped++; continue; }
     seen.add(key(name, fields.address));
     const price = Math.max(0, Number(r.price) || 0);
@@ -2690,6 +2723,16 @@ export async function importQuotes(records: Array<{ name: string; address: strin
   revalidatePath("/quotes");
   revalidatePath("/customers");
   return { created, skipped };
+}
+
+/** Owner, smart import: every customer's name and address, to match job history rows to them. */
+export async function getCustomersForMatching() {
+  const actor = await requireOwner();
+  return prisma.customer.findMany({
+    where: { tenantId: actor.tenantId },
+    select: { id: true, name: true, address: true, postcode: true },
+    take: 20000,
+  });
 }
 
 /** Worker or owner: the quote visit happened and a price was given. */
@@ -3854,350 +3897,19 @@ export async function recordPayment(data: {
   revalidatePath(`/customers/${data.customerId}`);
 }
 
-type GoCardlessPaymentRecord = {
-  id: string;
-  amount: number | string;
-  currency?: string | null;
-  status?: string | null;
-  reference?: string | null;
-  description?: string | null;
-  created_at?: string | null;
-  charge_date?: string | null;
-  metadata?: Record<string, string | null | undefined>;
-  links?: { mandate?: string | null };
-};
-
-type GoCardlessMandateRecord = {
-  id: string;
-  reference?: string | null;
-  metadata?: Record<string, string | null | undefined>;
-  links?: { customer?: string | null };
-};
-
-type GoCardlessPaymentsPage = {
-  payments?: GoCardlessPaymentRecord[];
-  meta?: { cursors?: { after?: string | null } };
-};
-
-async function fetchGoCardlessJson<T>(
-  baseUrl: string,
-  accessToken: string,
-  path: string,
-  searchParams?: URLSearchParams
-): Promise<T> {
-  const url = new URL(path, baseUrl);
-  if (searchParams) {
-    for (const [key, value] of searchParams.entries()) {
-      url.searchParams.set(key, value);
-    }
-  }
-
-  const response = await fetch(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "GoCardless-Version": "2015-07-06",
-      Accept: "application/json",
-    },
-    cache: "no-store",
-  });
-
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const apiMessage =
-      (json as { error?: { message?: string }; errors?: Array<{ message?: string }> }).error?.message ||
-      (json as { errors?: Array<{ message?: string }> }).errors?.[0]?.message;
-    throw new Error(apiMessage || `GoCardless request failed (${response.status})`);
-  }
-
-  return json as T;
-}
-
-function buildUniqueCustomerIndex<T extends { id: number }>(
-  rows: T[],
-  getKey: (row: T) => string
-) {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    const key = getKey(row);
-    if (!key) continue;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-
-  const unique = new Map<string, T>();
-  for (const row of rows) {
-    const key = getKey(row);
-    if (!key) continue;
-    if (counts.get(key) === 1) {
-      unique.set(key, row);
-    }
-  }
-
-  return unique;
-}
-
-function extractGoCardlessReference(
-  payment: GoCardlessPaymentRecord,
-  mandate?: GoCardlessMandateRecord | null
-) {
-  return [
-    payment.reference,
-    payment.description,
-    payment.metadata?.wyndosCustomerRef,
-    payment.metadata?.customerReference,
-    payment.metadata?.customer_reference,
-    mandate?.reference,
-    mandate?.metadata?.wyndosCustomerRef,
-    mandate?.metadata?.customerReference,
-    mandate?.metadata?.customer_reference,
-  ].find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
-}
-
+/** Payments page "Sync GoCardless" button: statuses, money received, auto-collect. */
 export async function syncGoCardlessPayments() {
   const actor = await requireOwner();
-  const tenantId = actor.tenantId;
-
-  const settings = await loadBusinessSettings(tenantId);
-  const accessToken = settings.goCardlessAccessToken.trim();
-  if (!accessToken) {
-    throw new Error("Add your GoCardless access token in Settings before syncing payments.");
-  }
-
-  const baseUrl = settings.goCardlessEnvironment === "sandbox"
-    ? "https://api-sandbox.gocardless.com"
-    : "https://api.gocardless.com";
-
-  const [customers, existingGoCardlessPayments] = await Promise.all([
-    prisma.customer.findMany({
-      where: { tenantId },
-      select: {
-        id: true,
-        name: true,
-        goCardlessCustomerReference: true,
-        goCardlessCustomerId: true,
-        goCardlessMandateId: true,
-        jobs: {
-          where: { status: { in: ["COMPLETE", "OUTSTANDING"] } },
-          select: {
-            id: true,
-            price: true,
-            workDay: { select: { date: true } },
-            allocations: {
-              where: { payment: { voidedAt: null } },
-              select: { amount: true },
-            },
-          },
-          orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
-        },
-      },
-    }),
-    prisma.payment.findMany({
-      where: { tenantId, goCardlessPaymentId: { not: null } },
-      select: { goCardlessPaymentId: true },
-    }),
-  ]);
-
-  const customerById = new Map(customers.map((customer) => [customer.id, customer]));
-  const customerByReference = buildUniqueCustomerIndex(
-    customers,
-    (customer) => normaliseGoCardlessReference(customer.goCardlessCustomerReference)
-  );
-  const customerByGoCardlessCustomerId = buildUniqueCustomerIndex(
-    customers,
-    (customer) => customer.goCardlessCustomerId?.trim() ?? ""
-  );
-  const customerByMandateId = buildUniqueCustomerIndex(
-    customers,
-    (customer) => customer.goCardlessMandateId?.trim() ?? ""
-  );
-  const seenPaymentIds = new Set(
-    existingGoCardlessPayments
-      .map((payment) => payment.goCardlessPaymentId)
-      .filter((paymentId): paymentId is string => Boolean(paymentId))
-  );
-
-  const scannedPayments: GoCardlessPaymentRecord[] = [];
-  let afterCursor: string | null = null;
-  for (let page = 0; page < 3; page++) {
-    const params = new URLSearchParams({ limit: "100" });
-    if (afterCursor) {
-      params.set("after", afterCursor);
-    }
-
-    const payload: GoCardlessPaymentsPage = await fetchGoCardlessJson<GoCardlessPaymentsPage>(
-      baseUrl,
-      accessToken,
-      "/payments",
-      params
-    );
-
-    const pagePayments = payload.payments ?? [];
-    scannedPayments.push(...pagePayments);
-
-    afterCursor = payload.meta?.cursors?.after ?? null;
-    if (!afterCursor || pagePayments.length === 0) break;
-  }
-
-  const mandateIds = Array.from(
-    new Set(
-      scannedPayments
-        .map((payment) => payment.links?.mandate?.trim())
-        .filter((mandateId): mandateId is string => Boolean(mandateId))
-    )
-  );
-  const mandateEntries = await Promise.all(
-    mandateIds.map(async (mandateId) => {
-      try {
-        const payload = await fetchGoCardlessJson<{ mandates?: GoCardlessMandateRecord; mandate?: GoCardlessMandateRecord }>(
-          baseUrl,
-          accessToken,
-          `/mandates/${mandateId}`
-        );
-        return [mandateId, payload.mandates ?? payload.mandate ?? null] as const;
-      } catch {
-        return [mandateId, null] as const;
-      }
-    })
-  );
-  const mandateMap = new Map(mandateEntries);
-
-  const receivedStatuses = new Set(["confirmed", "paid_out"]);
-  const unmatched: Array<{ paymentId: string; reason: string; customerName?: string | null }> = [];
-  const matchedCustomerIds = new Set<number>();
-  let importedCount = 0;
-  let skippedCount = 0;
-
-  for (const payment of scannedPayments) {
-    if (!payment.id) {
-      skippedCount++;
-      continue;
-    }
-    if (seenPaymentIds.has(payment.id)) {
-      skippedCount++;
-      continue;
-    }
-
-    const status = payment.status?.trim().toLowerCase() ?? "";
-    if (!receivedStatuses.has(status)) {
-      skippedCount++;
-      continue;
-    }
-
-    const amount = minorUnitsToCurrency(payment.amount);
-    if (amount <= 0) {
-      skippedCount++;
-      continue;
-    }
-
-    const mandate = payment.links?.mandate ? mandateMap.get(payment.links.mandate) ?? null : null;
-    const metadata = payment.metadata ?? {};
-
-    const localCustomerId =
-      parseWyndosCustomerId(metadata.wyndosCustomerId) ??
-      parseWyndosCustomerId(metadata.customerId) ??
-      parseWyndosCustomerId(metadata.customer_id);
-
-    let customer = localCustomerId ? customerById.get(localCustomerId) ?? null : null;
-
-    if (!customer && payment.links?.mandate) {
-      customer = customerByMandateId.get(payment.links.mandate.trim()) ?? null;
-    }
-
-    if (!customer && mandate?.links?.customer) {
-      customer = customerByGoCardlessCustomerId.get(mandate.links.customer.trim()) ?? null;
-    }
-
-    if (!customer) {
-      const referenceCandidates = [
-        extractGoCardlessReference(payment, mandate),
-        metadata.wyndosCustomerRef ?? null,
-        metadata.customerReference ?? null,
-        metadata.customer_reference ?? null,
-      ];
-
-      for (const candidate of referenceCandidates) {
-        const normalised = normaliseGoCardlessReference(candidate ?? undefined);
-        if (!normalised) continue;
-        const byReference = customerByReference.get(normalised);
-        if (byReference) {
-          customer = byReference;
-          break;
-        }
-      }
-    }
-
-    if (!customer) {
-      unmatched.push({ paymentId: payment.id, reason: "No Wyndos customer matched the GoCardless payment or mandate reference." });
-      continue;
-    }
-
-    const unpaidJobs = customer.jobs
-      .map((job) => {
-        const paid = job.allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
-        const due = Number(Math.max(0, job.price - paid).toFixed(2));
-        return { id: job.id, due };
-      })
-      .filter((job) => job.due > 0.005);
-
-    let remaining = amount;
-    const allocations: Array<{ jobId: number; amount: number }> = [];
-    for (const job of unpaidJobs) {
-      if (remaining <= 0.005) break;
-      const allocationAmount = Number(Math.min(job.due, remaining).toFixed(2));
-      if (allocationAmount <= 0.005) continue;
-      allocations.push({ jobId: job.id, amount: allocationAmount });
-      remaining = Number((remaining - allocationAmount).toFixed(2));
-    }
-
-    if (allocations.length === 0) {
-      unmatched.push({ paymentId: payment.id, customerName: customer.name, reason: "Matched customer has no unpaid jobs to allocate this payment against." });
-      continue;
-    }
-
-    if (remaining > 0.01) {
-      unmatched.push({ paymentId: payment.id, customerName: customer.name, reason: `Payment exceeds the matched customer's outstanding balance by £${remaining.toFixed(2)}.` });
-      continue;
-    }
-
-    await createAllocatedPayment({
-      tenantId,
-      customerId: customer.id,
-      allocations,
-      method: "BACS",
-      notes: `Imported from GoCardless${extractGoCardlessReference(payment, mandate) ? ` · ${extractGoCardlessReference(payment, mandate)}` : ""}`,
-      paidAt: payment.charge_date
-        ? new Date(`${payment.charge_date}T00:00:00.000Z`)
-        : payment.created_at
-          ? new Date(payment.created_at)
-          : new Date(),
-      goCardlessPaymentId: payment.id,
-      goCardlessStatus: payment.status ?? undefined,
-      goCardlessReference: extractGoCardlessReference(payment, mandate) ?? undefined,
-    });
-
-    seenPaymentIds.add(payment.id);
-    matchedCustomerIds.add(customer.id);
-    importedCount++;
-  }
-
-  await prisma.tenantSettings.update({
-    where: { tenantId },
-    data: { goCardlessLastSyncedAt: new Date() },
-  });
-
-  if (importedCount > 0) {
-    revalidatePath("/payments");
-    revalidatePath("/customers");
-    for (const customerId of matchedCustomerIds) {
-      revalidatePath(`/customers/${customerId}`);
-    }
-  }
+  const { syncTenant } = await import("@/lib/gocardless/core");
+  const res = await syncTenant(actor.tenantId);
+  revalidatePath("/payments");
+  revalidatePath("/customers");
   revalidatePath("/settings");
-
   return {
-    scannedCount: scannedPayments.length,
-    importedCount,
-    skippedCount,
-    unmatched: unmatched.slice(0, 12),
+    scannedCount: res.received + res.imported + res.failed,
+    importedCount: res.received + res.imported,
+    skippedCount: 0,
+    unmatched: res.problems.slice(0, 12).map((reason) => ({ paymentId: "", reason })),
   };
 }
 

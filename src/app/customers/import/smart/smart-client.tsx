@@ -2,42 +2,52 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, LifeBuoy, Loader2, RotateCcw, Sparkles, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, History, LifeBuoy, Loader2, RotateCcw, Sparkles, Upload, Users } from "lucide-react";
 import { unzipSync, strFromU8, gunzipSync } from "fflate";
 import { parseCSVText } from "@/lib/import-parsing";
-import { applyPlan, looksLikeCleanerPlanner, wyndosExportPlan, PLAN_FIELDS, type ImportPlan, type PlanField, type SmartRow } from "@/lib/smart-import/plan";
+import {
+  applyHistoryPlan, applyPlan, looksLikeCleanerPlanner, matchHistory, wyndosExportPlan, PLAN_FIELDS,
+  type HistoryRow, type ImportPlan, type MatchCandidate, type PlanField, type SmartRow,
+} from "@/lib/smart-import/plan";
 import { aiImportPlan, type PlanRequest } from "@/lib/smart-import/actions";
-import { bookAreaRunsAfterImport, bulkImportCustomers, importQuotes } from "@/lib/actions";
+import { bookAreaRunsAfterImport, bulkImportCustomers, bulkImportJobHistory, getCustomersForMatching, importQuotes } from "@/lib/actions";
 import { cn, fmtCurrency } from "@/lib/utils";
 
 type AreaOption = { id: number; name: string; frequencyWeeks: number };
+type ExistingCustomer = { id: number; name: string; address: string; postcode: string };
 type Stage = "upload" | "reading" | "preview" | "importing" | "done" | "elsewhere";
+/** One file, or one sheet of a workbook: read with its own plan. */
+type Part = { id: number; label: string; grid: string[][]; plan: ImportPlan; source: "wyndos" | "ai"; attempt: number; offTopic: boolean };
+type Result = { created: number; skipped: number; errors: number; areas: string[]; quotes: number; visits: number; visitsSkipped: number; unmatched: number };
 
 const COLOURS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#06B6D4", "#84CC16", "#A855F7", "#6366F1"];
-const MAX_ROWS = 5000;
+const MAX_ROWS = 20000;
+const MAX_PARTS = 4;
 const FIELD_LABELS: Record<PlanField, string> = {
   name: "Name", fullAddress: "Address", houseNumber: "House", street: "Street", town: "Town", postcode: "Postcode",
   phone: "Phone", email: "Email", price: "Price", frequency: "How often", lastCleaned: "Last cleaned", nextDue: "Next due",
-  notes: "Notes", payment: "Usually pays", area: "Area", status: "Active?", jobName: "Job",
+  notes: "Notes", payment: "Pays", area: "Area", status: "Active?", jobName: "Job",
+  customerRef: "Customer ref", visitDate: "Date", amountPaid: "Paid", paidStatus: "Paid?",
 };
+const nonEmpty = (g: string[][]) => g.filter((r) => r.some((c) => String(c).trim())).length;
+const fmtDate = (iso: string) => (iso ? new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : "—");
+/** Name + first line of the address: how a saved customer is found again (Wyndos may add the town/postcode). */
+const custKey = (name: string, address: string) => [name, address.split(",")[0] ?? ""].map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, "")).join("|");
 
-/** Every cell as text, first sheet with data (xlsx/xls/ods/csv). */
-async function readGrid(name: string, data: ArrayBuffer): Promise<string[][]> {
+/** Every sheet with data in a file, each as a grid of text. */
+async function readSheets(name: string, data: ArrayBuffer): Promise<Array<{ label: string; grid: string[][] }>> {
   const lower = name.toLowerCase();
   if (lower.endsWith(".csv") || lower.endsWith(".txt") || lower.endsWith(".tsv")) {
     let text = new TextDecoder().decode(data);
     if (lower.endsWith(".tsv") || (!text.includes(",") && text.includes("\t"))) text = text.split("\n").map((l) => l.split("\t").map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
-    return parseCSVText(text);
+    return [{ label: name, grid: parseCSVText(text) }];
   }
   const XLSX = await import("xlsx");
   const book = XLSX.read(data, { type: "array", cellDates: true });
-  let best: string[][] = [];
-  for (const sheetName of book.SheetNames) {
-    const grid = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[sheetName], { header: 1, raw: false, defval: "", dateNF: "dd/mm/yyyy" })
-      .map((row) => row.map((c) => String(c ?? "")));
-    if (grid.filter((r) => r.some((c) => c.trim())).length > best.filter((r) => r.some((c) => c.trim())).length) best = grid;
-  }
-  return best;
+  return book.SheetNames.map((sheetName) => ({
+    label: book.SheetNames.length > 1 ? `${name} · ${sheetName}` : name,
+    grid: XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[sheetName], { header: 1, raw: false, defval: "", dateNF: "dd/mm/yyyy" }).map((row) => row.map((c) => String(c ?? ""))),
+  })).filter((s) => nonEmpty(s.grid) >= 2);
 }
 
 /** What goes to the AI: the top of the file, a few rows further down, and short value lists. */
@@ -60,30 +70,29 @@ function sampleFor(fileName: string, grid: string[][]): Omit<PlanRequest, "feedb
   return { fileName, rows: [...top, ...later], columnCount, rowCount: grid.length, shortValues };
 }
 
-export function SmartImport({ available, areas }: { available: boolean; areas: AreaOption[] }) {
+export function SmartImport({ available, areas, customers }: { available: boolean; areas: AreaOption[]; customers: ExistingCustomer[] }) {
   const [stage, setStage] = useState<Stage>("upload");
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [grid, setGrid] = useState<string[][]>([]);
-  const [plan, setPlan] = useState<ImportPlan | null>(null);
-  const [source, setSource] = useState<"wyndos" | "ai">("ai");
-  const [attempt, setAttempt] = useState(0);
+  const [files, setFiles] = useState<File[]>([]);
+  const [parts, setParts] = useState<Part[]>([]);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackPart, setFeedbackPart] = useState(0);
   const [feedback, setFeedback] = useState("");
-  const [offTopic, setOffTopic] = useState(false);
   const [elsewhere, setElsewhere] = useState<{ title: string; text: string; href?: string; link?: string } | null>(null);
   const [problemsOnly, setProblemsOnly] = useState(false);
+  const [unmatchedOnly, setUnmatchedOnly] = useState(false);
   const [bookRuns, setBookRuns] = useState(true);
-  const [result, setResult] = useState<{ created: number; skipped: number; errors: number; areas: string[]; quotes: number } | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpText, setHelpText] = useState("");
   const [helpSent, setHelpSent] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const rows: SmartRow[] = useMemo(() => (plan && plan.kind === "customers" ? applyPlan(grid, plan) : []), [grid, plan]);
+  // ── Customers ──
+  const rows: SmartRow[] = useMemo(() => parts.flatMap((p) => (p.plan.kind === "customers" ? applyPlan(p.grid, p.plan) : [])), [parts]);
   const custRows = useMemo(() => rows.filter((r) => !r.quote), [rows]);
   const quoteRows = useMemo(() => rows.filter((r) => r.quote), [rows]);
-  const headings = plan && plan.headerRow >= 0 ? grid[plan.headerRow] ?? [] : [];
   const areaSummary = useMemo(() => {
     const map = new Map<string, { name: string; count: number; value: number; existing: AreaOption | undefined }>();
     for (const r of custRows) {
@@ -99,158 +108,214 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
   const inactive = custRows.filter((r) => !r.active).length;
   const shown = (problemsOnly ? withProblems : rows).slice(0, 60);
 
+  // ── Job history: matched against customers already in Wyndos and the ones in this upload ──
+  const visits: HistoryRow[] = useMemo(() => parts.flatMap((p) => (p.plan.kind === "job_history" ? applyHistoryPlan(p.grid, p.plan) : [])), [parts]);
+  const visitMatch = useMemo(() => {
+    if (visits.length === 0) return [] as Array<string | null>;
+    // Someone in the upload who's already in Wyndos counts once (as the existing customer, with the upload's ref).
+    const newByKey = new Map(rows.map((r, i) => [custKey(r.name, r.address), i]));
+    const oldKeys = new Set(customers.map((c) => custKey(c.name, c.address)));
+    const candidates: Array<MatchCandidate<string>> = [
+      ...customers.map((c) => ({ key: `old:${c.id}`, name: c.name, address: c.address, postcode: c.postcode, ref: rows[newByKey.get(custKey(c.name, c.address)) ?? -1]?.ref })),
+      ...rows.flatMap((r, i) => (oldKeys.has(custKey(r.name, r.address)) ? [] : [{ key: `new:${i}`, name: r.name, address: r.address, postcode: r.postcode, ref: r.ref }])),
+    ];
+    return matchHistory(visits, candidates);
+  }, [visits, rows, customers]);
+  const matchedName = (key: string | null) => {
+    if (!key) return "";
+    const [kind, id] = key.split(":");
+    return kind === "old" ? customers.find((c) => c.id === Number(id))?.name ?? "" : `${rows[Number(id)]?.name ?? ""} (new)`;
+  };
+  const unmatched = visits.filter((_, i) => !visitMatch[i]);
+  const usableVisits = visits.filter((v, i) => visitMatch[i] && v.date);
+  const visitDates = usableVisits.map((v) => v.date).sort();
+  const visitIdx = visits.map((_, i) => i).filter((i) => !unmatchedOnly || !visitMatch[i]).slice(0, 60);
+
+  const anyCustomers = rows.length > 0;
+  const anyHistory = visits.length > 0;
+  const nothingToImport = !anyCustomers && usableVisits.length === 0;
+  const maxAttempt = Math.max(0, ...parts.map((p) => p.attempt));
+
   const reset = () => {
-    setStage("upload"); setError(null); setFile(null); setGrid([]); setPlan(null); setAttempt(0);
-    setFeedbackOpen(false); setFeedback(""); setOffTopic(false); setElsewhere(null); setResult(null);
-    setHelpOpen(false); setHelpText(""); setHelpSent(false);
+    setStage("upload"); setError(null); setFiles([]); setParts([]); setProgress("");
+    setFeedbackOpen(false); setFeedback(""); setFeedbackPart(0); setElsewhere(null); setResult(null);
+    setHelpOpen(false); setHelpText(""); setHelpSent(false); setProblemsOnly(false); setUnmatchedOnly(false);
   };
 
-  const askAi = async (g: string[][], f: File, previous: ImportPlan | null, said: string, n: number) => {
-    setBusy(true);
-    setError(null);
-    const res = await aiImportPlan({ ...sampleFor(f.name, g), feedback: said || undefined, previousPlan: previous ?? undefined, attempt: n })
+  const readWithAi = async (label: string, grid: string[][], previous?: ImportPlan, said?: string, n = 1) => {
+    const res = await aiImportPlan({ ...sampleFor(label, grid), feedback: said || undefined, previousPlan: previous, attempt: n })
       .catch(() => ({ ok: false as const, error: "Couldn't reach Wyndos. Check your connection and try again." }));
-    setBusy(false);
-    if (!res.ok) { setError(res.error); if (!previous) setStage("upload"); return; }
-    setOffTopic(res.plan.feedbackOffTopic);
-    setPlan(res.plan);
-    setSource("ai");
-    setAttempt(n);
-    setFeedbackOpen(false);
-    setFeedback("");
-    setStage("preview");
+    return res;
   };
 
-  const onFile = async (f: File) => {
+  const onFiles = async (list: File[]) => {
     reset();
-    setFile(f);
+    const picked = list.slice(0, MAX_PARTS);
+    setFiles(picked);
     setStage("reading");
     try {
-      const lower = f.name.toLowerCase();
-      const data = await f.arrayBuffer();
-      if (f.size > 15 * 1024 * 1024) throw new Error("That file is very big. Ask us to import it for you.");
-      let name = f.name;
-      let content: ArrayBuffer = data;
-      if (lower.endsWith(".zip")) {
-        const entries = unzipSync(new Uint8Array(data));
-        const names = Object.keys(entries);
-        if (looksLikeCleanerPlanner(names)) {
-          setElsewhere({ title: "This is a CleanerPlanner backup", text: "CleanerPlanner backups have their own importer, which brings across rounds, due dates and balances too.", href: "/customers/import/cleanerplanner", link: "Use the CleanerPlanner import" });
-          setStage("elsewhere");
-          return;
+      const sheets: Array<{ label: string; grid: string[][] }> = [];
+      for (const f of picked) {
+        const lower = f.name.toLowerCase();
+        if (f.size > 15 * 1024 * 1024) throw new Error(`${f.name} is very big. Ask us to import it for you.`);
+        const data = await f.arrayBuffer();
+        if (lower.endsWith(".zip")) {
+          const entries = unzipSync(new Uint8Array(data));
+          const names = Object.keys(entries);
+          if (looksLikeCleanerPlanner(names)) {
+            setElsewhere({ title: "This is a CleanerPlanner backup", text: "CleanerPlanner backups have their own importer, which brings across rounds, due dates, history and balances.", href: "/customers/import/cleanerplanner", link: "Use the CleanerPlanner import" });
+            setStage("elsewhere");
+            return;
+          }
+          const inside = names.filter((n) => /\.(csv|xlsx|xls|ods|txt)$/i.test(n) && !n.startsWith("__MACOSX"));
+          if (inside.length === 0) throw new Error(`There's no spreadsheet in ${f.name}.`);
+          for (const n of inside) sheets.push(...await readSheets(n.split("/").pop() ?? n, entries[n].slice().buffer));
+        } else if (lower.endsWith(".gz") || lower.endsWith(".json")) {
+          const text = lower.endsWith(".gz") ? strFromU8(gunzipSync(new Uint8Array(data))) : new TextDecoder().decode(data);
+          if (text.includes('"wyndos-backup"')) {
+            setElsewhere({ title: "This is a Wyndos backup", text: "Backups are put back from Settings → Data, which restores everything exactly as it was.", href: "/settings", link: "Go to Settings" });
+            setStage("elsewhere");
+            return;
+          }
+          throw new Error(`${f.name} can't be read here. Use spreadsheets (.xlsx, .xls, .csv), or ask us to import it.`);
+        } else {
+          sheets.push(...await readSheets(f.name, data));
         }
-        const sheet = names.find((n) => /\.(csv|xlsx|xls|ods|txt)$/i.test(n) && !n.startsWith("__MACOSX"));
-        if (!sheet) throw new Error("There's no spreadsheet in that zip file.");
-        name = sheet;
-        content = entries[sheet].slice().buffer;
-      } else if (lower.endsWith(".gz") || lower.endsWith(".json")) {
-        const text = lower.endsWith(".gz") ? strFromU8(gunzipSync(new Uint8Array(data))) : new TextDecoder().decode(data);
-        if (text.includes('"wyndos-backup"')) {
-          setElsewhere({ title: "This is a Wyndos backup", text: "Backups are put back from Settings → Data, which restores everything exactly as it was.", href: "/settings", link: "Go to Settings" });
-          setStage("elsewhere");
-          return;
-        }
-        throw new Error("That file type can't be read here. Use a spreadsheet (.xlsx, .xls, .csv), or ask us to import it.");
       }
-      const g = (await readGrid(name, content)).slice(0, MAX_ROWS + 50);
-      if (g.filter((r) => r.some((c) => String(c).trim())).length < 2) throw new Error("That file looks empty.");
-      setGrid(g);
-      // Our own export: read it exactly, no AI needed.
-      const own = wyndosExportPlan(g[0] ?? []);
-      if (own) { setPlan(own); setSource("wyndos"); setStage("preview"); return; }
-      if (!available) throw new Error("Smart import isn't available right now. Use the normal import, or ask us to import it for you.");
-      await askAi(g, f, null, "", 1);
+      const usable = sheets.filter((s) => nonEmpty(s.grid) >= 2).slice(0, MAX_PARTS);
+      if (usable.length === 0) throw new Error("That file looks empty.");
+      const made: Part[] = [];
+      for (const [i, s] of usable.entries()) {
+        const grid = s.grid.slice(0, MAX_ROWS + 50);
+        // Our own export: read it exactly, no AI needed.
+        const own = wyndosExportPlan(grid[0] ?? []);
+        if (own) { made.push({ id: i, label: s.label, grid, plan: own, source: "wyndos", attempt: 0, offTopic: false }); continue; }
+        if (!available) throw new Error("Smart import isn't available right now. Use the normal import, or ask us to import it for you.");
+        setProgress(usable.length > 1 ? `Reading ${s.label} (${i + 1} of ${usable.length})…` : "");
+        const res = await readWithAi(s.label, grid);
+        if (!res.ok) throw new Error(res.error);
+        made.push({ id: i, label: s.label, grid, plan: res.plan, source: "ai", attempt: 1, offTopic: false });
+      }
+      setParts(made);
+      setStage("preview");
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : "That file couldn't be read.");
       setStage("upload");
     }
   };
 
+  const retry = async () => {
+    const part = parts[feedbackPart];
+    if (!part) return;
+    setBusy(true);
+    setError(null);
+    const res = await readWithAi(part.label, part.grid, part.plan, feedback, part.attempt + 1);
+    setBusy(false);
+    if (!res.ok) { setError(res.error); return; }
+    setParts((all) => all.map((p, i) => (i === feedbackPart ? { ...p, plan: res.plan, source: "ai", attempt: p.attempt + 1, offTopic: res.plan.feedbackOffTopic } : p)));
+    setFeedbackOpen(false);
+    setFeedback("");
+  };
+
   const doImport = async () => {
-    if (!plan) return;
     setStage("importing");
     setError(null);
+    const r: Result = { created: 0, skipped: 0, errors: 0, areas: [], quotes: 0, visits: 0, visitsSkipped: 0, unmatched: unmatched.length };
     const freqOf = new Map<string, number>();
     for (const a of areaSummary) {
       const counts = new Map<number, number>();
-      for (const r of custRows) if (r.area.toLowerCase() === a.name.toLowerCase() && r.frequencyWeeks) counts.set(r.frequencyWeeks, (counts.get(r.frequencyWeeks) ?? 0) + 1);
-      freqOf.set(a.name.toLowerCase(), [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? plan.defaultFrequencyWeeks);
+      for (const c of custRows) if (c.area.toLowerCase() === a.name.toLowerCase() && c.frequencyWeeks) counts.set(c.frequencyWeeks, (counts.get(c.frequencyWeeks) ?? 0) + 1);
+      freqOf.set(a.name.toLowerCase(), [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? 4);
     }
-    let created = 0, skipped = 0, errors = 0, quotes = 0;
     const areasMade = new Set<string>();
     const datedAreas = new Set<number>();
     try {
+      // 1. Customers
       for (let i = 0; i < custRows.length; i += 400) {
-        const chunk = custRows.slice(i, i + 400);
-        const res = await bulkImportCustomers(chunk.map((r) => {
-          const existing = areas.find((a) => a.name.toLowerCase() === r.area.toLowerCase());
-          const newIndex = areaSummary.findIndex((a) => a.name.toLowerCase() === r.area.toLowerCase());
+        setProgress(`Adding customers… ${Math.min(i + 400, custRows.length)} of ${custRows.length}`);
+        const res = await bulkImportCustomers(custRows.slice(i, i + 400).map((c) => {
+          const existing = areas.find((a) => a.name.toLowerCase() === c.area.toLowerCase());
+          const newIndex = areaSummary.findIndex((a) => a.name.toLowerCase() === c.area.toLowerCase());
           return {
-            name: r.name,
-            address: r.address,
-            houseNameNumber: r.houseNameNumber || undefined,
-            street: r.street || undefined,
-            town: r.town || undefined,
-            postcode: r.postcode || undefined,
-            price: r.price ?? 0,
+            name: c.name, address: c.address,
+            houseNameNumber: c.houseNameNumber || undefined, street: c.street || undefined, town: c.town || undefined, postcode: c.postcode || undefined,
+            price: c.price ?? 0,
             areaId: existing?.id,
-            areaName: existing ? undefined : r.area,
+            areaName: existing ? undefined : c.area,
             areaColor: existing ? undefined : COLOURS[(areas.length + newIndex) % COLOURS.length],
-            areaFrequencyWeeks: existing ? undefined : freqOf.get(r.area.toLowerCase()),
-            email: r.email || undefined,
-            phone: r.phone || undefined,
-            notes: r.notes || undefined,
-            jobName: r.jobName || undefined,
-            preferredPaymentMethod: r.preferredPaymentMethod || undefined,
-            nextDueDate: r.nextDueDate || undefined,
-            lastCompletedDate: r.lastCompletedDate || undefined,
-            frequencyWeeks: r.frequencyWeeks ?? undefined,
-            active: r.active,
+            areaFrequencyWeeks: existing ? undefined : freqOf.get(c.area.toLowerCase()),
+            email: c.email || undefined, phone: c.phone || undefined, notes: c.notes || undefined, jobName: c.jobName || undefined,
+            preferredPaymentMethod: c.preferredPaymentMethod || undefined,
+            nextDueDate: c.nextDueDate || undefined, lastCompletedDate: c.lastCompletedDate || undefined,
+            frequencyWeeks: c.frequencyWeeks ?? undefined,
+            active: c.active,
           };
         }), { createMissingAreas: true, existingMode: "skip", matchField: "nameAddress", bookRuns: false });
-        res.datedAreaIds.forEach((id) => datedAreas.add(id));
-        created += res.created;
-        skipped += res.skipped;
-        errors += res.errors.length;
+        r.created += res.created;
+        r.skipped += res.skipped;
+        r.errors += res.errors.length;
         res.areasCreated.forEach((a) => areasMade.add(a));
+        res.datedAreaIds.forEach((id) => datedAreas.add(id));
       }
-      // Book runs once every batch is in, so each round's date comes from all its customers.
-      if (bookRuns && datedAreas.size) await bookAreaRunsAfterImport([...datedAreas]);
+      // 2. Quotes
       for (let i = 0; i < quoteRows.length; i += 400) {
-        const res = await importQuotes(quoteRows.slice(i, i + 400).map((r) => ({
-          name: r.name, address: r.address, houseNameNumber: r.houseNameNumber || undefined, street: r.street || undefined,
-          town: r.town || undefined, postcode: r.postcode || undefined, phone: r.phone || undefined, email: r.email || undefined,
-          notes: r.notes || undefined, price: r.price ?? 0, frequencyWeeks: r.frequencyWeeks ?? undefined,
-          preferredPaymentMethod: r.preferredPaymentMethod || undefined,
+        const res = await importQuotes(quoteRows.slice(i, i + 400).map((q) => ({
+          name: q.name, address: q.address, houseNameNumber: q.houseNameNumber || undefined, street: q.street || undefined,
+          town: q.town || undefined, postcode: q.postcode || undefined, phone: q.phone || undefined, email: q.email || undefined,
+          notes: q.notes || undefined, price: q.price ?? 0, frequencyWeeks: q.frequencyWeeks ?? undefined,
+          preferredPaymentMethod: q.preferredPaymentMethod || undefined,
         })));
-        quotes += res.created;
-        skipped += res.skipped;
+        r.quotes += res.created;
+        r.skipped += res.skipped;
       }
-      setResult({ created, skipped, errors, areas: [...areasMade], quotes });
-      setStage("done");
+      // 3. History, matched again against everyone now in Wyndos (refs come from this upload's customers).
+      if (usableVisits.length > 0) {
+        setProgress("Matching history to customers…");
+        const fresh = await getCustomersForMatching();
+        const refOf = new Map(rows.filter((c) => c.ref).map((c) => [custKey(c.name, c.address), c.ref]));
+        const keys = matchHistory(visits, fresh.map((c) => ({ key: c.id, name: c.name, address: c.address, postcode: c.postcode, ref: refOf.get(custKey(c.name, c.address)) })));
+        const toSave = visits.flatMap((v, i) => (keys[i] && v.date ? [{ v, customerId: keys[i]! }] : []));
+        r.unmatched = visits.length - toSave.length;
+        for (let i = 0; i < toSave.length; i += 400) {
+          setProgress(`Adding history… ${Math.min(i + 400, toSave.length)} of ${toSave.length}`);
+          const res = await bulkImportJobHistory(toSave.slice(i, i + 400).map(({ v, customerId }) => ({
+            customerName: v.name, customerId, date: v.date, price: v.price ?? undefined, paid: v.paid ?? undefined,
+            paymentMethod: v.paymentMethod || undefined, notes: v.notes || undefined,
+          })), { skipDuplicates: true });
+          r.visits += res.created;
+          r.visitsSkipped += res.skipped;
+          r.errors += res.errors.length;
+        }
+      }
+      // 4. Book each round's next run once everything is in.
+      if (bookRuns && datedAreas.size) {
+        setProgress("Booking runs…");
+        await bookAreaRunsAfterImport([...datedAreas]);
+      }
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : "The import stopped part way. Check Customers before trying again.");
-      setResult({ created, skipped, errors, areas: [...areasMade], quotes });
-      setStage("done");
     }
+    r.areas = [...areasMade];
+    setResult(r);
+    setProgress("");
+    setStage("done");
   };
 
   const sendForHelp = async () => {
-    if (!file) return;
+    if (files.length === 0) return;
     setBusy(true);
     setError(null);
     const form = new FormData();
     form.set("kind", "I have a question");
     form.set("section", "Importing customers");
-    form.set("subject", `Please import my customers: ${file.name}`.slice(0, 150));
+    form.set("subject", `Please import my data: ${files.map((f) => f.name).join(", ")}`.slice(0, 150));
     form.set("message", [
-      helpText.trim() || "Smart import couldn't get this file right. Please import it for me.",
-      plan?.summary ? `\nWhat smart import thought: ${plan.summary}` : "",
-      `\nRows in file: ${grid.length}`,
+      helpText.trim() || "Smart import couldn't get this right. Please import it for me.",
+      ...parts.map((p) => `\n${p.label}: ${p.plan.kind}, ${p.grid.length} rows. ${p.plan.summary}`),
     ].join("\n"));
     form.set("page", "/customers/import/smart");
-    form.append("files", file);
-    const res = await fetch("/api/support", { method: "POST", body: form }).then((r) => r.json()).catch(() => ({ ok: false, error: "Couldn't send it. Check your connection." }));
+    for (const f of files) form.append("files", f);
+    const res = await fetch("/api/support", { method: "POST", body: form }).then((x) => x.json()).catch(() => ({ ok: false, error: "Couldn't send it. Check your connection." }));
     setBusy(false);
     if (res.ok) setHelpSent(true);
     else setError(res.error || "Couldn't send it.");
@@ -269,17 +334,19 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
         )}
         <label className={cn("flex cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-6 py-12 text-center hover:border-blue-400 hover:bg-blue-50/40", stage === "reading" && "pointer-events-none opacity-70")}>
           {stage === "reading" ? <Loader2 size={28} className="animate-spin text-blue-600" /> : <Upload size={28} className="text-blue-600" />}
-          <span className="text-base font-semibold text-slate-800">{stage === "reading" ? "Reading your file…" : "Choose your customer file"}</span>
+          <span className="text-base font-semibold text-slate-800">{stage === "reading" ? "Reading your files…" : "Choose your files"}</span>
           <span className="text-sm text-slate-500">
-            {stage === "reading" ? "Working out which columns are which. This takes a few seconds." : "Excel, CSV, a Wyndos export, or a CleanerPlanner backup (.zip). Any layout."}
+            {stage === "reading"
+              ? progress || "Working out which columns are which. This takes a few seconds."
+              : "Customer list, job history, or both (pick several files at once). Excel, CSV, Wyndos exports, CleanerPlanner backups. Any layout."}
           </span>
-          <input type="file" className="hidden" accept=".csv,.txt,.tsv,.xlsx,.xls,.ods,.zip,.json,.gz"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) void onFile(f); e.target.value = ""; }} />
+          <input type="file" multiple className="hidden" accept=".csv,.txt,.tsv,.xlsx,.xls,.ods,.zip,.json,.gz"
+            onChange={(e) => { const list = Array.from(e.target.files ?? []); if (list.length) void onFiles(list); e.target.value = ""; }} />
         </label>
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
         <p className="text-xs text-slate-400">
-          To work out the layout, the headings and a few sample rows are read by AI (emails and phone numbers partly hidden).
-          The whole file is never sent.
+          To work out the layout, the headings and a few sample rows of each file are read by AI (emails and phone numbers partly hidden).
+          The whole file is never sent. History is matched to customers by reference, address or name.
         </p>
       </div>
     );
@@ -301,12 +368,16 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
   if (stage === "done" && result) {
     return (
       <div className="space-y-3 rounded-2xl border border-green-200 bg-white p-5">
-        <p className="flex items-center gap-2 text-base font-semibold text-green-700"><CheckCircle2 size={18} /> {result.created} customer{result.created === 1 ? "" : "s"} added</p>
+        <p className="flex items-center gap-2 text-base font-semibold text-green-700"><CheckCircle2 size={18} /> Import finished</p>
         <ul className="list-disc space-y-1 pl-5 text-sm text-slate-600">
+          {(result.created > 0 || anyCustomers) && <li>{result.created} customer{result.created === 1 ? "" : "s"} added</li>}
           {result.quotes > 0 && <li>{result.quotes} quote{result.quotes === 1 ? "" : "s"} added, waiting for an answer (see Quotes)</li>}
           {result.areas.length > 0 && <li>New areas: {result.areas.join(", ")}</li>}
           {result.skipped > 0 && <li>{result.skipped} already in Wyndos, left as they were</li>}
-          {result.errors > 0 && <li>{result.errors} couldn&apos;t be added</li>}
+          {(result.visits > 0 || anyHistory) && <li>{result.visits} past clean{result.visits === 1 ? "" : "s"} added to history</li>}
+          {result.visitsSkipped > 0 && <li>{result.visitsSkipped} cleans were already in Wyndos, not added twice</li>}
+          {result.unmatched > 0 && <li>{result.unmatched} history row{result.unmatched === 1 ? "" : "s"} didn&apos;t match a customer and were left out</li>}
+          {result.errors > 0 && <li>{result.errors} row{result.errors === 1 ? "" : "s"} couldn&apos;t be added</li>}
         </ul>
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
         <div className="flex flex-wrap gap-2">
@@ -317,52 +388,52 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
     );
   }
 
-  if (!plan) return null;
-  const notCustomers = plan.kind !== "customers";
-  const used = PLAN_FIELDS.filter((f) => plan.columns[f].length > 0);
+  if (parts.length === 0) return null;
 
   return (
     <div className="space-y-4">
-      {/* What we understood */}
-      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-        <p className="flex items-center gap-2 text-sm font-semibold text-blue-900">
-          <Sparkles size={15} /> {source === "wyndos" ? "Wyndos export" : "Here's how we read"} <span className="font-normal text-blue-700">{file?.name}</span>
-        </p>
-        {plan.summary && <p className="mt-1 text-sm text-blue-900">{plan.summary}</p>}
-        {offTopic && (
-          <p className="mt-2 rounded-lg bg-white px-3 py-2 text-xs text-amber-800">
-            That box is only for fixing how your file is read (which column is which, how to read dates or prices), so nothing changed.
-          </p>
-        )}
-        {plan.warnings.length > 0 && (
-          <ul className="mt-2 space-y-0.5 text-xs text-amber-800">
-            {plan.warnings.map((w, i) => <li key={i} className="flex gap-1"><AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />{w}</li>)}
-          </ul>
-        )}
-        {used.length > 0 && headings.length > 0 && (
-          <p className="mt-2 text-[11px] text-blue-800">
-            {used.map((f) => `${FIELD_LABELS[f]} ← ${plan.columns[f].map((c) => headings[c]?.trim() || `column ${c + 1}`).join(" + ")}`).join(" · ")}
-          </p>
-        )}
-      </div>
+      {/* What we understood, per file */}
+      {parts.map((part) => {
+        const headings = part.plan.headerRow >= 0 ? part.grid[part.plan.headerRow] ?? [] : [];
+        const used = PLAN_FIELDS.filter((f) => part.plan.columns[f].length > 0);
+        const kindLabel = part.plan.kind === "customers" ? "Customer list" : part.plan.kind === "job_history" ? "Job history" : "Not customer data";
+        return (
+          <div key={part.id} className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+            <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-blue-900">
+              <Sparkles size={15} /> {part.source === "wyndos" ? "Wyndos export" : kindLabel}
+              <span className="font-normal text-blue-700">{part.label}</span>
+            </p>
+            {part.plan.summary && <p className="mt-1 text-sm text-blue-900">{part.plan.summary}</p>}
+            {part.offTopic && (
+              <p className="mt-2 rounded-lg bg-white px-3 py-2 text-xs text-amber-800">
+                That box is only for fixing how your file is read (which column is which, how to read dates or prices), so nothing changed.
+              </p>
+            )}
+            {part.plan.kind === "not_customers" && <p className="mt-2 text-xs text-amber-800">This doesn&apos;t look like customers or history, so it won&apos;t be imported. If it is, say what&apos;s in it with &quot;Not quite, try again&quot;.</p>}
+            {part.plan.warnings.length > 0 && (
+              <ul className="mt-2 space-y-0.5 text-xs text-amber-800">
+                {part.plan.warnings.map((w, i) => <li key={i} className="flex gap-1"><AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />{w}</li>)}
+              </ul>
+            )}
+            {used.length > 0 && headings.length > 0 && (
+              <p className="mt-2 text-[11px] text-blue-800">
+                {used.map((f) => `${FIELD_LABELS[f]} ← ${part.plan.columns[f].map((c) => headings[c]?.trim() || `column ${c + 1}`).join(" + ")}`).join(" · ")}
+              </p>
+            )}
+          </div>
+        );
+      })}
 
-      {notCustomers ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          {plan.kind === "job_history"
-            ? <>This looks like a history of cleans or payments, not a customer list. Add your customers first, then bring history in with <Link href="/customers/import" className="font-semibold underline">Job history</Link> in the normal import.</>
-            : "This doesn't look like a list of customers. If it is, tell us below what's in it."}
-        </div>
-      ) : (
+      {anyCustomers && (
         <>
-          {/* Totals */}
+          <p className="flex items-center gap-2 pt-1 text-sm font-semibold text-slate-700"><Users size={15} /> Customers</p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Stat label="Customers" value={String(custRows.length)} sub={quoteRows.length ? `+ ${quoteRows.length} quote${quoteRows.length === 1 ? "" : "s"}` : undefined} />
             <Stat label="Areas" value={String(areaSummary.length)} sub={`${areaSummary.filter((a) => !a.existing).length} new`} />
-            <Stat label="Round value" value={fmtCurrency(custRows.filter((r) => r.active).reduce((s, r) => s + (r.price ?? 0), 0))} />
+            <Stat label="Round value" value={fmtCurrency(custRows.filter((c) => c.active).reduce((s, c) => s + (c.price ?? 0), 0))} />
             <Stat label="To check" value={String(withProblems.length)} sub={inactive ? `${inactive} inactive` : undefined} warn={withProblems.length > 0} />
           </div>
 
-          {/* Areas */}
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Areas</p>
             <div className="flex flex-wrap gap-1.5">
@@ -375,7 +446,6 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
             </div>
           </div>
 
-          {/* Rows */}
           <div className="rounded-2xl border border-slate-200 bg-white">
             <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -395,21 +465,72 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {shown.map((r) => (
-                    <tr key={r.sheetRow} className={cn(r.problems.length ? "bg-amber-50/60" : "", !r.active && "text-slate-400")}>
-                      <td className="px-2.5 py-1.5 text-slate-400">{r.sheetRow}</td>
-                      <td className="max-w-[180px] truncate px-2.5 py-1.5 font-medium text-slate-800">{r.name}</td>
-                      <td className="max-w-[280px] truncate px-2.5 py-1.5">{r.address}</td>
-                      <td className="px-2.5 py-1.5">{r.area}</td>
-                      <td className="px-2.5 py-1.5 tabular-nums">{r.price === null ? "—" : fmtCurrency(r.price)}</td>
-                      <td className="px-2.5 py-1.5">{r.frequencyWeeks ? `${r.frequencyWeeks}w` : "—"}</td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap">{r.nextDueDate ? new Date(`${r.nextDueDate}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : "—"}</td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap">{r.phone || "—"}</td>
-                      <td className="px-2.5 py-1.5">{r.preferredPaymentMethod || "—"}</td>
-                      <td className="max-w-[200px] truncate px-2.5 py-1.5 text-slate-500">{r.notes.replace(/\n/g, " · ")}</td>
-                      <td className="px-2.5 py-1.5 text-amber-700">{[...r.problems, r.quote ? "Quote" : r.active ? "" : "Inactive"].filter(Boolean).join(", ")}</td>
+                  {shown.map((c, i) => (
+                    <tr key={`${c.sheetRow}-${i}`} className={cn(c.problems.length ? "bg-amber-50/60" : "", !c.active && "text-slate-400")}>
+                      <td className="px-2.5 py-1.5 text-slate-400">{c.sheetRow}</td>
+                      <td className="max-w-[180px] truncate px-2.5 py-1.5 font-medium text-slate-800">{c.name}</td>
+                      <td className="max-w-[280px] truncate px-2.5 py-1.5">{c.address}</td>
+                      <td className="px-2.5 py-1.5">{c.area}</td>
+                      <td className="px-2.5 py-1.5 tabular-nums">{c.price === null ? "—" : fmtCurrency(c.price)}</td>
+                      <td className="px-2.5 py-1.5">{c.frequencyWeeks ? `${c.frequencyWeeks}w` : "—"}</td>
+                      <td className="whitespace-nowrap px-2.5 py-1.5">{fmtDate(c.nextDueDate)}</td>
+                      <td className="whitespace-nowrap px-2.5 py-1.5">{c.phone || "—"}</td>
+                      <td className="px-2.5 py-1.5">{c.preferredPaymentMethod || "—"}</td>
+                      <td className="max-w-[200px] truncate px-2.5 py-1.5 text-slate-500">{c.notes.replace(/\n/g, " · ")}</td>
+                      <td className="px-2.5 py-1.5 text-amber-700">{[...c.problems, c.quote ? "Quote" : c.active ? "" : "Inactive"].filter(Boolean).join(", ")}</td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {anyHistory && (
+        <>
+          <p className="flex items-center gap-2 pt-1 text-sm font-semibold text-slate-700"><History size={15} /> Job history</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Stat label="Past cleans" value={String(usableVisits.length)} sub={visitDates.length ? `${fmtDate(visitDates[0])} – ${fmtDate(visitDates[visitDates.length - 1])}` : undefined} />
+            <Stat label="Value" value={fmtCurrency(usableVisits.reduce((s, v) => s + (v.price ?? 0), 0))} />
+            <Stat label="Paid" value={fmtCurrency(usableVisits.reduce((s, v) => s + (v.paid ?? 0), 0))} />
+            <Stat label="Not matched" value={String(unmatched.length)} sub={unmatched.length ? "left out" : "all matched"} warn={unmatched.length > 0} />
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {unmatchedOnly ? `Not matched (${unmatched.length})` : `First ${Math.min(60, visits.length)} of ${visits.length}`}
+              </p>
+              {unmatched.length > 0 && (
+                <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                  <input type="checkbox" checked={unmatchedOnly} onChange={(e) => setUnmatchedOnly(e.target.checked)} className="accent-blue-600" /> Only not matched
+                </label>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50 text-left text-slate-500">
+                    {["Row", "Date", "In the file", "Matched to", "Price", "Paid", "How", "Notes"].map((h) => <th key={h} className="px-2.5 py-2 font-semibold">{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {visitIdx.map((i) => {
+                    const v = visits[i];
+                    const m = visitMatch[i];
+                    return (
+                      <tr key={`${v.sheetRow}-${i}`} className={cn(!m || !v.date ? "bg-amber-50/60" : "")}>
+                        <td className="px-2.5 py-1.5 text-slate-400">{v.sheetRow}</td>
+                        <td className="whitespace-nowrap px-2.5 py-1.5">{v.date ? fmtDate(v.date) : <span className="text-amber-700">No date</span>}</td>
+                        <td className="max-w-[260px] truncate px-2.5 py-1.5">{[v.ref && `#${v.ref}`, v.name, v.address].filter(Boolean).join(" · ")}</td>
+                        <td className="max-w-[200px] truncate px-2.5 py-1.5 font-medium text-slate-800">{m ? matchedName(m) : <span className="font-normal text-amber-700">No match</span>}</td>
+                        <td className="px-2.5 py-1.5 tabular-nums">{v.price === null ? "—" : fmtCurrency(v.price)}</td>
+                        <td className="px-2.5 py-1.5 tabular-nums">{v.paid === null ? "—" : fmtCurrency(v.paid)}</td>
+                        <td className="px-2.5 py-1.5">{v.paymentMethod || "—"}</td>
+                        <td className="max-w-[180px] truncate px-2.5 py-1.5 text-slate-500">{v.notes}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -423,22 +544,26 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
       {!feedbackOpen && !helpOpen && (
         <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
           <p className="text-sm font-semibold text-slate-800">Does this look right?</p>
-          {!notCustomers && rows.some((r) => r.nextDueDate) && (
+          {custRows.some((c) => c.nextDueDate) && (
             <label className="flex items-center gap-2 text-sm text-slate-600">
               <input type="checkbox" checked={bookRuns} onChange={(e) => setBookRuns(e.target.checked)} className="accent-blue-600" />
               Put each area&apos;s next run on the schedule from the due dates
             </label>
           )}
           <div className="flex flex-wrap gap-2">
-            {!notCustomers && (
-              <button type="button" disabled={stage === "importing" || rows.length === 0} onClick={doImport}
+            {!nothingToImport && (
+              <button type="button" disabled={stage === "importing"} onClick={doImport}
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
                 {stage === "importing" ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-                {stage === "importing" ? "Adding customers…" : `Yes, add ${custRows.length} customers${quoteRows.length ? ` + ${quoteRows.length} quote${quoteRows.length === 1 ? "" : "s"}` : ""}`}
+                {stage === "importing" ? progress || "Importing…" : `Yes, import ${[
+                  custRows.length ? `${custRows.length} customers` : "",
+                  quoteRows.length ? `${quoteRows.length} quote${quoteRows.length === 1 ? "" : "s"}` : "",
+                  usableVisits.length ? `${usableVisits.length} past cleans` : "",
+                ].filter(Boolean).join(" + ")}`}
               </button>
             )}
             {available && (
-              <button type="button" disabled={stage === "importing" || attempt >= 4} onClick={() => setFeedbackOpen(true)}
+              <button type="button" disabled={stage === "importing" || parts.every((p) => p.attempt >= 4)} onClick={() => { setFeedbackPart(0); setFeedbackOpen(true); }}
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                 <RotateCcw size={15} /> Not quite, try again
               </button>
@@ -449,38 +574,46 @@ export function SmartImport({ available, areas }: { available: boolean; areas: A
             </button>
             <button type="button" onClick={reset} className="px-2 text-sm text-slate-500 hover:text-slate-800">Start again</button>
           </div>
-          <p className="text-xs text-slate-400">Customers already in Wyndos (same name and address) are left as they are.</p>
+          <p className="text-xs text-slate-400">
+            Customers already in Wyndos (same name and address) are left as they are.
+            {anyHistory && " Cleans already in Wyndos on the same date aren't added twice; history that doesn't match a customer is left out."}
+          </p>
         </div>
       )}
 
-      {feedbackOpen && file && (
+      {feedbackOpen && (
         <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4">
           <p className="text-sm font-semibold text-slate-800">What&apos;s wrong with the preview?</p>
+          {parts.length > 1 && (
+            <select value={feedbackPart} onChange={(e) => setFeedbackPart(Number(e.target.value))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              {parts.map((p, i) => <option key={p.id} value={i} disabled={p.attempt >= 4}>{p.label}</option>)}
+            </select>
+          )}
           <p className="text-xs text-slate-500">
-            Say what to change about how your file is read, e.g. &quot;the Round column is the area&quot;, &quot;prices are in column G&quot;,
-            &quot;frequency is in months&quot;, &quot;skip the first 3 rows&quot;.
+            Say what to change about how the file is read, e.g. &quot;the Round column is the area&quot;, &quot;prices are in column G&quot;,
+            &quot;this is job history, not customers&quot;, &quot;skip the first 3 rows&quot;.
           </p>
           <textarea value={feedback} onChange={(e) => setFeedback(e.target.value.slice(0, 500))} rows={3} maxLength={500}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="e.g. The 'Rnd' column is the area, and 'Freq' is in months" />
           <div className="flex items-center gap-2">
-            <button type="button" disabled={busy || feedback.trim().length < 3} onClick={() => askAi(grid, file, plan, feedback, attempt + 1)}
+            <button type="button" disabled={busy || feedback.trim().length < 3} onClick={retry}
               className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
               {busy ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} {busy ? "Reading again…" : "Try again"}
             </button>
             <button type="button" onClick={() => setFeedbackOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
-            <span className="ml-auto text-[11px] text-slate-400">{feedback.length}/500 · {Math.max(0, 4 - attempt)} tries left</span>
+            <span className="ml-auto text-[11px] text-slate-400">{feedback.length}/500 · {Math.max(0, 4 - (parts[feedbackPart]?.attempt ?? maxAttempt))} tries left</span>
           </div>
         </div>
       )}
 
-      {helpOpen && file && (
+      {helpOpen && (
         <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4">
           {helpSent ? (
             <p className="flex items-center gap-2 text-sm text-green-700"><CheckCircle2 size={16} /> Sent. We&apos;ll import it for you and email you when it&apos;s done.</p>
           ) : (
             <>
               <p className="text-sm font-semibold text-slate-800">We&apos;ll import it for you</p>
-              <p className="text-xs text-slate-500">Your file is sent to Wyndos support. Add anything we should know (optional).</p>
+              <p className="text-xs text-slate-500">Your file{files.length === 1 ? " is" : "s are"} sent to Wyndos support. Add anything we should know (optional).</p>
               <textarea value={helpText} onChange={(e) => setHelpText(e.target.value.slice(0, 2000))} rows={3}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="e.g. Column D is the round, anyone marked X has stopped" />
               <div className="flex gap-2">

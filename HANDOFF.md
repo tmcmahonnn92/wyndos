@@ -178,5 +178,16 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - `/customers/import/smart` (owner only). Upload any file → Wyndos export read directly; CleanerPlanner zip → its importer; Wyndos backup → Settings.
 - Anything else: AI sees headings + ~16 sample rows (emails/phones masked) and returns a *plan* (which column is which). Code applies the plan to every row in the browser → preview → `bulkImportCustomers` (skip existing, match name+address).
 - "Not quite" = owner feedback (500 chars, max 4 tries) used only to change the reading plan; off-topic requests are refused and the plan stays the same. 25 AI calls per business per day.
-- "Ask Wyndos to import it" sends the file to support.
+- Several files (or sheets of one workbook) at once, up to 4: each gets its own plan (customers or job history). Customers save first, then quotes, then history, then runs are booked.
+- History rows are matched to customers by the other program's ref (from the customer file in the same upload), then address first line + postcode, then name if unique. Unmatched rows are left out and listed. Cleans already recorded on the same date are skipped.
+- "Ask Wyndos to import it" sends the file(s) to support.
 - Needs `ANTHROPIC_API_KEY` in appEnv. Optional `ANTHROPIC_IMPORT_MODEL` (default `claude-opus-5-5`). Flag: `SMART_IMPORT_ENABLED` in `src/lib/features.ts`.
+
+## GoCardless (Direct Debit)
+- Pasted read-write access token (Settings → Business), no webhooks: sync every 15 min via `/api/cron/gocardless` (CRON_SECRET) or "Sync now".
+- `src/lib/gocardless/core.ts` (server only, takes tenantId), `actions.ts` (owner-only wrappers). Page: `/payments/direct-debit`.
+- One GoCardless payment per completed clean (Job.goCardlessPaymentId/Status), Idempotency-Key `wyndos-t{tenant}-job{id}-{previous id|first}`.
+- Received → Payment (BACS, "Direct Debit (GoCardless)") allocated to the clean. Failed/cancelled → clean owes again. Charged back → payment voided.
+- Sign-up links = billing request + flow; fulfilled request links the mandate on next sync. Public return page `/direct-debit-done`.
+- Auto-collect only for cleans completed after it was switched on; failed ones are never auto-retried.
+- On only with `NEXT_PUBLIC_GOCARDLESS_ENABLED=1` at build. Testing steps: `deploy/GOCARDLESS-TESTING.md`. `GOCARDLESS_API_BASE` overrides the API host (tests).

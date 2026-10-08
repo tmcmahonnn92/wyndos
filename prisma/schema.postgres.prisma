@@ -90,6 +90,12 @@ model TenantSettings {
   goCardlessEnvironment     String   @default("live")
   goCardlessReferencePrefix String   @default("WD")
   goCardlessLastSyncedAt    DateTime?
+  /// Business name on the connected GoCardless account (shown in Settings).
+  goCardlessCreditorName    String   @default("")
+  /// Collect by Direct Debit automatically when a clean is completed (only cleans completed after this was turned on).
+  goCardlessAutoCollect     Boolean  @default(false)
+  goCardlessAutoCollectFrom DateTime?
+  goCardlessLastError       String   @default("")
 
   // SMTP
   smtpProvider    String @default("gmail")
@@ -345,6 +351,10 @@ model Customer {
   goCardlessCustomerReference String   @default("")
   goCardlessCustomerId    String?
   goCardlessMandateId     String?
+  /// Last known mandate status from GoCardless (active, cancelled, …).
+  goCardlessMandateStatus String?
+  /// A sign-up link sent to the customer that hasn't been completed yet.
+  goCardlessBillingRequestId String?
   active                 Boolean       @default(true)
   sortOrder              Int           @default(0)
   /// Always put this customer straight after that customer when both are on the same day (any area).
@@ -427,6 +437,9 @@ model Job {
   isOneOff    Boolean   @default(false)
   /// A quote visit rather than a clean. Price stays 0; the quote is in quotedPrice.
   isQuote              Boolean   @default(false)
+  /// Direct Debit taken for this clean through GoCardless, and its latest status.
+  goCardlessPaymentId  String?   @unique
+  goCardlessStatus     String?
   /// TO_VISIT | QUOTED | WON | LOST
   quoteStatus          String?
   quotedPrice          Float?

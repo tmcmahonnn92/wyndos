@@ -8,8 +8,11 @@ export const AUTO_SMS_ENABLED = false;
 /** Emailing invoices to customers. Off: invoices are downloaded as PDFs. */
 export const INVOICE_EMAIL_ENABLED = false;
 
-/** GoCardless (Direct Debit) sync and settings. Off until the second stage. */
-export const GOCARDLESS_ENABLED = false;
+/**
+ * GoCardless (Direct Debit): link mandates, sign-up links, collect per clean, sync.
+ * On only where the build has NEXT_PUBLIC_GOCARDLESS_ENABLED=1 (e.g. the dev/staging server).
+ */
+export const GOCARDLESS_ENABLED = process.env.NEXT_PUBLIC_GOCARDLESS_ENABLED === "1";
 
 /** Sorting customers into areas (quick sort and AI). Off: imports keep the sheet's areas or put everyone in "Imported". */
 export const AREA_SORT_ENABLED = false;
