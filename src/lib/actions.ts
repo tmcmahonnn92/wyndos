@@ -1335,10 +1335,13 @@ export async function bulkImportCustomers(
   runsBooked: Array<{ area: string; date: string }>;
   /** Areas that got customers with dates: pass to bookAreaRunsAfterImport when importing in batches. */
   datedAreaIds: number[];
+  /** Rows (1-based, in the records sent) left alone because they're already in Wyndos. */
+  skippedRows: Array<{ row: number; reason: string }>;
 }> {
   const actor = await requireOwner();
   const tenantId = actor.tenantId;
   const errors: Array<{ row: number; message: string }> = [];
+  const skippedRows: Array<{ row: number; reason: string }> = [];
   const datedAreaIds = new Set<number>();
   let created = 0;
   let updated = 0;
@@ -1482,6 +1485,7 @@ export async function bulkImportCustomers(
         created++;
       } else if (mode === "skip") {
         skipped++;
+        skippedRows.push({ row: i + 1, reason: "Already in Wyndos (same name and address), left as it was" });
       } else if (mode === "fill") {
         // Only what's missing. Area, price, frequency, dates, order and active are left
         // exactly as they are, so nothing on the schedule moves.
@@ -1498,7 +1502,7 @@ export async function bulkImportCustomers(
         if (!existing.advanceNotice && r.advanceNotice) fill.advanceNotice = true;
         if (Object.keys(fill).length) await prisma.customer.update({ where: { id: existing.id }, data: fill });
         await linkImportTags(existing.id, r.tags);
-        if (Object.keys(fill).length || (r.tags && r.tags.length)) updated++; else skipped++;
+        if (Object.keys(fill).length || (r.tags && r.tags.length)) updated++; else { skipped++; skippedRows.push({ row: i + 1, reason: "Already in Wyndos with nothing missing to fill in" }); }
       } else {
         // Overwrite: blanks in the sheet never wipe a date, and moving area takes
         // their booked jobs with them.
@@ -1519,7 +1523,7 @@ export async function bulkImportCustomers(
         updated++;
       }
     } catch (e) {
-      errors.push({ row: i + 1, message: String(e) });
+      errors.push({ row: i + 1, message: e instanceof Error ? e.message : String(e) });
     }
   }
 
@@ -1528,7 +1532,7 @@ export async function bulkImportCustomers(
   revalidatePath("/customers");
   revalidatePath("/areas");
   revalidatePath("/scheduler");
-  return { created, updated, skipped, errors, areasCreated, runsBooked, datedAreaIds: [...datedAreaIds] };
+  return { created, updated, skipped, errors, areasCreated, runsBooked, datedAreaIds: [...datedAreaIds], skippedRows };
 }
 
 /** Book imported areas' next runs (used by the CleanerPlanner import). Owner only, own areas only. */
@@ -1632,11 +1636,12 @@ export async function bulkImportJobHistory(
     notes?: string;
   }>,
   options: { matchField?: "name" | "nameAddress"; skipDuplicates?: boolean } = {}
-): Promise<{ created: number; skipped: number; errors: Array<{ row: number; message: string }> }> {
+): Promise<{ created: number; skipped: number; errors: Array<{ row: number; message: string }>; skippedRows: Array<{ row: number; reason: string }> }> {
   const actor = await requireOwner();
   const tenantId = actor.tenantId;
   const errors: Array<{ row: number; message: string }> = [];
   let created = 0, skipped = 0;
+  const skippedRows: Array<{ row: number; reason: string }> = [];
   const lastCleaned = new Map<number, Date>();
   // Cache "areaId:dateStr" → workDayId so we don't create duplicate work days
   const workDayCache = new Map<string, number>();
@@ -1657,6 +1662,7 @@ export async function bulkImportJobHistory(
       // Importing the same history twice shouldn't double up cleans.
       if (options.skipDuplicates && await prisma.job.findFirst({ where: { tenantId, customerId: customer.id, status: "COMPLETE", isQuote: false, workDay: { date: workDate } }, select: { id: true } })) {
         skipped++;
+        skippedRows.push({ row: i + 1, reason: "Already in Wyndos: a clean on this date for this customer" });
         continue;
       }
       const cacheKey = `${customer.areaId}:${r.date}`;
@@ -1711,7 +1717,7 @@ export async function bulkImportJobHistory(
       created++;
       if (!lastCleaned.has(customer.id) || workDate > lastCleaned.get(customer.id)!) lastCleaned.set(customer.id, workDate);
     } catch (e) {
-      errors.push({ row: i + 1, message: String(e) });
+      errors.push({ row: i + 1, message: e instanceof Error ? e.message : String(e) });
     }
   }
   // Keep "last cleaned" in step with the newest clean imported (never moves it backwards).
@@ -1721,7 +1727,7 @@ export async function bulkImportJobHistory(
 
   revalidatePath("/customers");
   revalidatePath("/days");
-  return { created, skipped, errors };
+  return { created, skipped, errors, skippedRows };
 }
 
 /**
@@ -2685,7 +2691,7 @@ export async function importQuotes(records: Array<{ name: string; address: strin
   const actor = await requireOwner();
   const tenantId = actor.tenantId;
   const list = (Array.isArray(records) ? records : []).slice(0, 500);
-  if (list.length === 0) return { created: 0, skipped: 0 };
+  if (list.length === 0) return { created: 0, skipped: 0, skippedRows: [] as Array<{ row: number; reason: string }> };
   const area = await getOrCreateOneOffSystemArea(tenantId);
   const existing = await prisma.customer.findMany({ where: { tenantId }, select: { name: true, address: true } });
   const key = (n: string, a: string) => `${n.trim().toLowerCase()}|${a.trim().toLowerCase().replace(/\s+/g, " ")}`;
@@ -2694,11 +2700,16 @@ export async function importQuotes(records: Array<{ name: string; address: strin
   const date = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
   let workDayId: number | null = null;
   let created = 0, skipped = 0;
+  const skippedRows: Array<{ row: number; reason: string }> = [];
   const now = new Date();
-  for (const r of list) {
+  for (const [index, r] of list.entries()) {
     const name = String(r.name ?? "").trim().slice(0, 120);
     const fields = mergeLooseAddress(r) ?? resolveAddress({ address: r.address, houseNameNumber: r.houseNameNumber, street: r.street, town: r.town, postcode: r.postcode });
-    if (!name || !fields?.address || seen.has(key(name, fields.address))) { skipped++; continue; }
+    if (!name || !fields?.address || seen.has(key(name, fields.address))) {
+      skipped++;
+      skippedRows.push({ row: index + 1, reason: !name ? "No name" : !fields?.address ? "No address" : "Already in Wyndos (same name and address)" });
+      continue;
+    }
     seen.add(key(name, fields.address));
     const price = Math.max(0, Number(r.price) || 0);
     const frequencyWeeks = r.frequencyWeeks && r.frequencyWeeks > 0 && r.frequencyWeeks <= 52 ? Math.round(r.frequencyWeeks) : null;
@@ -2722,7 +2733,7 @@ export async function importQuotes(records: Array<{ name: string; address: strin
   }
   revalidatePath("/quotes");
   revalidatePath("/customers");
-  return { created, skipped };
+  return { created, skipped, skippedRows };
 }
 
 /** Owner, smart import: every customer's name and address, to match job history rows to them. */

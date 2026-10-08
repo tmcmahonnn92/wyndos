@@ -191,3 +191,9 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Sign-up links = billing request + flow; fulfilled request links the mandate on next sync. Public return page `/direct-debit-done`.
 - Auto-collect only for cleans completed after it was switched on; failed ones are never auto-retried.
 - On only with `NEXT_PUBLIC_GOCARDLESS_ENABLED=1` at build. Testing steps: `deploy/GOCARDLESS-TESTING.md`. `GOCARDLESS_API_BASE` overrides the API host (tests).
+
+## Expense import + HMRC categories
+- Expense categories map to HMRC MTD periodExpenses fields (`HMRC_EXPENSE_CATEGORIES` in `src/lib/accounting.ts`); migration `20261008130000_hmrc_mtd_categories` recomputes `Expense.hmrcCategory`.
+- `/accounting/import` (owner): bank/card statement, receipts sheet or template (`public/templates/expense-import-template.csv`, read without AI). AI reads layout + categorises supplier names (merchant keys); rules fallback; preview with per-supplier category changes; transfers/tax/personal left out but can be included; duplicates (date+supplier+amount) skipped.
+- Smart job history: `/customers/import/smart?mode=history`.
+- Every import shows "Not imported" rows with reasons (`src/components/not-imported-list.tsx`), in the preview where known and after saving, with CSV download.

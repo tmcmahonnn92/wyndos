@@ -7,18 +7,19 @@ import { unzipSync, strFromU8, gunzipSync } from "fflate";
 import { parseCSVText } from "@/lib/import-parsing";
 import {
   applyHistoryPlan, applyPlan, looksLikeCleanerPlanner, matchHistory, wyndosExportPlan, PLAN_FIELDS,
-  type HistoryRow, type ImportPlan, type MatchCandidate, type PlanField, type SmartRow,
+  type DroppedRow, type HistoryRow, type ImportPlan, type MatchCandidate, type PlanField, type SmartRow,
 } from "@/lib/smart-import/plan";
 import { aiImportPlan, type PlanRequest } from "@/lib/smart-import/actions";
 import { bookAreaRunsAfterImport, bulkImportCustomers, bulkImportJobHistory, getCustomersForMatching, importQuotes } from "@/lib/actions";
 import { cn, fmtCurrency } from "@/lib/utils";
+import { NotImportedList, type NotImportedRow } from "@/components/not-imported-list";
 
 type AreaOption = { id: number; name: string; frequencyWeeks: number };
 type ExistingCustomer = { id: number; name: string; address: string; postcode: string };
 type Stage = "upload" | "reading" | "preview" | "importing" | "done" | "elsewhere";
 /** One file, or one sheet of a workbook: read with its own plan. */
 type Part = { id: number; label: string; grid: string[][]; plan: ImportPlan; source: "wyndos" | "ai"; attempt: number; offTopic: boolean };
-type Result = { created: number; skipped: number; errors: number; areas: string[]; quotes: number; visits: number; visitsSkipped: number; unmatched: number };
+type Result = { created: number; skipped: number; errors: number; areas: string[]; quotes: number; visits: number; visitsSkipped: number; unmatched: number; notImported: NotImportedRow[]; historyNotImported: NotImportedRow[] };
 
 const COLOURS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#06B6D4", "#84CC16", "#A855F7", "#6366F1"];
 const MAX_ROWS = 20000;
@@ -70,7 +71,7 @@ function sampleFor(fileName: string, grid: string[][]): Omit<PlanRequest, "feedb
   return { fileName, rows: [...top, ...later], columnCount, rowCount: grid.length, shortValues };
 }
 
-export function SmartImport({ available, areas, customers }: { available: boolean; areas: AreaOption[]; customers: ExistingCustomer[] }) {
+export function SmartImport({ available, areas, customers, mode = "all" }: { available: boolean; areas: AreaOption[]; customers: ExistingCustomer[]; mode?: "all" | "history" }) {
   const [stage, setStage] = useState<Stage>("upload");
   const [progress, setProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +91,11 @@ export function SmartImport({ available, areas, customers }: { available: boolea
   const [busy, setBusy] = useState(false);
 
   // ── Customers ──
-  const rows: SmartRow[] = useMemo(() => parts.flatMap((p) => (p.plan.kind === "customers" ? applyPlan(p.grid, p.plan) : [])), [parts]);
+  const [rows, droppedCustomers] = useMemo(() => {
+    const dropped: DroppedRow[] = [];
+    const all: SmartRow[] = parts.flatMap((p) => (p.plan.kind === "customers" ? applyPlan(p.grid, p.plan, dropped) : []));
+    return [all, dropped] as const;
+  }, [parts]);
   const custRows = useMemo(() => rows.filter((r) => !r.quote), [rows]);
   const quoteRows = useMemo(() => rows.filter((r) => r.quote), [rows]);
   const areaSummary = useMemo(() => {
@@ -110,7 +115,11 @@ export function SmartImport({ available, areas, customers }: { available: boolea
   const shown = (problemsOnly ? withProblems : rows).slice(0, 60);
 
   // ── Job history: matched against customers already in Wyndos and the ones in this upload ──
-  const visits: HistoryRow[] = useMemo(() => parts.flatMap((p) => (p.plan.kind === "job_history" ? applyHistoryPlan(p.grid, p.plan) : [])), [parts]);
+  const [visits, droppedVisits] = useMemo(() => {
+    const dropped: DroppedRow[] = [];
+    const all: HistoryRow[] = parts.flatMap((p) => (p.plan.kind === "job_history" ? applyHistoryPlan(p.grid, p.plan, dropped) : []));
+    return [all, dropped] as const;
+  }, [parts]);
   const visitMatch = useMemo(() => {
     if (visits.length === 0) return [] as Array<string | null>;
     // Someone in the upload who's already in Wyndos counts once (as the existing customer, with the upload's ref).
@@ -129,6 +138,16 @@ export function SmartImport({ available, areas, customers }: { available: boolea
   };
   const unmatched = visits.filter((_, i) => !visitMatch[i]);
   const usableVisits = visits.filter((v, i) => visitMatch[i] && v.date);
+  // What won't be imported, shown in the preview so nothing goes missing silently.
+  const existingKeys = useMemo(() => new Set(customers.map((c) => custKey(c.name, c.address))), [customers]);
+  const willSkipCustomers: NotImportedRow[] = [
+    ...droppedCustomers.map((d) => ({ row: d.sheetRow, name: d.name, reason: d.reason })),
+    ...rows.filter((r) => existingKeys.has(custKey(r.name, r.address))).map((r) => ({ row: r.sheetRow, name: r.name, reason: "Already in Wyndos (same name and address), will be left as it is" })),
+  ].sort((a, b) => Number(a.row) - Number(b.row));
+  const willSkipVisits: NotImportedRow[] = [
+    ...droppedVisits.map((d) => ({ row: d.sheetRow, name: d.name, reason: d.reason })),
+    ...visits.flatMap((v, i) => (!visitMatch[i] ? [{ row: v.sheetRow, name: v.name || v.address || v.ref, reason: "No matching customer (by reference, address or name)" }] : !v.date ? [{ row: v.sheetRow, name: v.name || v.address, reason: "No date" }] : [])),
+  ].sort((a, b) => Number(a.row) - Number(b.row));
   const visitDates = usableVisits.map((v) => v.date).sort();
   const visitIdx = visits.map((_, i) => i).filter((i) => !unmatchedOnly || !visitMatch[i]).slice(0, 60);
 
@@ -221,7 +240,7 @@ export function SmartImport({ available, areas, customers }: { available: boolea
   const doImport = async () => {
     setStage("importing");
     setError(null);
-    const r: Result = { created: 0, skipped: 0, errors: 0, areas: [], quotes: 0, visits: 0, visitsSkipped: 0, unmatched: unmatched.length };
+    const r: Result = { created: 0, skipped: 0, errors: 0, areas: [], quotes: 0, visits: 0, visitsSkipped: 0, unmatched: unmatched.length, notImported: droppedCustomers.map((d) => ({ row: d.sheetRow, name: d.name, reason: d.reason })), historyNotImported: droppedVisits.map((d) => ({ row: d.sheetRow, name: d.name, reason: d.reason })) };
     const freqOf = new Map<string, number>();
     for (const a of areaSummary) {
       const counts = new Map<number, number>();
@@ -234,7 +253,8 @@ export function SmartImport({ available, areas, customers }: { available: boolea
       // 1. Customers
       for (let i = 0; i < custRows.length; i += 400) {
         setProgress(`Adding customers… ${Math.min(i + 400, custRows.length)} of ${custRows.length}`);
-        const res = await bulkImportCustomers(custRows.slice(i, i + 400).map((c) => {
+        const batch = custRows.slice(i, i + 400);
+        const res = await bulkImportCustomers(batch.map((c) => {
           const existing = areas.find((a) => a.name.toLowerCase() === c.area.toLowerCase());
           const newIndex = areaSummary.findIndex((a) => a.name.toLowerCase() === c.area.toLowerCase());
           return {
@@ -255,12 +275,15 @@ export function SmartImport({ available, areas, customers }: { available: boolea
         r.created += res.created;
         r.skipped += res.skipped;
         r.errors += res.errors.length;
+        for (const e of res.errors) r.notImported.push({ row: batch[e.row - 1]?.sheetRow, name: batch[e.row - 1]?.name, reason: e.message });
+        for (const e of res.skippedRows) r.notImported.push({ row: batch[e.row - 1]?.sheetRow, name: batch[e.row - 1]?.name, reason: e.reason });
         res.areasCreated.forEach((a) => areasMade.add(a));
         res.datedAreaIds.forEach((id) => datedAreas.add(id));
       }
       // 2. Quotes
       for (let i = 0; i < quoteRows.length; i += 400) {
-        const res = await importQuotes(quoteRows.slice(i, i + 400).map((q) => ({
+        const batch = quoteRows.slice(i, i + 400);
+        const res = await importQuotes(batch.map((q) => ({
           name: q.name, address: q.address, houseNameNumber: q.houseNameNumber || undefined, street: q.street || undefined,
           town: q.town || undefined, postcode: q.postcode || undefined, phone: q.phone || undefined, email: q.email || undefined,
           notes: q.notes || undefined, price: q.price ?? 0, frequencyWeeks: q.frequencyWeeks ?? undefined,
@@ -268,6 +291,7 @@ export function SmartImport({ available, areas, customers }: { available: boolea
         })));
         r.quotes += res.created;
         r.skipped += res.skipped;
+        for (const e of res.skippedRows) r.notImported.push({ row: batch[e.row - 1]?.sheetRow, name: batch[e.row - 1]?.name, reason: `Quote: ${e.reason}` });
       }
       // 3. History, matched again against everyone now in Wyndos (refs come from this upload's customers).
       if (usableVisits.length > 0) {
@@ -277,15 +301,18 @@ export function SmartImport({ available, areas, customers }: { available: boolea
         const keys = matchHistory(visits, fresh.map((c) => ({ key: c.id, name: c.name, address: c.address, postcode: c.postcode, ref: refOf.get(custKey(c.name, c.address)) })));
         const toSave = visits.flatMap((v, i) => (keys[i] && v.date ? [{ v, customerId: keys[i]! }] : []));
         r.unmatched = visits.length - toSave.length;
+        visits.forEach((v, i) => { if (!keys[i]) r.historyNotImported.push({ row: v.sheetRow, name: v.name || v.address || v.ref, reason: "No matching customer (by reference, address or name)" }); else if (!v.date) r.historyNotImported.push({ row: v.sheetRow, name: v.name || v.address, reason: "No date" }); });
         for (let i = 0; i < toSave.length; i += 400) {
           setProgress(`Adding history… ${Math.min(i + 400, toSave.length)} of ${toSave.length}`);
-          const res = await bulkImportJobHistory(toSave.slice(i, i + 400).map(({ v, customerId }) => ({
+          const batch = toSave.slice(i, i + 400);
+          const res = await bulkImportJobHistory(batch.map(({ v, customerId }) => ({
             customerName: v.name, customerId, date: v.date, price: v.price ?? undefined, paid: v.paid ?? undefined,
             paymentMethod: v.paymentMethod || undefined, notes: v.notes || undefined,
           })), { skipDuplicates: true });
           r.visits += res.created;
           r.visitsSkipped += res.skipped;
           r.errors += res.errors.length;
+          for (const e of [...res.errors.map((x) => ({ row: x.row, reason: x.message })), ...res.skippedRows]) r.historyNotImported.push({ row: batch[e.row - 1]?.v.sheetRow, name: batch[e.row - 1]?.v.name, reason: e.reason });
         }
       }
       // 4. Book each round's next run once everything is in.
@@ -297,6 +324,8 @@ export function SmartImport({ available, areas, customers }: { available: boolea
       setError(issue instanceof Error ? issue.message : "The import stopped part way. Check Customers before trying again.");
     }
     r.areas = [...areasMade];
+    r.notImported.sort((a, b) => Number(a.row) - Number(b.row));
+    r.historyNotImported.sort((a, b) => Number(a.row) - Number(b.row));
     setResult(r);
     setProgress("");
     setStage("done");
@@ -335,11 +364,13 @@ export function SmartImport({ available, areas, customers }: { available: boolea
         )}
         <label className={cn("flex cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-6 py-12 text-center hover:border-blue-400 hover:bg-blue-50/40", stage === "reading" && "pointer-events-none opacity-70")}>
           {stage === "reading" ? <Loader2 size={28} className="animate-spin text-blue-600" /> : <Upload size={28} className="text-blue-600" />}
-          <span className="text-base font-semibold text-slate-800">{stage === "reading" ? "Reading your files…" : "Choose your files"}</span>
+          <span className="text-base font-semibold text-slate-800">{stage === "reading" ? "Reading your files…" : mode === "history" ? "Choose your job history file" : "Choose your files"}</span>
           <span className="text-sm text-slate-500">
             {stage === "reading"
               ? progress || "Working out which columns are which. This takes a few seconds."
-              : "Customer list, job history, or both (pick several files at once). Excel, CSV, Wyndos exports, CleanerPlanner backups. Any layout."}
+              : mode === "history"
+                ? "Past cleans and payments: Excel or CSV, any layout. Add your customer list too if they aren't in Wyndos yet."
+                : "Customer list, job history, or both (pick several files at once). Excel, CSV, Wyndos exports, CleanerPlanner backups. Any layout."}
           </span>
           <input type="file" multiple className="hidden" accept=".csv,.txt,.tsv,.xlsx,.xls,.ods,.zip,.json,.gz"
             onChange={(e) => { const list = Array.from(e.target.files ?? []); if (list.length) void onFiles(list); e.target.value = ""; }} />
@@ -381,6 +412,8 @@ export function SmartImport({ available, areas, customers }: { available: boolea
           {result.errors > 0 && <li>{result.errors} row{result.errors === 1 ? "" : "s"} couldn&apos;t be added</li>}
         </ul>
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        <NotImportedList rows={result.notImported} title="Customers not imported" fileName="customers-not-imported.csv" />
+        <NotImportedList rows={result.historyNotImported} title="History not imported" fileName="history-not-imported.csv" />
         <div className="flex flex-wrap gap-2">
           <Link href="/customers" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">See customers</Link>
           <Link href="/scheduler" className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Plan the round</Link>
@@ -544,6 +577,9 @@ export function SmartImport({ available, areas, customers }: { available: boolea
           </div>
         </>
       )}
+
+      <NotImportedList rows={willSkipCustomers} title="Customers that won't be imported" fileName="customers-not-imported.csv" />
+      <NotImportedList rows={willSkipVisits} title="History that won't be imported" fileName="history-not-imported.csv" />
 
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 

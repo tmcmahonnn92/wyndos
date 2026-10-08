@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { unzipSync, strFromU8 } from "fflate";
 import { ArrowLeftRight, CheckCircle2, FileArchive, Loader2, Upload } from "lucide-react";
 import { pickFiles, readBackup, type CpBackup, type CpCustomer } from "@/lib/cleanerplanner/parse";
+import { NotImportedList } from "@/components/not-imported-list";
 import { finishCpImport, importCpCustomers, importCpHistory, type CpHistoryItem, type CpImportRow } from "@/lib/cleanerplanner/actions";
 import { cn, fmtCurrency } from "@/lib/utils";
 
@@ -143,7 +144,7 @@ export function CleanerPlannerImport() {
         const ordered = [...linked.filter((h) => h.kind === "charge"), ...linked.filter((h) => h.kind === "payment")];
         for (let i = 0; i < ordered.length; i += 1500) {
           const r = await importCpHistory(ordered.slice(i, i + 1500));
-          res.cleans += r.cleans; res.payments += r.payments;
+          res.cleans += r.cleans; res.payments += r.payments; res.errors.push(...r.skippedItems);
           tick();
         }
       }
@@ -173,12 +174,10 @@ export function CleanerPlannerImport() {
           {(result.cleans > 0 || result.payments > 0) && <li>{result.cleans} past cleans and {result.payments} payments.</li>}
           {result.runs > 0 && <li>{result.runs} areas put on the schedule from their due dates.</li>}
         </ul>
-        {result.errors.length > 0 && (
-          <details className="rounded-lg bg-white/70 p-3 text-amber-900">
-            <summary className="cursor-pointer font-semibold">{result.errors.length} couldn&apos;t be added</summary>
-            <ul className="mt-2 list-disc pl-5 text-xs">{result.errors.slice(0, 50).map((e, i) => <li key={i}>{e}</li>)}</ul>
-          </details>
-        )}
+        <NotImportedList
+          rows={result.errors.map((e) => { const at = e.indexOf(": "); return at > 0 ? { name: e.slice(0, at), reason: e.slice(at + 2) } : { reason: e }; })}
+          fileName="cleanerplanner-not-imported.csv"
+        />
         <div className="flex flex-wrap gap-2 pt-1">
           <a href="/scheduler" className="rounded-lg bg-green-600 px-4 py-2 font-semibold text-white">Open scheduler</a>
           <a href="/customers" className="rounded-lg border border-green-300 px-4 py-2 font-semibold">See customers</a>

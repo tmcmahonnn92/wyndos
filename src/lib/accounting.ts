@@ -16,21 +16,54 @@ export type TaxTreatmentDefinition = {
   vatRate: number;
 };
 
+/**
+ * HMRC's Making Tax Digital self-employment expense categories (Self-Employment Business API,
+ * periodExpenses). Under £90,000 turnover a business can send one consolidated total instead.
+ */
+export const HMRC_EXPENSE_CATEGORIES = [
+  { key: "costOfGoods", label: "Cost of goods bought for resale or goods used" },
+  { key: "paymentsToSubcontractors", label: "Payments to subcontractors" },
+  { key: "wagesAndStaffCosts", label: "Wages, salaries and other staff costs" },
+  { key: "carVanTravelExpenses", label: "Car, van and travel expenses" },
+  { key: "premisesRunningCosts", label: "Rent, rates, power and insurance costs" },
+  { key: "maintenanceCosts", label: "Repairs and maintenance of property and equipment" },
+  { key: "adminCosts", label: "Phone, fax, stationery and other office costs" },
+  { key: "businessEntertainmentCosts", label: "Business entertainment costs" },
+  { key: "advertisingCosts", label: "Advertising costs" },
+  { key: "interestOnBankOtherLoans", label: "Interest on bank and other loans" },
+  { key: "financeCharges", label: "Bank, credit card and other financial charges" },
+  { key: "irrecoverableDebts", label: "Irrecoverable debts written off" },
+  { key: "professionalFees", label: "Accountancy, legal and other professional fees" },
+  { key: "depreciation", label: "Depreciation and loss/profit on sale of assets" },
+  { key: "otherExpenses", label: "Other business expenses" },
+] as const;
+const hmrc = (key: (typeof HMRC_EXPENSE_CATEGORIES)[number]["key"]) => ({ hmrcCategory: key, hmrcLabel: HMRC_EXPENSE_CATEGORIES.find((c) => c.key === key)!.label });
+
+/** Wyndos's everyday categories, each filed under one HMRC category. */
 export const EXPENSE_CATEGORIES: ExpenseCategoryDefinition[] = [
-  { value: "FUEL", label: "Fuel and travel", hmrcCategory: "carVanTravel", hmrcLabel: "Car, van and travel" },
-  { value: "SUPPLIES", label: "Cleaning supplies", hmrcCategory: "costOfGoods", hmrcLabel: "Cost of goods bought for resale" },
-  { value: "EQUIPMENT", label: "Equipment", hmrcCategory: "otherAllowableBusinessExpenses", hmrcLabel: "Other allowable expenses" },
-  { value: "SOFTWARE", label: "Software and subscriptions", hmrcCategory: "adminCosts", hmrcLabel: "Office, property and equipment" },
-  { value: "INSURANCE", label: "Insurance", hmrcCategory: "otherAllowableBusinessExpenses", hmrcLabel: "Other allowable expenses" },
-  { value: "MARKETING", label: "Advertising and marketing", hmrcCategory: "advertisingCosts", hmrcLabel: "Advertising and business entertainment" },
-  { value: "SUBCONTRACTORS", label: "Subcontractors", hmrcCategory: "constructionIndustrySubcontractors", hmrcLabel: "Construction industry subcontractors" },
-  { value: "OFFICE", label: "Office and admin", hmrcCategory: "adminCosts", hmrcLabel: "Office, property and equipment" },
-  { value: "VEHICLE_MAINTENANCE", label: "Vehicle maintenance", hmrcCategory: "maintenanceCosts", hmrcLabel: "Repairs and maintenance" },
-  { value: "BANK_FEES", label: "Bank fees and finance", hmrcCategory: "financeCharges", hmrcLabel: "Interest, bank and credit card charges" },
-  { value: "PROFESSIONAL_FEES", label: "Professional fees", hmrcCategory: "professionalFees", hmrcLabel: "Accountancy, legal and professional fees" },
-  { value: "OTHER", label: "Other", hmrcCategory: "otherAllowableBusinessExpenses", hmrcLabel: "Other allowable expenses" },
+  { value: "FUEL", label: "Fuel and travel", ...hmrc("carVanTravelExpenses") },
+  { value: "VEHICLE_MAINTENANCE", label: "Vehicle repairs and servicing", ...hmrc("carVanTravelExpenses") },
+  { value: "VEHICLE_COSTS", label: "Vehicle tax, insurance, parking and tolls", ...hmrc("carVanTravelExpenses") },
+  { value: "SUPPLIES", label: "Cleaning supplies", ...hmrc("costOfGoods") },
+  { value: "SUBCONTRACTORS", label: "Subcontractors", ...hmrc("paymentsToSubcontractors") },
+  { value: "WAGES", label: "Wages and staff costs", ...hmrc("wagesAndStaffCosts") },
+  { value: "PREMISES", label: "Rent, rates, power (unit, storage, yard)", ...hmrc("premisesRunningCosts") },
+  { value: "INSURANCE", label: "Business insurance (public liability)", ...hmrc("premisesRunningCosts") },
+  { value: "EQUIPMENT_REPAIRS", label: "Equipment repairs and replacement parts", ...hmrc("maintenanceCosts") },
+  { value: "OFFICE", label: "Office, phone and admin", ...hmrc("adminCosts") },
+  { value: "SOFTWARE", label: "Software and subscriptions", ...hmrc("adminCosts") },
+  { value: "MARKETING", label: "Advertising and marketing", ...hmrc("advertisingCosts") },
+  { value: "ENTERTAINMENT", label: "Business entertainment (not tax deductible)", ...hmrc("businessEntertainmentCosts") },
+  { value: "LOAN_INTEREST", label: "Loan and finance interest", ...hmrc("interestOnBankOtherLoans") },
+  { value: "BANK_FEES", label: "Bank and card fees", ...hmrc("financeCharges") },
+  { value: "BAD_DEBTS", label: "Bad debts written off", ...hmrc("irrecoverableDebts") },
+  { value: "PROFESSIONAL_FEES", label: "Accountant and professional fees", ...hmrc("professionalFees") },
+  { value: "EQUIPMENT", label: "Equipment and tools", ...hmrc("otherExpenses") },
+  { value: "CLOTHING", label: "Workwear and protective clothing", ...hmrc("otherExpenses") },
+  { value: "TRAINING", label: "Training and memberships", ...hmrc("otherExpenses") },
+  { value: "OTHER", label: "Other", ...hmrc("otherExpenses") },
   // Starting figure entered when a business moves onto Wyndos part-way through a year.
-  { value: "OPENING", label: "Expenses before Wyndos", hmrcCategory: "otherAllowableBusinessExpenses", hmrcLabel: "Other allowable expenses" },
+  { value: "OPENING", label: "Expenses before Wyndos", ...hmrc("otherExpenses") },
 ];
 
 export const OTHER_INCOME_CATEGORIES: OtherIncomeCategoryDefinition[] = [

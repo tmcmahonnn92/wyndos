@@ -176,7 +176,10 @@ function addressFallbacks(grid: string[][], plan: ImportPlan) {
   return { address: find(/address|addr\b/i), postcode: find(/post\s*code|postal|zip/i) };
 }
 
-export function applyPlan(grid: string[][], plan: ImportPlan): SmartRow[] {
+export type DroppedRow = { sheetRow: number; name: string; reason: string };
+
+/** `dropped` collects rows that can't become a customer, with the reason. */
+export function applyPlan(grid: string[][], plan: ImportPlan, dropped?: DroppedRow[]): SmartRow[] {
   const out: SmartRow[] = [];
   const cell = (row: string[], i: number) => String(row[i] ?? "").trim();
   const fallback = addressFallbacks(grid, plan);
@@ -205,7 +208,7 @@ export function applyPlan(grid: string[][], plan: ImportPlan): SmartRow[] {
     let name = get(row, "name", " ").replace(/^(mr|mrs|ms|miss|dr)\.?$/i, "").replace(/^[-–?.\s]*$|^(n\/?a|none|unknown|tbc)$/i, "").trim();
     const problems: string[] = [];
     if (!name) name = (address.split(",")[0] ?? "").trim() || [houseNameNumber, street].filter(Boolean).join(" ");
-    if (!name && !address) continue; // nothing to go on
+    if (!name && !address) { dropped?.push({ sheetRow: r + 1, name: filled.slice(0, 2).join(" ").slice(0, 60), reason: "No name or address" }); continue; }
     if (!address) problems.push("No address");
 
     // Excel can save phone numbers as 7.7009E+09, losing digits: can't be rebuilt, so flag it.
@@ -296,7 +299,7 @@ export type HistoryRow = {
 };
 
 /** Turn every row of a job history file into a past clean (and payment) using the plan. */
-export function applyHistoryPlan(grid: string[][], plan: ImportPlan): HistoryRow[] {
+export function applyHistoryPlan(grid: string[][], plan: ImportPlan, dropped?: DroppedRow[]): HistoryRow[] {
   const out: HistoryRow[] = [];
   const fallback = addressFallbacks(grid, plan);
   const cell = (row: string[], i: number) => String(row[i] ?? "").trim();
@@ -315,7 +318,7 @@ export function applyHistoryPlan(grid: string[][], plan: ImportPlan): HistoryRow
     });
     const name = get(row, "name", " ");
     const ref = first(row, "customerRef");
-    if (!name && !address && !ref) continue;
+    if (!name && !address && !ref) { dropped?.push({ sheetRow: r + 1, name: filled.slice(0, 2).join(" ").slice(0, 60), reason: "No customer name, address or reference" }); continue; }
     const date = readDate(first(row, "visitDate") || first(row, "lastCleaned"), plan.dateOrder);
     const price = money(first(row, "price"));
     let paid = money(first(row, "amountPaid"));
