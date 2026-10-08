@@ -165,9 +165,21 @@ export function readFrequency(value: string, plan: ImportPlan): number | null {
 }
 
 /** Turn every row of the file into a customer using the plan. */
+/**
+ * Other columns that look like an address / postcode, used when the planned ones are blank on a
+ * row (e.g. a "Job address" column that's only filled when it differs from the customer's).
+ */
+function addressFallbacks(grid: string[][], plan: ImportPlan) {
+  const headers = plan.headerRow >= 0 ? grid[plan.headerRow] ?? [] : [];
+  const used = new Set([...plan.columns.fullAddress, ...plan.columns.houseNumber, ...plan.columns.street, ...plan.columns.town, ...plan.columns.postcode]);
+  const find = (re: RegExp) => headers.map((h, i) => [String(h ?? ""), i] as const).filter(([h, i]) => re.test(h) && !/e-?mail|latitude|longitude/i.test(h) && !used.has(i)).map(([, i]) => i);
+  return { address: find(/address|addr\b/i), postcode: find(/post\s*code|postal|zip/i) };
+}
+
 export function applyPlan(grid: string[][], plan: ImportPlan): SmartRow[] {
   const out: SmartRow[] = [];
   const cell = (row: string[], i: number) => String(row[i] ?? "").trim();
+  const fallback = addressFallbacks(grid, plan);
   const get = (row: string[], f: PlanField, sep: string) =>
     plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep);
   const first = (row: string[], f: PlanField) => plan.columns[f].map((i) => cell(row, i)).find(Boolean) ?? "";
@@ -181,10 +193,10 @@ export function applyPlan(grid: string[][], plan: ImportPlan): SmartRow[] {
     const houseNameNumber = get(row, "houseNumber", " ");
     const street = get(row, "street", " ");
     const town = get(row, "town", ", ");
-    const postcode = get(row, "postcode", " ").toUpperCase();
+    const postcode = (get(row, "postcode", " ") || (fallback.postcode.map((i) => cell(row, i)).find(Boolean) ?? "")).toUpperCase();
     const parts = { houseNameNumber, street, town, postcode };
     // A full address line plus separate town/postcode columns: add them if the line hasn't got them.
-    const line = get(row, "fullAddress", ", ");
+    const line = get(row, "fullAddress", ", ") || (!houseNameNumber && !street ? fallback.address.map((i) => cell(row, i)).find(Boolean) ?? "" : "");
     const has = (bit: string) => line.toLowerCase().replace(/\s+/g, "").includes(bit.toLowerCase().replace(/\s+/g, ""));
     const address = line
       ? [line, !houseNameNumber && !street && town && !has(town) ? town : "", !houseNameNumber && !street && postcode && !has(postcode) ? postcode : ""].filter(Boolean).join(", ")
@@ -286,6 +298,7 @@ export type HistoryRow = {
 /** Turn every row of a job history file into a past clean (and payment) using the plan. */
 export function applyHistoryPlan(grid: string[][], plan: ImportPlan): HistoryRow[] {
   const out: HistoryRow[] = [];
+  const fallback = addressFallbacks(grid, plan);
   const cell = (row: string[], i: number) => String(row[i] ?? "").trim();
   const get = (row: string[], f: PlanField, sep: string) => plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep);
   const first = (row: string[], f: PlanField) => plan.columns[f].map((i) => cell(row, i)).find(Boolean) ?? "";
@@ -296,8 +309,8 @@ export function applyHistoryPlan(grid: string[][], plan: ImportPlan): HistoryRow
     const filled = row.map((c) => String(c ?? "").trim()).filter(Boolean);
     if (filled.length === 0) continue;
     if (/^(total|totals|sub ?total)$/i.test(filled[0])) continue;
-    const postcode = get(row, "postcode", " ").toUpperCase();
-    const address = get(row, "fullAddress", ", ") || composeAddress({
+    const postcode = (get(row, "postcode", " ") || (fallback.postcode.map((i) => cell(row, i)).find(Boolean) ?? "")).toUpperCase();
+    const address = get(row, "fullAddress", ", ") || fallback.address.map((i) => cell(row, i)).find(Boolean) || composeAddress({
       houseNameNumber: get(row, "houseNumber", " "), street: get(row, "street", " "), town: get(row, "town", ", "), postcode,
     });
     const name = get(row, "name", " ");

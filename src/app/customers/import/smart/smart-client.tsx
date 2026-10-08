@@ -105,6 +105,7 @@ export function SmartImport({ available, areas, customers }: { available: boolea
     return [...map.values()].sort((a, b) => b.count - a.count);
   }, [custRows, areas]);
   const withProblems = rows.filter((r) => r.problems.length > 0);
+  const noAddress = rows.filter((r) => !r.address).length;
   const inactive = custRows.filter((r) => !r.active).length;
   const shown = (problemsOnly ? withProblems : rows).slice(0, 60);
 
@@ -427,6 +428,12 @@ export function SmartImport({ available, areas, customers }: { available: boolea
       {anyCustomers && (
         <>
           <p className="flex items-center gap-2 pt-1 text-sm font-semibold text-slate-700"><Users size={15} /> Customers</p>
+          {noAddress > 0 && noAddress >= Math.max(3, rows.length * 0.1) && (
+            <p className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
+              <span><b>{noAddress} of {rows.length} customers have no address.</b> That usually means the wrong column was used. Press &quot;Not quite, try again&quot; and say which column has the address.</span>
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Stat label="Customers" value={String(custRows.length)} sub={quoteRows.length ? `+ ${quoteRows.length} quote${quoteRows.length === 1 ? "" : "s"}` : undefined} />
             <Stat label="Areas" value={String(areaSummary.length)} sub={`${areaSummary.filter((a) => !a.existing).length} new`} />
