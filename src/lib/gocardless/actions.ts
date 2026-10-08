@@ -28,7 +28,7 @@ export async function getGoCardlessOverview() {
   ]);
   return {
     connected: Boolean(connected),
-    environment: settings?.goCardlessEnvironment ?? "live",
+    environment: connected?.base.includes("sandbox") ? "sandbox" : settings?.goCardlessEnvironment ?? "live",
     creditorName: settings?.goCardlessCreditorName ?? "",
     lastSyncedAt: settings?.goCardlessLastSyncedAt?.toISOString() ?? null,
     lastError: settings?.goCardlessLastError ?? "",

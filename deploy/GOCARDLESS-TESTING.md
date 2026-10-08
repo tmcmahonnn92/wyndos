@@ -2,7 +2,17 @@
 
 Direct Debit only appears where the build has `NEXT_PUBLIC_GOCARDLESS_ENABLED=1`. Production stays off until this is signed off.
 
-## 1. Set up (once)
+## Testing on your own computer (run-local.sh)
+
+Add to `.env` (never commit it):
+```
+NEXT_PUBLIC_GOCARDLESS_ENABLED=1
+GOCARDLESS_DEV_TOKEN=sandbox_...your sandbox token...
+```
+Run `./run-local.sh`. The dev token is used when no token is saved in Settings (local only, never on the live server).
+There's no cron locally: press **Sync now** instead. Then follow steps 2–11 below.
+
+## 1. Set up on staging (once)
 
 1. GoCardless **sandbox** account: https://manage-sandbox.gocardless.com/signup
 2. Sandbox dashboard → **Developers → Create → Access token** → name "Wyndos staging", **Read-write**. Copy it.

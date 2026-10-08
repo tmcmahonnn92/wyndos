@@ -5060,7 +5060,7 @@ export async function getBusinessSettings() {
     twilioAuthToken: "",
     metaAccessToken: "",
     goCardlessAccessToken: "",
-    goCardlessConfigured: Boolean(settings.goCardlessAccessToken),
+    goCardlessConfigured: Boolean(settings.goCardlessAccessToken) || Boolean(process.env.NODE_ENV !== "production" && process.env.GOCARDLESS_DEV_TOKEN?.trim().startsWith("sandbox_")),
   };
 }
 
@@ -5171,7 +5171,7 @@ export async function getBusinessSettingsForClient() {
     logoBase64: settings.logoBase64,
     goCardlessEnvironment: settings.goCardlessEnvironment,
     goCardlessReferencePrefix: settings.goCardlessReferencePrefix,
-    goCardlessAccessTokenConfigured: Boolean(settings.goCardlessAccessToken),
+    goCardlessAccessTokenConfigured: Boolean(settings.goCardlessAccessToken) || Boolean(process.env.NODE_ENV !== "production" && process.env.GOCARDLESS_DEV_TOKEN?.trim().startsWith("sandbox_")),
     goCardlessLastSyncedAt: settings.goCardlessLastSyncedAt?.toISOString() ?? null,
     smtpProvider: settings.smtpProvider,
     smtpHost: settings.smtpHost,
