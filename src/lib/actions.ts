@@ -4863,6 +4863,76 @@ export async function createOtherIncome(data: {
   revalidatePath("/accounting");
 }
 
+/** Edit an "other income" entry (not customer payments: those come from cleans and live on Payments). */
+export async function updateOtherIncome(otherIncomeId: number, data: { category?: string; source?: string; amount?: number; taxTreatment?: string; receivedAt?: Date; notes?: string }) {
+  const actor = await requirePerm("accounting");
+  const tenantId = actor.tenantId;
+  const existing = await requireTenantOtherIncome(tenantId, otherIncomeId);
+  const updates: Record<string, unknown> = {};
+  if (data.category !== undefined) updates.category = getOtherIncomeCategory(data.category).value;
+  if (data.source !== undefined) updates.source = data.source.trim();
+  if (data.notes !== undefined) updates.notes = data.notes.trim() || null;
+  if (data.amount !== undefined || data.taxTreatment !== undefined) {
+    const amount = data.amount !== undefined ? Number(data.amount) : existing.amount;
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error("Income amount must be greater than zero.");
+    const tax = calculateTaxBreakdown(amount, data.taxTreatment ?? existing.taxTreatment);
+    Object.assign(updates, { amount, netAmount: tax.netAmount, vatAmount: tax.vatAmount, vatRate: tax.vatRate, taxTreatment: tax.taxTreatment });
+  }
+  if (data.receivedAt !== undefined) {
+    const d = new Date(data.receivedAt);
+    if (Number.isNaN(d.getTime())) throw new Error("Income date is invalid.");
+    updates.receivedAt = d;
+  }
+  await prisma.otherIncome.update({ where: { id: existing.id }, data: updates });
+  revalidatePath("/accounting");
+}
+
+/**
+ * One month, day by day: customer payments (from cleans, read only), other income and expenses.
+ * month = "YYYY-MM".
+ */
+export async function getAccountingMonth(month: string) {
+  const actor = await requirePerm("accounting");
+  const tenantId = actor.tenantId;
+  const m = /^(\d{4})-(\d{2})$/.exec(String(month ?? "")) ?? /^(\d{4})-(\d{2})$/.exec(new Date().toISOString().slice(0, 7))!;
+  const start = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1));
+  const end = new Date(Date.UTC(Number(m[1]), Number(m[2]), 1));
+  const [payments, expenses, other] = await Promise.all([
+    prisma.payment.findMany({
+      where: { tenantId, voidedAt: null, paidAt: { gte: start, lt: end } },
+      select: { id: true, amount: true, paidAt: true, method: true, notes: true, customer: { select: { id: true, name: true } } },
+      orderBy: [{ paidAt: "asc" }, { id: "asc" }],
+    }),
+    prisma.expense.findMany({ where: { tenantId, expenseDate: { gte: start, lt: end } }, orderBy: [{ expenseDate: "asc" }, { id: "asc" }] }),
+    prisma.otherIncome.findMany({ where: { tenantId, receivedAt: { gte: start, lt: end } }, orderBy: [{ receivedAt: "asc" }, { id: "asc" }] }),
+  ]);
+  const round = (n: number) => Number(n.toFixed(2));
+  const jobIncome = round(payments.reduce((sum, p) => sum + p.amount, 0));
+  const otherIncome = round(other.reduce((sum, p) => sum + p.amount, 0));
+  const spent = round(expenses.reduce((sum, e) => sum + e.amount, 0));
+  return {
+    month: `${m[1]}-${m[2]}`,
+    label: start.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }),
+    payments: payments.map((p) => ({ id: p.id, amount: p.amount, date: p.paidAt.toISOString().slice(0, 10), method: p.method, notes: p.notes, customerId: p.customer.id, customerName: p.customer.name })),
+    expenses: expenses.map((e) => ({
+      ...e,
+      date: e.expenseDate.toISOString().slice(0, 10),
+      categoryLabel: getExpenseCategory(e.category).label,
+      hmrcLabel: getExpenseCategory(e.category).hmrcLabel,
+      taxTreatmentLabel: getTaxTreatment(e.taxTreatment).label,
+    })),
+    otherIncome: other.map((o) => ({
+      ...o,
+      date: o.receivedAt.toISOString().slice(0, 10),
+      categoryLabel: getOtherIncomeCategory(o.category).label,
+      sourceLabel: o.source || getOtherIncomeCategory(o.category).label,
+      taxTreatmentLabel: getTaxTreatment(o.taxTreatment).label,
+      sourceType: "OTHER_INCOME" as const,
+    })),
+    totals: { jobIncome, otherIncome, income: round(jobIncome + otherIncome), expenses: spent, net: round(jobIncome + otherIncome - spent) },
+  };
+}
+
 export async function deleteExpense(expenseId: number) {
   const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;

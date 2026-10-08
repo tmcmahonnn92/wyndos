@@ -4,7 +4,8 @@ import { useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Download, Loader2, Pencil, Plus, Receipt, TrendingDown, TrendingUp, Trash2, Upload, Wallet, X } from "lucide-react";
 import Link from "next/link";
-import { createExpense, createOtherIncome, deleteExpense, deleteOtherIncome, updateExpense } from "@/lib/actions";
+import { ChevronLeft, ChevronRight, Lock } from "lucide-react";
+import { updateOtherIncome, type getAccountingMonth, createExpense, createOtherIncome, deleteExpense, deleteOtherIncome, updateExpense } from "@/lib/actions";
 import type { ExpenseCategoryDefinition, OtherIncomeCategoryDefinition, TaxTreatmentDefinition } from "@/lib/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn, fmtCurrency } from "@/lib/utils";
@@ -76,6 +77,7 @@ type RecentOtherIncome = {
 };
 
 type TaxYearOption = { value: number; label: string };
+type MonthViewData = Awaited<ReturnType<typeof getAccountingMonth>>;
 type RepeatUnit = "DAY" | "WEEK" | "MONTH" | "YEAR";
 type QuickAddMode = "expense" | "income";
 
@@ -181,6 +183,7 @@ export function AccountingClient({
   availableTaxYears,
   exportGeneratedAt,
   initialAction,
+  monthView,
 }: {
   monthlySummaries: MonthlySummary[];
   recentExpenses: RecentExpense[];
@@ -198,6 +201,7 @@ export function AccountingClient({
   exportGeneratedAt: string;
   initialAction?: string | null;
   openingFigures?: React.ReactNode;
+  monthView: MonthViewData;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -209,6 +213,7 @@ export function AccountingClient({
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
   const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
+  const [editingIncomeId, setEditingIncomeId] = useState<number | null>(null);
   const [dateRange, setDateRange] = useState({ start: activeDateFrom, end: activeDateTo });
   const [expenseForm, setExpenseForm] = useState({
     category: "",
@@ -502,6 +507,67 @@ export function AccountingClient({
     });
   };
 
+  const blankIncome = () => ({
+    category: otherIncomeCategories[0]?.value ?? "OTHER", source: "", amount: "", taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
+    receivedAt: defaultDateString(), notes: "", isRecurring: false, repeatEvery: "1", repeatUnit: "MONTH" as RepeatUnit, repeatAnchorDate: defaultDateString(), repeatEndsAt: "",
+  });
+  const blankExpense = () => ({
+    category: "", supplier: "", amount: "", taxTreatment: taxTreatmentOptions[0]?.value ?? "NO_VAT",
+    expenseDate: defaultDateString(), notes: "", isRecurring: false, repeatEvery: "1", repeatUnit: "MONTH" as RepeatUnit, repeatAnchorDate: defaultDateString(), repeatEndsAt: "",
+  });
+  /** Show the add/edit form: the side panel on wide screens, the sheet on phones. */
+  const showForm = () => {
+    setQuickAddOpen(true);
+    setTimeout(() => document.getElementById("quick-add")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+  /** New entry from the month view, dated in that month (today if it's this month). */
+  const addFromMonth = (mode: QuickAddMode, month: string) => {
+    const today = defaultDateString();
+    const date = today.startsWith(month) ? today : `${month}-01`;
+    setEditingExpenseId(null);
+    setEditingIncomeId(null);
+    if (mode === "expense") setExpenseForm({ ...blankExpense(), expenseDate: date });
+    else setIncomeForm({ ...blankIncome(), receivedAt: date });
+    setQuickAddMode(mode);
+    showForm();
+  };
+  const openEditIncome = (entry: RecentOtherIncome) => {
+    setEditingExpenseId(null);
+    setEditingIncomeId(entry.id);
+    setIncomeForm({
+      ...blankIncome(),
+      category: entry.category, source: entry.source, amount: String(entry.amount), taxTreatment: entry.taxTreatment,
+      receivedAt: new Date(entry.receivedAt).toISOString().slice(0, 10), notes: entry.notes ?? "",
+    });
+    setQuickAddMode("income");
+    showForm();
+  };
+  const submitEditIncome = () => {
+    if (!editingIncomeId) return;
+    const amount = Number(incomeForm.amount);
+    if (!Number.isFinite(amount) || amount <= 0) { setFormError("Enter an income amount above zero."); return; }
+    startTransition(async () => {
+      try {
+        await updateOtherIncome(editingIncomeId, {
+          category: incomeForm.category, source: incomeForm.source, amount, taxTreatment: incomeForm.taxTreatment,
+          receivedAt: new Date(incomeForm.receivedAt), notes: incomeForm.notes,
+        });
+        setFormSuccess("Income updated.");
+        setEditingIncomeId(null);
+        setQuickAddOpen(false);
+        setIncomeForm(blankIncome());
+        router.refresh();
+      } catch (error) {
+        setFormError(error instanceof Error ? error.message : "Could not update the income entry.");
+      }
+    });
+  };
+  const goToMonth = (month: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("month", month);
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
   const quickAddPanel = (
     <div className="space-y-3">
       <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
@@ -569,8 +635,9 @@ export function AccountingClient({
             <label className="mb-1 block text-xs font-medium text-slate-700">Notes</label>
             <textarea value={incomeForm.notes} onChange={(event) => setIncomeForm((prev) => ({ ...prev, notes: event.target.value }))} rows={3} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </div>
-          <RecurringFields form={incomeForm} onChange={(patch) => setIncomeForm((prev) => ({ ...prev, ...patch }))} noun="income" />
-          <button type="button" onClick={submitOtherIncome} disabled={isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">{isPending ? <Loader2 size={14} className="animate-spin" /> : <Wallet size={14} />}Save income</button>
+          {!editingIncomeId && <RecurringFields form={incomeForm} onChange={(patch) => setIncomeForm((prev) => ({ ...prev, ...patch }))} noun="income" />}
+          <button type="button" onClick={editingIncomeId ? submitEditIncome : submitOtherIncome} disabled={isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">{isPending ? <Loader2 size={14} className="animate-spin" /> : <Wallet size={14} />}{editingIncomeId ? "Update income" : "Save income"}</button>
+          {editingIncomeId && <button type="button" onClick={() => { setEditingIncomeId(null); setIncomeForm(blankIncome()); }} className="w-full text-xs text-slate-500 hover:text-slate-800">Cancel editing</button>}
         </div>
       )}
     </div>
@@ -615,11 +682,21 @@ export function AccountingClient({
 
       <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-5">
+          <MonthView
+            data={monthView}
+            onMonth={goToMonth}
+            onAdd={(mode) => addFromMonth(mode, monthView.month)}
+            onEditExpense={(e) => { setEditingIncomeId(null); openEditExpense(e); showForm(); }}
+            onDeleteExpense={removeExpense}
+            onEditIncome={openEditIncome}
+            onDeleteIncome={removeOtherIncome}
+            deletingEntryId={deletingEntryId}
+          />
           <Card>
             <CardHeader><CardTitle>Monthly Breakdown</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               {monthlySummaries.map((month) => (
-                <div key={month.monthKey} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div key={month.monthKey} role="button" tabIndex={0} title="Open this month day by day" onClick={() => goToMonth(month.monthKey)} onKeyDown={(e) => { if (e.key === "Enter") goToMonth(month.monthKey); }} className={cn("cursor-pointer rounded-xl border bg-slate-50 p-3 hover:border-blue-300", month.monthKey === monthView.month ? "border-blue-400 ring-1 ring-blue-200" : "border-slate-200")}>
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-slate-800">{month.monthLabel}</p>
@@ -668,7 +745,7 @@ export function AccountingClient({
         </div>
 
         <div className="space-y-5">
-          <div className="hidden xl:block"><Card><CardHeader><CardTitle>Quick Add</CardTitle></CardHeader><CardContent>{quickAddPanel}</CardContent></Card></div>
+          <div id="quick-add" className="hidden scroll-mt-4 xl:block"><Card><CardHeader><CardTitle>{editingExpenseId ? "Edit expense" : editingIncomeId ? "Edit income" : "Quick Add"}</CardTitle></CardHeader><CardContent>{quickAddPanel}</CardContent></Card></div>
 
           <Card>
             <CardHeader><CardTitle>Recent Expenses</CardTitle></CardHeader>
@@ -708,10 +785,10 @@ export function AccountingClient({
           <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-3xl bg-white p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-base font-semibold text-slate-800">{editingExpenseId ? "Edit expense" : "Quick add"}</p>
-                <p className="text-xs text-slate-500">{editingExpenseId ? "Update expense details below." : "Add an expense or income."}</p>
+                <p className="text-base font-semibold text-slate-800">{editingExpenseId ? "Edit expense" : editingIncomeId ? "Edit income" : "Quick add"}</p>
+                <p className="text-xs text-slate-500">{editingExpenseId || editingIncomeId ? "Update the details below." : "Add an expense or income."}</p>
               </div>
-              <button type="button" onClick={() => { setQuickAddOpen(false); setEditingExpenseId(null); }} className="rounded-full border border-slate-200 p-2 text-slate-500"><X size={16} /></button>
+              <button type="button" onClick={() => { setQuickAddOpen(false); setEditingExpenseId(null); setEditingIncomeId(null); }} className="rounded-full border border-slate-200 p-2 text-slate-500"><X size={16} /></button>
             </div>
             {quickAddPanel}
           </div>
@@ -719,5 +796,117 @@ export function AccountingClient({
       )}
 
     </div>
+  );
+}
+/** One month, day by day: money in and out in date order. Customer payments come from cleans and are read only. */
+function MonthView({ data, onMonth, onAdd, onEditExpense, onDeleteExpense, onEditIncome, onDeleteIncome, deletingEntryId }: {
+  data: MonthViewData;
+  onMonth: (month: string) => void;
+  onAdd: (mode: QuickAddMode) => void;
+  onEditExpense: (expense: RecentExpense) => void;
+  onDeleteExpense: (id: number) => void;
+  onEditIncome: (income: RecentOtherIncome) => void;
+  onDeleteIncome: (id: number) => void;
+  deletingEntryId: string | null;
+}) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const shift = (by: number) => {
+    const [y, m] = data.month.split("-").map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + by, 1));
+    onMonth(d.toISOString().slice(0, 7));
+  };
+  const days = [...new Set([...data.payments.map((p) => p.date), ...data.otherIncome.map((o) => o.date), ...data.expenses.map((e) => e.date)])].sort();
+  // Formatted by hand so the server and the browser print exactly the same text.
+  const dayLabel = (iso: string) => {
+    const d = new Date(`${iso}T12:00:00Z`);
+    return `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()]} ${d.getUTCDate()} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()]}`;
+  };
+  const methodLabel = (m: string) => (m === "BACS" ? "bank" : m.toLowerCase());
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => shift(-1)} aria-label="Previous month" className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50"><ChevronLeft size={14} /></button>
+            <CardTitle className="min-w-[9rem] text-center">{data.label}</CardTitle>
+            <button type="button" onClick={() => shift(1)} aria-label="Next month" className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50"><ChevronRight size={14} /></button>
+          </div>
+          <div className="flex gap-1.5">
+            <button type="button" onClick={() => onAdd("expense")} className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"><Plus size={12} /> Expense</button>
+            <button type="button" onClick={() => onAdd("income")} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"><Plus size={12} /> Income</button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-3 gap-2 text-xs">
+          <div className="rounded-lg border border-slate-200 bg-white px-2 py-2"><p className="text-slate-400">Money in</p><p className="mt-0.5 text-sm font-bold text-green-700">{fmtCurrency(data.totals.income)}</p><p className="text-[11px] text-slate-400">{fmtCurrency(data.totals.jobIncome)} from cleans</p></div>
+          <div className="rounded-lg border border-slate-200 bg-white px-2 py-2"><p className="text-slate-400">Money out</p><p className="mt-0.5 text-sm font-bold text-red-700">{fmtCurrency(data.totals.expenses)}</p><p className="text-[11px] text-slate-400">{data.expenses.length} expense{data.expenses.length === 1 ? "" : "s"}</p></div>
+          <div className="rounded-lg border border-slate-200 bg-white px-2 py-2"><p className="text-slate-400">Net</p><p className={cn("mt-0.5 text-sm font-bold", data.totals.net >= 0 ? "text-green-700" : "text-red-700")}>{fmtCurrency(data.totals.net)}</p></div>
+        </div>
+
+        {days.length === 0 ? <p className="text-sm text-slate-500">Nothing in {data.label} yet.</p> : (
+          <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+            {days.map((day) => {
+              const pays = data.payments.filter((p) => p.date === day);
+              const incomes = data.otherIncome.filter((o) => o.date === day);
+              const costs = data.expenses.filter((e) => e.date === day);
+              const dayIn = pays.reduce((s, p) => s + p.amount, 0) + incomes.reduce((s, o) => s + o.amount, 0);
+              const dayOut = costs.reduce((s, e) => s + e.amount, 0);
+              const expanded = open.has(day);
+              return (
+                <div key={day} className="px-3 py-2">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+                    <span>{dayLabel(day)}</span>
+                    <span>{dayIn > 0 && <span className="text-green-700">+{fmtCurrency(dayIn)}</span>}{dayIn > 0 && dayOut > 0 && " · "}{dayOut > 0 && <span className="text-red-700">−{fmtCurrency(dayOut)}</span>}</span>
+                  </div>
+                  <div className="mt-1 space-y-1">
+                    {pays.length > 0 && (
+                      <div className="rounded-lg bg-green-50/60 px-2 py-1.5">
+                        <button type="button" onClick={() => setOpen((o) => { const n = new Set(o); if (n.has(day)) n.delete(day); else n.add(day); return n; })} className="flex w-full items-center justify-between gap-2 text-left text-sm">
+                          <span className="flex items-center gap-1.5 text-slate-700"><Lock size={11} className="text-slate-400" /> Customer payments ({pays.length}) <span className="text-[11px] text-slate-400">{expanded ? "hide" : "show"}</span></span>
+                          <span className="font-semibold text-green-700">{fmtCurrency(pays.reduce((s, p) => s + p.amount, 0))}</span>
+                        </button>
+                        {expanded && (
+                          <ul className="mt-1 space-y-0.5 border-t border-green-100 pt-1">
+                            {pays.map((p) => (
+                              <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
+                                <Link href={`/customers/${p.customerId}`} className="truncate text-slate-700 hover:underline">{p.customerName} <span className="text-slate-400">· {methodLabel(p.method)}</span></Link>
+                                <span className="tabular-nums text-slate-700">{fmtCurrency(p.amount)}</span>
+                              </li>
+                            ))}
+                            <li className="pt-0.5 text-[11px] text-slate-400">From cleans: change these on the customer or in Payments.</li>
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                    {incomes.map((o) => (
+                      <div key={`i${o.id}`} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-sm hover:bg-slate-50">
+                        <span className="min-w-0 truncate text-slate-700">{o.sourceLabel} <span className="text-xs text-slate-400">· {o.categoryLabel}</span></span>
+                        <span className="flex flex-shrink-0 items-center gap-2">
+                          <span className="font-semibold text-green-700">+{fmtCurrency(o.amount)}</span>
+                          <button type="button" onClick={() => onEditIncome({ ...o, receivedAt: o.receivedAt })} className="text-slate-400 hover:text-blue-600" aria-label="Edit income"><Pencil size={12} /></button>
+                          <button type="button" onClick={() => onDeleteIncome(o.id)} disabled={deletingEntryId === `income-${o.id}`} className="text-slate-400 hover:text-red-600" aria-label="Delete income"><Trash2 size={12} /></button>
+                        </span>
+                      </div>
+                    ))}
+                    {costs.map((e) => (
+                      <div key={`e${e.id}`} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-sm hover:bg-slate-50">
+                        <span className="min-w-0 truncate text-slate-700">{e.supplier || e.categoryLabel} <span className="text-xs text-slate-400">· {e.categoryLabel}</span></span>
+                        <span className="flex flex-shrink-0 items-center gap-2">
+                          <span className="font-semibold text-red-700">−{fmtCurrency(e.amount)}</span>
+                          <button type="button" onClick={() => onEditExpense(e)} className="text-slate-400 hover:text-blue-600" aria-label="Edit expense"><Pencil size={12} /></button>
+                          <button type="button" onClick={() => onDeleteExpense(e.id)} disabled={deletingEntryId === `expense-${e.id}`} className="text-slate-400 hover:text-red-600" aria-label="Delete expense"><Trash2 size={12} /></button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
