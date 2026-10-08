@@ -106,7 +106,7 @@ export async function importCpCustomers(rows: CpImportRow[]) {
       const address = composeAddress(parts) || text(r.address, 300) || name;
       const jobName = text(r.jobName, 80) || "Window Cleaning";
       const already = await prisma.customer.findFirst({ where: { tenantId, name, address, jobName }, select: { id: true } });
-      if (already) { skipped++; continue; }
+      if (already) { skipped++; errors.push(`${name}: already in Wyndos (same name, address and job), left as it was`); continue; }
 
       const last = isIso(r.lastCompletedDate) ? day(r.lastCompletedDate) : null;
       const next = oneOff ? null : isIso(r.nextDueDate)
@@ -185,6 +185,7 @@ export async function importCpHistory(items: CpHistoryItem[]) {
   );
   const dayCache = new Map<string, number>();
   let cleans = 0, payments = 0, skipped = 0;
+  const skippedItems: string[] = [];
 
   // Unpaid cleans per customer, oldest first (loaded once for the customers paying in this batch).
   const owing = new Map<number, Array<{ id: number; left: number }>>();
@@ -204,7 +205,11 @@ export async function importCpHistory(items: CpHistoryItem[]) {
   for (const it of items) {
     const c = customers.get(it.customerId);
     const amount = money(it.amount);
-    if (!c || !isIso(it.date) || amount <= 0) { skipped++; continue; }
+    if (!c || !isIso(it.date) || amount <= 0) {
+      skipped++;
+      skippedItems.push(`${it.kind === "payment" ? "Payment" : "Clean"} ${isIso(it.date) ? it.date : "(no date)"} £${amount.toFixed(2)}: ${!c ? "customer wasn't imported" : !isIso(it.date) ? "no date" : "no amount"}`);
+      continue;
+    }
     if (it.kind === "charge") {
       const workDayId = await historyDay(tenantId, c.areaId, it.date, dayCache);
       await prisma.job.create({
@@ -235,7 +240,7 @@ export async function importCpHistory(items: CpHistoryItem[]) {
       payments++;
     }
   }
-  return { cleans, payments, skipped };
+  return { cleans, payments, skipped, skippedItems };
 }
 
 /** Step 3: book each imported area's next run from its customers' due dates. */

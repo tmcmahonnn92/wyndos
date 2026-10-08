@@ -38,6 +38,7 @@ How to read the file:
 - Rows and columns are numbered from 0. headerRow is the row with the column headings (-1 if there are none). firstDataRow is the first row with a customer. Skip title rows, blank rows and totals.
 - For each field give the columns that hold it, in reading order. Several columns are joined: name parts with spaces (e.g. Title, First name, Surname), address and notes with commas. Leave a field empty if the file doesn't have it.
 - Address: if it's in one cell use fullAddress; if it's split use houseNumber, street, town, postcode (extra lines like locality go in town). Never put the same column in two address fields.
+- If there are two sets of address columns (e.g. customer address and job/property/site address), use the set that is filled in on most rows, normally the customer's. Never choose address or postcode columns that are empty on most rows.
 - Phone: list mobile columns before landline columns.
 - Price: the price per clean, not a balance owed or a total.
 - Area: the round, area, day or route a customer is cleaned on. If there isn't one, set defaultArea to a sensible name (e.g. the town most rows share) and leave area empty.

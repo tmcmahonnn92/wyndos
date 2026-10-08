@@ -29,14 +29,24 @@ export class GoCardlessError extends Error {
 }
 
 /** The business's GoCardless connection, or null when no token is saved. */
+/**
+ * Local development only: a sandbox token from GOCARDLESS_DEV_TOKEN, used when the business
+ * hasn't saved one. Never used on the live server (NODE_ENV=production) or for live tokens.
+ */
+export function devToken() {
+  const t = process.env.GOCARDLESS_DEV_TOKEN?.trim() ?? "";
+  return process.env.NODE_ENV !== "production" && t.startsWith("sandbox_") ? t : "";
+}
+
 export async function gcConnection(tenantId: number): Promise<Conn | null> {
   const raw = await prisma.tenantSettings.findFirst({ where: { tenantId } });
   if (!raw) return null;
   const settings = decryptSettingsSecrets(raw);
-  const token = String(settings.goCardlessAccessToken ?? "").trim();
+  const token = String(settings.goCardlessAccessToken ?? "").trim() || devToken();
   if (!token) return null;
-  const base = process.env.GOCARDLESS_API_BASE?.trim()
-    || (settings.goCardlessEnvironment === "sandbox" ? "https://api-sandbox.gocardless.com" : "https://api.gocardless.com");
+  // GoCardless tokens say which they are (sandbox_… / live_…), so the setting can't get it wrong.
+  const sandbox = token.startsWith("sandbox_") || (!token.startsWith("live_") && settings.goCardlessEnvironment === "sandbox");
+  const base = process.env.GOCARDLESS_API_BASE?.trim() || (sandbox ? "https://api-sandbox.gocardless.com" : "https://api.gocardless.com");
   return { tenantId, token, base: base.replace(/\/$/, "") };
 }
 

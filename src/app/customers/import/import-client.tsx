@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { bulkImportCustomers, deleteAllCustomers, bulkImportJobHistory } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
+import { NotImportedList, type NotImportedRow } from "@/components/not-imported-list";
 import { cn } from "@/lib/utils";
 import { AREA_SORT_ENABLED, GUIDED_IMPORT_ENABLED, SMART_IMPORT_ENABLED } from "@/lib/features";
 import { composeAddress, type AddressParts } from "@/lib/address";
@@ -313,8 +314,8 @@ export function ImportClient({ areas }: { areas: Area[] }) {
     areasCreated: string[];
     historyCreated: number;
     runsBooked: Array<{ area: string; date: string }>;
-    errors: Array<{ row: number; message: string }>;
-    historyErrors: Array<{ row: number; message: string }>;
+    errors: NotImportedRow[];
+    historyErrors: NotImportedRow[];
   } | null>(null);
   // A new account has no areas yet, so every area in the sheet is new: create them by default.
   const [createMissingAreas, setCreateMissingAreas] = useState(areas.filter((a) => !("isSystemArea" in a && a.isSystemArea)).length === 0);
@@ -642,7 +643,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         }
       );
       let historyCreated = 0;
-      let historyErrors: Array<{ row: number; message: string }> = [];
+      let historyErrors: NotImportedRow[] = [];
       if (importHistory && validHistory.length > 0) {
         const hResult = await bulkImportJobHistory(
           validHistory.map((r) => ({
@@ -657,7 +658,10 @@ export function ImportClient({ areas }: { areas: Area[] }) {
           { matchField }
         );
         historyCreated = hResult.created;
-        historyErrors = hResult.errors;
+        historyErrors = [
+          ...hResult.errors.map((e) => ({ row: (validHistory[e.row - 1]?.index ?? e.row) + 1, name: validHistory[e.row - 1]?.customerName, reason: e.message })),
+          ...hResult.skippedRows.map((e) => ({ row: (validHistory[e.row - 1]?.index ?? e.row) + 1, name: validHistory[e.row - 1]?.customerName, reason: e.reason })),
+        ];
       }
       const skipped = preview.filter((r) => r.errors.length > 0);
       const skippedHistory = historyPreview.filter((r) => r.errors.length > 0);
@@ -668,14 +672,16 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         areasCreated: result.areasCreated,
         runsBooked: result.runsBooked,
         historyCreated,
+        // Row numbers as the spreadsheet shows them (heading is row 1).
         errors: [
-          ...skipped.map((r) => ({ row: r.index, message: r.errors.join("; ") })),
-          ...result.errors,
-        ],
+          ...skipped.map((r) => ({ row: r.index + 1, name: r.name, reason: r.errors.join("; ") })),
+          ...result.errors.map((e) => ({ row: (valid[e.row - 1]?.index ?? e.row) + 1, name: valid[e.row - 1]?.name, reason: e.message })),
+          ...result.skippedRows.map((e) => ({ row: (valid[e.row - 1]?.index ?? e.row) + 1, name: valid[e.row - 1]?.name, reason: e.reason })),
+        ].sort((a, b) => Number(a.row) - Number(b.row)),
         historyErrors: [
-          ...skippedHistory.map((r) => ({ row: r.index, message: r.errors.join("; ") })),
+          ...skippedHistory.map((r) => ({ row: r.index + 1, name: r.customerName, reason: r.errors.join("; ") })),
           ...historyErrors,
-        ],
+        ].sort((a, b) => Number(a.row) - Number(b.row)),
       });
       setStep(3);
     });
@@ -784,6 +790,12 @@ export function ImportClient({ areas }: { areas: Area[] }) {
       {SMART_IMPORT_ENABLED && (
         <Link href="/customers/import/smart" className="flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:bg-blue-100">
           <span><b>Smart import:</b> upload your list in any layout (or from another program). Wyndos works out the columns and shows you a preview first.</span>
+          <span className="flex-shrink-0 font-semibold text-blue-700">Try it →</span>
+        </Link>
+      )}
+      {SMART_IMPORT_ENABLED && (
+        <Link href="/customers/import/smart?mode=history" className="flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:bg-blue-100">
+          <span><b>Smart job history import:</b> past cleans and payments in any layout, matched to your customers automatically, with a preview first.</span>
           <span className="flex-shrink-0 font-semibold text-blue-700">Try it →</span>
         </Link>
       )}
@@ -994,6 +1006,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                 </span>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Upload a separate CSV of past cleans. Each row creates a completed job and optional payment record.
+                  {SMART_IMPORT_ENABLED && <> Different layout? Use the <Link href="/customers/import/smart?mode=history" className="font-semibold text-blue-700 underline">smart job history import</Link>.</>}
                 </p>
                 {importHistory && (
                   <div className="mt-3 space-y-2">
@@ -1743,39 +1756,8 @@ export function ImportClient({ areas }: { areas: Area[] }) {
             <span className="font-semibold">Go →</span>
           </a>}
 
-          {importResult.errors.length > 0 && (
-            <div className="border border-red-200 rounded-xl overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border-b border-red-200">
-                <AlertCircle size={14} className="text-red-500" />
-                <span className="text-sm font-semibold text-red-700">{importResult.errors.length} row{importResult.errors.length !== 1 ? "s" : ""} skipped</span>
-              </div>
-              <ul className="divide-y divide-red-100 max-h-48 overflow-y-auto">
-                {importResult.errors.map((e, i) => (
-                  <li key={i} className="flex items-start gap-3 px-4 py-2.5">
-                    <span className="text-xs text-red-400 font-mono w-8 flex-shrink-0">#{e.row}</span>
-                    <span className="text-xs text-red-700">{e.message}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {importResult.historyErrors.length > 0 && (
-            <div className="border border-orange-200 rounded-xl overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-3 bg-orange-50 border-b border-orange-200">
-                <Clock size={14} className="text-orange-500" />
-                <span className="text-sm font-semibold text-orange-700">{importResult.historyErrors.length} history row{importResult.historyErrors.length !== 1 ? "s" : ""} skipped</span>
-              </div>
-              <ul className="divide-y divide-orange-100 max-h-48 overflow-y-auto">
-                {importResult.historyErrors.map((e, i) => (
-                  <li key={i} className="flex items-start gap-3 px-4 py-2.5">
-                    <span className="text-xs text-orange-400 font-mono w-8 flex-shrink-0">#{e.row}</span>
-                    <span className="text-xs text-orange-700">{e.message}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <NotImportedList rows={importResult.errors} title="Customers not imported" fileName="customers-not-imported.csv" />
+          <NotImportedList rows={importResult.historyErrors} title="History not imported" fileName="history-not-imported.csv" />
 
           <div className="flex gap-2">
             <Link href="/customers" className="flex-1">

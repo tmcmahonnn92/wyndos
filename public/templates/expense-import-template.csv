@@ -1,0 +1,8 @@
+Date,Supplier,Description,Category,Amount,VAT,Notes
+02/04/2026,Shell,Diesel for the van,Fuel and travel,65.20,10.87,
+05/04/2026,Example Window Supplies,Resin and squeegee rubbers,Cleaning supplies,48.00,8.00,
+08/04/2026,Example Insurance Ltd,Public liability insurance (monthly),Business insurance (public liability),14.50,,
+12/04/2026,Example Mobile,Work phone,"Office, phone and admin",18.00,3.00,
+15/04/2026,Example Tools,Extension pole clamp,Equipment and tools,32.99,5.50,
+20/04/2026,Example Garage,Van service,Vehicle repairs and servicing,189.00,31.50,
+28/04/2026,Example Accountants,Year-end accounts,Accountant and professional fees,250.00,,Paid by bank transfer
