@@ -205,3 +205,9 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Submitted quarters block adding/editing/deleting expenses, other income, trips, home hours and assets dated in them; changes from payments show "changed since submitted".
 - Export: Excel for bridging software (About, Cumulative, By quarter, Year end, Transactions, Mileage, Use of home, Assets).
 - Production hides thrown server-action messages (React #441): MTD actions return `{ ok, error }`; accounting forms pre-check `lockedReason`.
+
+## Import editing, defaults, history matching
+- Smart import (customers/history) and expense import: "Change columns or defaults" (`src/components/column-mapper.tsx`) edits the plan without AI: columns per field, heading row, file kind, and a value used when a cell is blank (`plan.defaults`).
+- Any preview row can be edited or left out (customers: name, address, area, price, frequency, next due, phone, email, notes, active; history: date, price, paid; expenses: date, supplier, amount, VAT). Left-out rows show in "won't be imported" and can be put back.
+- History that doesn't match: grouped per person; choose a customer (existing or new in the upload), "former customer" (created inactive in the Inactive customers area with their history), or leave out.
+- `CustomerAlias` (REF / ADDRESS / NAME): saved when the owner matches by hand ("remember for next time") and for every reference in an imported customer file; matching uses them. In backups.

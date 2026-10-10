@@ -2738,14 +2738,75 @@ export async function importQuotes(records: Array<{ name: string; address: strin
   return { created, skipped, skippedRows };
 }
 
-/** Owner, smart import: every customer's name and address, to match job history rows to them. */
+/** Owner, smart import: every customer's name and address (and other names/addresses they're known by), to match job history. */
 export async function getCustomersForMatching() {
   const actor = await requireOwner();
-  return prisma.customer.findMany({
-    where: { tenantId: actor.tenantId },
-    select: { id: true, name: true, address: true, postcode: true },
-    take: 20000,
-  });
+  const [customers, aliases] = await Promise.all([
+    prisma.customer.findMany({ where: { tenantId: actor.tenantId }, select: { id: true, name: true, address: true, postcode: true, active: true }, take: 20000 }),
+    prisma.customerAlias.findMany({ where: { tenantId: actor.tenantId }, select: { customerId: true, kind: true, label: true }, take: 50000 }),
+  ]);
+  const byCustomer = new Map<number, Array<{ kind: string; label: string }>>();
+  for (const a of aliases) byCustomer.set(a.customerId, [...(byCustomer.get(a.customerId) ?? []), { kind: a.kind, label: a.label }]);
+  return customers.map((c) => ({ ...c, postcode: c.postcode ?? "", aliases: byCustomer.get(c.id) ?? [] }));
+}
+
+const aliasKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 120);
+
+/**
+ * Owner, imports: remember other ways these customers appear in files (an old address, a
+ * different name, another program's reference) so their history matches next time.
+ */
+export async function saveCustomerAliases(list: Array<{ customerId: number; ref?: string; name?: string; address?: string }>) {
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
+  const items = (Array.isArray(list) ? list : []).slice(0, 2000);
+  const ids = [...new Set(items.map((i) => Number(i.customerId)).filter(Number.isInteger))];
+  const customers = new Map((await prisma.customer.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true, name: true, address: true } })).map((c) => [c.id, c]));
+  let saved = 0;
+  for (const i of items) {
+    const c = customers.get(Number(i.customerId));
+    if (!c) continue;
+    const entries: Array<[string, string]> = [];
+    if (i.ref?.trim()) entries.push(["REF", i.ref.trim()]);
+    if (i.address?.trim() && aliasKey(i.address) !== aliasKey(c.address)) entries.push(["ADDRESS", i.address.trim()]);
+    if (i.name?.trim() && aliasKey(i.name) !== aliasKey(c.name)) entries.push(["NAME", i.name.trim()]);
+    for (const [kind, label] of entries) {
+      const value = aliasKey(label);
+      if (!value) continue;
+      await prisma.customerAlias.upsert({
+        where: { tenantId_kind_value: { tenantId, kind, value } },
+        create: { tenantId, customerId: c.id, kind, value, label: label.slice(0, 200) },
+        update: { customerId: c.id, label: label.slice(0, 200) },
+      });
+      saved++;
+    }
+  }
+  return { saved };
+}
+
+/** Owner, imports: customers who only appear in history (moved away, stopped). Added as inactive, kept with their history. */
+export async function createFormerCustomers(list: Array<{ key: string; name: string; address: string; postcode?: string; ref?: string; price?: number }>) {
+  const actor = await requireOwner();
+  const tenantId = actor.tenantId;
+  const area = await getOrCreateInactiveArea(tenantId);
+  const out: Array<{ key: string; id: number }> = [];
+  for (const r of (Array.isArray(list) ? list : []).slice(0, 2000)) {
+    const name = String(r.name ?? "").trim().slice(0, 120) || String(r.address ?? "").split(",")[0].trim().slice(0, 120) || "Former customer";
+    const fields = mergeLooseAddress({ address: r.address, postcode: r.postcode }) ?? resolveAddress({ address: String(r.address ?? "").trim() || name });
+    if (!fields?.address) continue;
+    const existing = await prisma.customer.findFirst({ where: { tenantId, name, address: fields.address }, select: { id: true } });
+    const id = existing?.id ?? (await prisma.customer.create({ data: {
+      tenantId, name, ...fields, areaId: area.id, active: false, price: Math.max(0, Number(r.price) || 0),
+      frequencyWeeks: 4, notes: "Added from job history (former customer)",
+    } })).id;
+    if (r.ref?.trim()) {
+      const value = aliasKey(r.ref);
+      if (value) await prisma.customerAlias.upsert({ where: { tenantId_kind_value: { tenantId, kind: "REF", value } }, create: { tenantId, customerId: id, kind: "REF", value, label: r.ref.trim().slice(0, 200) }, update: { customerId: id } });
+    }
+    out.push({ key: String(r.key), id });
+  }
+  revalidatePath("/customers");
+  return out;
 }
 
 /** Worker or owner: the quote visit happened and a price was given. */

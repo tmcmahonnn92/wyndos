@@ -48,12 +48,13 @@ export type BackupFile = {
     homeUseMonths?: Row[];
     businessAssets?: Row[];
     mtdQuarterLocks?: Row[];
+    customerAliases?: Row[];
   };
 };
 
 export async function buildBackup(tenantId: number): Promise<BackupFile> {
   const where = { tenantId };
-  const [tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks] =
+  const [tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks, customerAliases] =
     await Promise.all([
       prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
       prisma.tenantSettings.findUnique({ where }),
@@ -78,8 +79,9 @@ export async function buildBackup(tenantId: number): Promise<BackupFile> {
       prisma.homeUseMonth.findMany({ where, orderBy: { id: "asc" } }),
       prisma.businessAsset.findMany({ where, orderBy: { id: "asc" } }),
       prisma.mtdQuarterLock.findMany({ where, orderBy: { id: "asc" } }),
+      prisma.customerAlias.findMany({ where, orderBy: { id: "asc" } }),
     ]);
-  const data = { tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks };
+  const data = { tenant, settings, areas, tags, customers, customerTags, workDays, jobs, payments, paymentAllocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks, customerAliases };
   return {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
@@ -142,9 +144,10 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
   const homeUseMonths = rows(d.homeUseMonths ?? []);
   const businessAssets = rows(d.businessAssets ?? []);
   const mtdQuarterLocks = rows(d.mtdQuarterLocks ?? []);
+  const customerAliases = rows(d.customerAliases ?? []);
 
   // Every row must belong to this business (defends against an edited file).
-  for (const list of [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks]) {
+  for (const list of [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks, customerAliases]) {
     if (list.some((r) => r.tenantId !== tenantId)) throw new Error("The backup file has been changed and can't be used.");
   }
 
@@ -163,7 +166,7 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
   const jobIds = idsOf(jobs), paymentIds = idsOf(payments), handoverIds = idsOf(cashHandovers), importIds = idsOf(paymentImports);
   idsOf(allocations); idsOf(expenses); idsOf(otherIncome); idsOf(holidays); idsOf(messageLogs); idsOf(payerReferences); idsOf(importedLines);
   const vehicleIds = idsOf(vehicles);
-  idsOf(mileageTrips); idsOf(homeUseMonths); idsOf(businessAssets); idsOf(mtdQuarterLocks);
+  idsOf(mileageTrips); idsOf(homeUseMonths); idsOf(businessAssets); idsOf(mtdQuarterLocks); idsOf(customerAliases);
   const must = (v: unknown, set: Set<number>) => { if (typeof v !== "number" || !set.has(v)) throw bad(); };
   const mayBe = (v: unknown, set: Set<number>) => { if (v != null) must(v, set); };
   const orNull = (v: unknown, set: Set<number>) => (typeof v === "number" && set.has(v) ? v : null);
@@ -187,6 +190,7 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
   const incomeIds = new Set(otherIncome.map((e) => e.id as number));
   for (const e of expenses) { e.recurrenceTemplateId = orNull(e.recurrenceTemplateId, expenseIds); e.vehicleId = orNull(e.vehicleId, vehicleIds); }
   for (const t of mileageTrips) must(t.vehicleId, vehicleIds);
+  for (const a of customerAliases) must(a.customerId, customerIds);
   for (const e of otherIncome) e.recurrenceTemplateId = orNull(e.recurrenceTemplateId, incomeIds);
 
   // Ids can only be ones this database has already handed out, so a file can't claim
@@ -202,9 +206,9 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
     prisma.importedLine.aggregate({ _max: { id: true } }),
     prisma.vehicle.aggregate({ _max: { id: true } }), prisma.mileageTrip.aggregate({ _max: { id: true } }),
     prisma.homeUseMonth.aggregate({ _max: { id: true } }), prisma.businessAsset.aggregate({ _max: { id: true } }),
-    prisma.mtdQuarterLock.aggregate({ _max: { id: true } }),
+    prisma.mtdQuarterLock.aggregate({ _max: { id: true } }), prisma.customerAlias.aggregate({ _max: { id: true } }),
   ]);
-  const lists = [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks];
+  const lists = [areas, tags, customers, workDays, jobs, payments, allocations, expenses, otherIncome, holidays, messageLogs, cashHandovers, payerReferences, paymentImports, importedLines, vehicles, mileageTrips, homeUseMonths, businessAssets, mtdQuarterLocks, customerAliases];
   lists.forEach((list, i) => {
     const max = maxIds[i]._max.id ?? 0;
     if (list.some((r) => (r.id as number) > max)) throw bad();
@@ -264,6 +268,7 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
     await tx.homeUseMonth.deleteMany({ where });
     await tx.businessAsset.deleteMany({ where });
     await tx.mtdQuarterLock.deleteMany({ where });
+    await tx.customerAlias.deleteMany({ where });
 
     // Put the backup back, parents first, with the original ids.
     /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -271,6 +276,7 @@ export async function restoreBackup(tenantId: number, file: BackupFile) {
     if (tags.length) await tx.tag.createMany({ data: tags as any });
     if (customers.length) await tx.customer.createMany({ data: customers as any });
     if (customerTags.length) await tx.customerTag.createMany({ data: customerTags as any });
+    if (customerAliases.length) await tx.customerAlias.createMany({ data: customerAliases as any });
     if (workDays.length) await tx.workDay.createMany({ data: workDays as any });
     if (jobs.length) await tx.job.createMany({ data: jobs as any });
     if (cashHandovers.length) await tx.cashHandover.createMany({ data: cashHandovers as any });

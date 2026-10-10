@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, History, LifeBuoy, Loader2, RotateCcw, Sparkles, Upload, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Columns3, History, LifeBuoy, Loader2, RotateCcw, Sparkles, Upload, Users } from "lucide-react";
+import { ColumnMapper, type MapperField } from "@/components/column-mapper";
 import { unzipSync, strFromU8, gunzipSync } from "fflate";
 import { parseCSVText } from "@/lib/import-parsing";
 import {
@@ -10,17 +11,23 @@ import {
   type DroppedRow, type HistoryRow, type ImportPlan, type MatchCandidate, type PlanField, type SmartRow,
 } from "@/lib/smart-import/plan";
 import { aiImportPlan, type PlanRequest } from "@/lib/smart-import/actions";
-import { bookAreaRunsAfterImport, bulkImportCustomers, bulkImportJobHistory, getCustomersForMatching, importQuotes } from "@/lib/actions";
+import { bookAreaRunsAfterImport, bulkImportCustomers, bulkImportJobHistory, createFormerCustomers, getCustomersForMatching, importQuotes, saveCustomerAliases } from "@/lib/actions";
 import { cn, fmtCurrency } from "@/lib/utils";
 import { NotImportedList, type NotImportedRow } from "@/components/not-imported-list";
 
 type AreaOption = { id: number; name: string; frequencyWeeks: number };
-type ExistingCustomer = { id: number; name: string; address: string; postcode: string };
+type ExistingCustomer = { id: number; name: string; address: string; postcode: string; active?: boolean; aliases?: Array<{ kind: string; label: string }> };
+/** The owner's changes to a customer row in the preview. */
+type RowEdit = { name?: string; address?: string; area?: string; price?: number | null; frequencyWeeks?: number | null; nextDueDate?: string; phone?: string; email?: string; notes?: string; active?: boolean; skip?: boolean };
+type VisitEdit = { date?: string; price?: number | null; paid?: number | null; skip?: boolean };
+const normKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+/** Unmatched history rows that are clearly the same person go together, so they're sorted once. */
+const visitGroup = (v: { ref: string; name: string; address: string }) => `${normKey(v.ref)}|${normKey(v.name)}|${normKey(v.address.split(",")[0] ?? "")}`;
 type Stage = "upload" | "reading" | "preview" | "importing" | "done" | "elsewhere";
 /** One file, or one sheet of a workbook: read with its own plan. */
 type Part = { id: number; label: string; grid: string[][]; plan: ImportPlan; source: "wyndos" | "ai"; attempt: number; offTopic: boolean; /** Several same-layout sheets read together: where each row came from. */ origins?: string[] };
 type Sheet = { label: string; file: string; sheet: string; grid: string[][] };
-type Result = { created: number; skipped: number; errors: number; areas: string[]; quotes: number; visits: number; visitsSkipped: number; unmatched: number; notImported: NotImportedRow[]; historyNotImported: NotImportedRow[] };
+type Result = { former?: number; created: number; skipped: number; errors: number; areas: string[]; quotes: number; visits: number; visitsSkipped: number; unmatched: number; notImported: NotImportedRow[]; historyNotImported: NotImportedRow[] };
 
 const COLOURS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#06B6D4", "#84CC16", "#A855F7", "#6366F1"];
 const MAX_ROWS = 20000;
@@ -127,6 +134,15 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
   const [helpText, setHelpText] = useState("");
   const [helpSent, setHelpSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [rowEdits, setRowEdits] = useState<Record<string, RowEdit>>({});
+  const [visitEdits, setVisitEdits] = useState<Record<string, VisitEdit>>({});
+  /** Unmatched history, per group: "skip", "former" (add as a former customer), "old:<id>" or "new:<rowKey>". */
+  const [resolutions, setResolutions] = useState<Record<string, string>>({});
+  const [rememberAliases, setRememberAliases] = useState(true);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [mapperOpen, setMapperOpen] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+  const [showAll, setShowAll] = useState(false);
 
   // ── Customers ──
   const [rows, droppedCustomers] = useMemo(() => {
@@ -134,12 +150,24 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
     const all: SmartRow[] = parts.flatMap((p) => {
       if (p.plan.kind !== "customers") return [];
       const mine: DroppedRow[] = [];
-      const out = applyPlan(p.grid, p.plan, mine).map((r) => ({ ...r, where: p.origins?.[r.sheetRow - 1] }));
+      const out = applyPlan(p.grid, p.plan, mine).flatMap((raw) => {
+        const rowKey = `${p.id}:${raw.sheetRow}`;
+        const where = p.origins?.[raw.sheetRow - 1];
+        const e = rowEdits[rowKey];
+        if (e?.skip) { dropped.push({ sheetRow: raw.sheetRow, where, name: raw.name, reason: "Left out by you" }); return []; }
+        const r: SmartRow = { ...raw, rowKey, where, ...(e ?? {}) } as SmartRow;
+        if (e) {
+          // Re-check what the owner fixed.
+          r.problems = raw.problems.filter((x) => !(x === "No price" && r.price !== null) && !(x === "No address" && r.address));
+          if (e.active === false) r.quote = false;
+        }
+        return [r];
+      });
       dropped.push(...mine.map((d) => ({ ...d, where: p.origins?.[d.sheetRow - 1] })));
       return out;
     });
     return [all, dropped] as const;
-  }, [parts]);
+  }, [parts, rowEdits]);
   const custRows = useMemo(() => rows.filter((r) => !r.quote), [rows]);
   const quoteRows = useMemo(() => rows.filter((r) => r.quote), [rows]);
   const areaSummary = useMemo(() => {
@@ -156,7 +184,11 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
   const withProblems = rows.filter((r) => r.problems.length > 0);
   const noAddress = rows.filter((r) => !r.address).length;
   const inactive = custRows.filter((r) => !r.active).length;
-  const shown = (problemsOnly ? withProblems : rows).slice(0, 60);
+  const q = search.trim().toLowerCase();
+  const filtered = (problemsOnly ? withProblems : rows).filter((r) => !q || `${r.name} ${r.address} ${r.area}`.toLowerCase().includes(q));
+  const shown = showAll ? filtered.slice(0, 3000) : filtered.slice(0, 60);
+  const leftOut = Object.values(rowEdits).filter((e) => e.skip).length + Object.values(visitEdits).filter((e) => e.skip).length;
+  const updatePlan = (id: number, patch: Partial<ImportPlan>) => setParts((all) => all.map((p) => (p.id === id ? { ...p, plan: { ...p.plan, ...patch } } : p)));
 
   // ── Job history: matched against customers already in Wyndos and the ones in this upload ──
   const [visits, droppedVisits] = useMemo(() => {
@@ -164,28 +196,64 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
     const all: HistoryRow[] = parts.flatMap((p) => {
       if (p.plan.kind !== "job_history") return [];
       const mine: DroppedRow[] = [];
-      const out = applyHistoryPlan(p.grid, p.plan, mine).map((r) => ({ ...r, where: p.origins?.[r.sheetRow - 1] }));
+      const out = applyHistoryPlan(p.grid, p.plan, mine).flatMap((raw) => {
+        const rowKey = `${p.id}:${raw.sheetRow}`;
+        const where = p.origins?.[raw.sheetRow - 1];
+        const e = visitEdits[rowKey];
+        if (e?.skip) { dropped.push({ sheetRow: raw.sheetRow, where, name: raw.name || raw.address, reason: "Left out by you" }); return []; }
+        return [{ ...raw, rowKey, where, ...(e ?? {}), problems: e?.date ? raw.problems.filter((x) => x !== "No date") : raw.problems } as HistoryRow];
+      });
       dropped.push(...mine.map((d) => ({ ...d, where: p.origins?.[d.sheetRow - 1] })));
       return out;
     });
     return [all, dropped] as const;
-  }, [parts]);
-  const visitMatch = useMemo(() => {
+  }, [parts, visitEdits]);
+  const autoMatch = useMemo(() => {
     if (visits.length === 0) return [] as Array<string | null>;
     // Someone in the upload who's already in Wyndos counts once (as the existing customer, with the upload's ref).
     const newByKey = new Map(rows.map((r, i) => [custKey(r.name, r.address), i]));
     const oldKeys = new Set(customers.map((c) => custKey(c.name, c.address)));
     const candidates: Array<MatchCandidate<string>> = [
       ...customers.map((c) => ({ key: `old:${c.id}`, name: c.name, address: c.address, postcode: c.postcode, ref: rows[newByKey.get(custKey(c.name, c.address)) ?? -1]?.ref })),
-      ...rows.flatMap((r, i) => (oldKeys.has(custKey(r.name, r.address)) ? [] : [{ key: `new:${i}`, name: r.name, address: r.address, postcode: r.postcode, ref: r.ref }])),
+      // Other names, old addresses and references they've been matched by before.
+      ...customers.flatMap((c) => (c.aliases ?? []).map((a) => ({
+        key: `old:${c.id}`,
+        name: a.kind === "NAME" ? a.label : c.name,
+        address: a.kind === "ADDRESS" ? a.label : c.address,
+        ref: a.kind === "REF" ? a.label : undefined,
+      }))),
+      ...rows.flatMap((r) => (oldKeys.has(custKey(r.name, r.address)) ? [] : [{ key: `new:${r.rowKey}`, name: r.name, address: r.address, postcode: r.postcode, ref: r.ref }])),
     ];
     return matchHistory(visits, candidates);
   }, [visits, rows, customers]);
+  // The owner's choices for history that didn't match automatically.
+  const visitMatch = useMemo(() => visits.map((v, i) => {
+    if (autoMatch[i]) return autoMatch[i];
+    const choice = resolutions[visitGroup(v)];
+    if (!choice || choice === "skip") return null;
+    return choice === "former" ? `former:${visitGroup(v)}` : choice;
+  }), [visits, autoMatch, resolutions]);
   const matchedName = (key: string | null) => {
     if (!key) return "";
-    const [kind, id] = key.split(":");
-    return kind === "old" ? customers.find((c) => c.id === Number(id))?.name ?? "" : `${rows[Number(id)]?.name ?? ""} (new)`;
+    const [kind, ...rest] = key.split(":");
+    const id = rest.join(":");
+    if (kind === "former") return "Former customer (will be added)";
+    return kind === "old" ? customers.find((c) => c.id === Number(id))?.name ?? "" : `${rows.find((r) => r.rowKey === id)?.name ?? ""} (new)`;
   };
+  /** History rows nothing matched, grouped by person, for the owner to sort out. */
+  const unmatchedGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; ref: string; name: string; address: string; postcode: string; count: number; total: number; lastPrice: number | null; lastDate: string }>();
+    visits.forEach((v, i) => {
+      if (autoMatch[i]) return;
+      const g = visitGroup(v);
+      const e = groups.get(g) ?? { key: g, ref: v.ref, name: v.name, address: v.address, postcode: v.postcode, count: 0, total: 0, lastPrice: null, lastDate: "" };
+      e.count++;
+      e.total += v.price ?? 0;
+      if (v.date >= e.lastDate) { e.lastDate = v.date; e.lastPrice = v.price; }
+      groups.set(g, e);
+    });
+    return [...groups.values()].sort((a, b) => b.count - a.count);
+  }, [visits, autoMatch]);
   const unmatched = visits.filter((_, i) => !visitMatch[i]);
   const usableVisits = visits.filter((v, i) => visitMatch[i] && v.date);
   // What won't be imported, shown in the preview so nothing goes missing silently.
@@ -196,7 +264,7 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
   ].sort(byRow);
   const willSkipVisits: NotImportedRow[] = [
     ...droppedVisits.map((d) => ({ row: d.where ?? d.sheetRow, name: d.name, reason: d.reason })),
-    ...visits.flatMap((v, i) => (!visitMatch[i] ? [{ row: v.where ?? v.sheetRow, name: v.name || v.address || v.ref, reason: "No matching customer (by reference, address or name)" }] : !v.date ? [{ row: v.where ?? v.sheetRow, name: v.name || v.address, reason: "No date" }] : [])),
+    ...visits.flatMap((v, i) => (!visitMatch[i] ? [{ row: v.where ?? v.sheetRow, name: v.name || v.address || v.ref, reason: resolutions[visitGroup(v)] === "skip" ? "Left out by you" : "No matching customer: choose one below, or add them as a former customer" }] : !v.date ? [{ row: v.where ?? v.sheetRow, name: v.name || v.address, reason: "No date" }] : [])),
   ].sort(byRow);
   const visitDates = usableVisits.map((v) => v.date).sort();
   const visitIdx = visits.map((_, i) => i).filter((i) => !unmatchedOnly || !visitMatch[i]).slice(0, 60);
@@ -207,6 +275,7 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
   const maxAttempt = Math.max(0, ...parts.map((p) => p.attempt));
 
   const reset = () => {
+    setRowEdits({}); setVisitEdits({}); setResolutions({}); setEditing(null); setMapperOpen(null);
     setStage("upload"); setError(null); setFiles([]); setParts([]); setProgress("");
     setFeedbackOpen(false); setFeedback(""); setFeedbackPart(0); setElsewhere(null); setResult(null);
     setHelpOpen(false); setHelpText(""); setHelpSent(false); setProblemsOnly(false); setUnmatchedOnly(false);
@@ -346,15 +415,53 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
         r.skipped += res.skipped;
         for (const e of res.skippedRows) r.notImported.push({ row: batch[e.row - 1]?.where ?? batch[e.row - 1]?.sheetRow, name: batch[e.row - 1]?.name, reason: `Quote: ${e.reason}` });
       }
+      // Remember each customer's reference from the other program, so a history file on its own matches later.
+      const withRef = rows.filter((c) => c.ref);
+      if (withRef.length) {
+        const freshForRefs = await getCustomersForMatching();
+        const idOf = new Map(freshForRefs.map((c) => [custKey(c.name, c.address), c.id]));
+        const refs = withRef.flatMap((c) => { const id = idOf.get(custKey(c.name, c.address)); return id ? [{ customerId: id, ref: c.ref }] : []; });
+        for (let i = 0; i < refs.length; i += 1000) await saveCustomerAliases(refs.slice(i, i + 1000));
+      }
       // 3. History, matched again against everyone now in Wyndos (refs come from this upload's customers).
       if (usableVisits.length > 0) {
+        // Former customers the owner chose to add (people only in the history).
+        const formerIds = new Map<string, number>();
+        const former = unmatchedGroups.filter((g) => resolutions[g.key] === "former");
+        if (former.length) {
+          setProgress(`Adding ${former.length} former customer${former.length === 1 ? "" : "s"}…`);
+          for (const x of await createFormerCustomers(former.map((g) => ({ key: g.key, name: g.name, address: g.address, postcode: g.postcode, ref: g.ref, price: g.lastPrice ?? 0 })))) formerIds.set(x.key, x.id);
+          r.former = formerIds.size;
+        }
         setProgress("Matching history to customers…");
         const fresh = await getCustomersForMatching();
         const refOf = new Map(rows.filter((c) => c.ref).map((c) => [custKey(c.name, c.address), c.ref]));
-        const keys = matchHistory(visits, fresh.map((c) => ({ key: c.id, name: c.name, address: c.address, postcode: c.postcode, ref: refOf.get(custKey(c.name, c.address)) })));
+        const freshId = new Map(fresh.map((c) => [custKey(c.name, c.address), c.id]));
+        const auto = matchHistory(visits, [
+          ...fresh.map((c) => ({ key: c.id, name: c.name, address: c.address, postcode: c.postcode, ref: refOf.get(custKey(c.name, c.address)) })),
+          ...fresh.flatMap((c) => c.aliases.map((a) => ({ key: c.id, name: a.kind === "NAME" ? a.label : c.name, address: a.kind === "ADDRESS" ? a.label : c.address, ref: a.kind === "REF" ? a.label : undefined }))),
+        ]);
+        // Owner's choices for the rest.
+        const chosenId = (choice: string | undefined, group: string): number | null => {
+          if (!choice || choice === "skip") return null;
+          if (choice === "former") return formerIds.get(group) ?? null;
+          if (choice.startsWith("old:")) return Number(choice.slice(4)) || null;
+          if (choice.startsWith("new:")) { const row = rows.find((x) => x.rowKey === choice.slice(4)); return row ? freshId.get(custKey(row.name, row.address)) ?? null : null; }
+          return null;
+        };
+        const keys = visits.map((v, i) => auto[i] ?? chosenId(resolutions[visitGroup(v)], visitGroup(v)));
+        // Remember the other names / addresses / references they were matched by, for next time.
+        if (rememberAliases) {
+          const aliases = unmatchedGroups.flatMap((g) => {
+            const choice = resolutions[g.key];
+            const id = choice && choice !== "former" ? chosenId(choice, g.key) : null;
+            return id ? [{ customerId: id, ref: g.ref || undefined, name: g.name || undefined, address: g.address || undefined }] : [];
+          });
+          if (aliases.length) await saveCustomerAliases(aliases);
+        }
         const toSave = visits.flatMap((v, i) => (keys[i] && v.date ? [{ v, customerId: keys[i]! }] : []));
         r.unmatched = visits.length - toSave.length;
-        visits.forEach((v, i) => { if (!keys[i]) r.historyNotImported.push({ row: v.where ?? v.sheetRow, name: v.name || v.address || v.ref, reason: "No matching customer (by reference, address or name)" }); else if (!v.date) r.historyNotImported.push({ row: v.where ?? v.sheetRow, name: v.name || v.address, reason: "No date" }); });
+        visits.forEach((v, i) => { if (!keys[i]) r.historyNotImported.push({ row: v.where ?? v.sheetRow, name: v.name || v.address || v.ref, reason: resolutions[visitGroup(v)] === "skip" ? "Left out by you" : "No matching customer (by reference, address or name)" }); else if (!v.date) r.historyNotImported.push({ row: v.where ?? v.sheetRow, name: v.name || v.address, reason: "No date" }); });
         for (let i = 0; i < toSave.length; i += 400) {
           setProgress(`Adding history… ${Math.min(i + 400, toSave.length)} of ${toSave.length}`);
           const batch = toSave.slice(i, i + 400);
@@ -459,6 +566,7 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
           {result.quotes > 0 && <li>{result.quotes} quote{result.quotes === 1 ? "" : "s"} added, waiting for an answer (see Quotes)</li>}
           {result.areas.length > 0 && <li>New areas: {result.areas.join(", ")}</li>}
           {result.skipped > 0 && <li>{result.skipped} already in Wyndos, left as they were</li>}
+          {(result.former ?? 0) > 0 && <li>{result.former} former customer{result.former === 1 ? "" : "s"} added (inactive, with their history)</li>}
           {(result.visits > 0 || anyHistory) && <li>{result.visits} past clean{result.visits === 1 ? "" : "s"} added to history</li>}
           {result.visitsSkipped > 0 && <li>{result.visitsSkipped} cleans were already in Wyndos, not added twice</li>}
           {result.unmatched > 0 && <li>{result.unmatched} history row{result.unmatched === 1 ? "" : "s"} didn&apos;t match a customer and were left out</li>}
@@ -507,6 +615,33 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
                 {used.map((f) => `${FIELD_LABELS[f]} ← ${part.plan.columns[f].map((c) => headings[c]?.trim() || `column ${c + 1}`).join(" + ")}`).join(" · ")}
               </p>
             )}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => setMapperOpen(mapperOpen === part.id ? null : part.id)} className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100">
+                <Columns3 size={12} /> {mapperOpen === part.id ? "Done" : "Change columns or defaults"}
+              </button>
+              {Object.values(part.plan.defaults ?? {}).some(Boolean) && <span className="text-[11px] text-blue-800">Defaults for blanks: {Object.entries(part.plan.defaults ?? {}).filter(([, v]) => v).map(([k, v]) => `${FIELD_LABELS[k as PlanField]} = ${v}`).join(", ")}</span>}
+            </div>
+            {mapperOpen === part.id && (
+              <div className="mt-2 space-y-2 rounded-xl bg-white p-3">
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  This file is
+                  <select value={part.plan.kind} onChange={(e) => updatePlan(part.id, { kind: e.target.value as ImportPlan["kind"] })} className="rounded border border-slate-200 px-1.5 py-1">
+                    <option value="customers">a customer list</option>
+                    <option value="job_history">job history (past cleans / payments)</option>
+                    <option value="not_customers">not for importing</option>
+                  </select>
+                </label>
+                <ColumnMapper
+                  grid={part.grid}
+                  headerRow={part.plan.headerRow}
+                  columns={part.plan.columns}
+                  defaults={(part.plan.defaults ?? {}) as Record<string, string | undefined>}
+                  fields={part.plan.kind === "job_history" ? HISTORY_MAP_FIELDS : CUSTOMER_MAP_FIELDS}
+                  onChange={(next) => updatePlan(part.id, { columns: next.columns as ImportPlan["columns"], defaults: next.defaults as ImportPlan["defaults"], headerRow: next.headerRow, firstDataRow: next.firstDataRow })}
+                />
+                <p className="text-[11px] text-slate-400">Changes show in the preview straight away. No AI is used for these.</p>
+              </div>
+            )}
           </div>
         );
       })}
@@ -542,13 +677,17 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
           <div className="rounded-2xl border border-slate-200 bg-white">
             <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                {problemsOnly ? `Rows to check (${withProblems.length})` : `First ${Math.min(60, rows.length)} of ${rows.length}`}
+                Showing {shown.length} of {filtered.length}{problemsOnly ? " to check" : ""} · tap a row to change it
               </p>
-              {withProblems.length > 0 && (
-                <label className="flex items-center gap-1.5 text-xs text-slate-600">
-                  <input type="checkbox" checked={problemsOnly} onChange={(e) => setProblemsOnly(e.target.checked)} className="accent-blue-600" /> Only rows to check
-                </label>
-              )}
+              <div className="flex flex-wrap items-center gap-3">
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, address, area" className="w-48 rounded-lg border border-slate-200 px-2 py-1 text-xs" />
+                {filtered.length > 60 && <label className="flex items-center gap-1.5 text-xs text-slate-600"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} className="accent-blue-600" /> Show all</label>}
+                {withProblems.length > 0 && (
+                  <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                    <input type="checkbox" checked={problemsOnly} onChange={(e) => setProblemsOnly(e.target.checked)} className="accent-blue-600" /> Only rows to check
+                  </label>
+                )}
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -559,7 +698,8 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {shown.map((c, i) => (
-                    <tr key={`${c.sheetRow}-${i}`} className={cn(c.problems.length ? "bg-amber-50/60" : "", !c.active && "text-slate-400")}>
+                    <Fragment key={c.rowKey ?? `${c.sheetRow}-${i}`}>
+                    <tr onClick={() => setEditing(editing === `c:${c.rowKey}` ? null : `c:${c.rowKey}`)} className={cn("cursor-pointer hover:bg-blue-50/50", c.problems.length ? "bg-amber-50/60" : "", !c.active && "text-slate-400", rowEdits[c.rowKey ?? ""] && "outline outline-1 -outline-offset-1 outline-blue-300")}>
                       <td className="whitespace-nowrap px-2.5 py-1.5 text-slate-400">{c.where ?? c.sheetRow}</td>
                       <td className="max-w-[180px] truncate px-2.5 py-1.5 font-medium text-slate-800">{c.name}</td>
                       <td className="max-w-[280px] truncate px-2.5 py-1.5">{c.address}</td>
@@ -570,8 +710,17 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
                       <td className="whitespace-nowrap px-2.5 py-1.5">{c.phone || "—"}</td>
                       <td className="px-2.5 py-1.5">{c.preferredPaymentMethod || "—"}</td>
                       <td className="max-w-[200px] truncate px-2.5 py-1.5 text-slate-500">{c.notes.replace(/\n/g, " · ")}</td>
-                      <td className="px-2.5 py-1.5 text-amber-700">{[...c.problems, c.quote ? "Quote" : c.active ? "" : "Inactive"].filter(Boolean).join(", ")}</td>
+                      <td className="px-2.5 py-1.5 text-amber-700">{[...c.problems, c.quote ? "Quote" : c.active ? "" : "Inactive", rowEdits[c.rowKey ?? ""] ? "Changed" : ""].filter(Boolean).join(", ")}</td>
                     </tr>
+                    {editing === `c:${c.rowKey}` && (
+                      <tr><td colSpan={11} className="bg-blue-50/60 px-3 py-2">
+                        <CustomerEditor row={c} areas={[...new Set([...areas.map((a) => a.name), ...areaSummary.map((a) => a.name)])]}
+                          onSave={(e) => { setRowEdits((all) => ({ ...all, [c.rowKey!]: { ...all[c.rowKey!], ...e } })); setEditing(null); }}
+                          onReset={() => { setRowEdits((all) => { const n = { ...all }; delete n[c.rowKey!]; return n; }); setEditing(null); }}
+                          onSkip={() => { setRowEdits((all) => ({ ...all, [c.rowKey!]: { ...all[c.rowKey!], skip: true } })); setEditing(null); }} />
+                      </td></tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -612,7 +761,8 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
                     const v = visits[i];
                     const m = visitMatch[i];
                     return (
-                      <tr key={`${v.sheetRow}-${i}`} className={cn(!m || !v.date ? "bg-amber-50/60" : "")}>
+                      <Fragment key={v.rowKey ?? `${v.sheetRow}-${i}`}>
+                      <tr onClick={() => setEditing(editing === `v:${v.rowKey}` ? null : `v:${v.rowKey}`)} className={cn("cursor-pointer hover:bg-blue-50/50", !m || !v.date ? "bg-amber-50/60" : "", visitEdits[v.rowKey ?? ""] && "outline outline-1 -outline-offset-1 outline-blue-300")}>
                         <td className="whitespace-nowrap px-2.5 py-1.5 text-slate-400">{v.where ?? v.sheetRow}</td>
                         <td className="whitespace-nowrap px-2.5 py-1.5">{v.date ? fmtDate(v.date) : <span className="text-amber-700">No date</span>}</td>
                         <td className="max-w-[260px] truncate px-2.5 py-1.5">{[v.ref && `#${v.ref}`, v.name, v.address].filter(Boolean).join(" · ")}</td>
@@ -622,6 +772,15 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
                         <td className="px-2.5 py-1.5">{v.paymentMethod || "—"}</td>
                         <td className="max-w-[180px] truncate px-2.5 py-1.5 text-slate-500">{v.notes}</td>
                       </tr>
+                      {editing === `v:${v.rowKey}` && (
+                        <tr><td colSpan={8} className="bg-blue-50/60 px-3 py-2">
+                          <VisitEditor row={v}
+                            onSave={(e) => { setVisitEdits((all) => ({ ...all, [v.rowKey!]: { ...all[v.rowKey!], ...e } })); setEditing(null); }}
+                            onReset={() => { setVisitEdits((all) => { const n = { ...all }; delete n[v.rowKey!]; return n; }); setEditing(null); }}
+                            onSkip={() => { setVisitEdits((all) => ({ ...all, [v.rowKey!]: { ...all[v.rowKey!], skip: true } })); setEditing(null); }} />
+                        </td></tr>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </tbody>
@@ -629,6 +788,40 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
             </div>
           </div>
         </>
+      )}
+
+      {unmatchedGroups.length > 0 && (
+        <div className="space-y-2 rounded-2xl border border-amber-200 bg-white p-4">
+          <p className="text-sm font-semibold text-slate-800">History that didn&apos;t match a customer ({unmatchedGroups.length})</p>
+          <p className="text-xs text-slate-500">
+            Old addresses, different spellings, or customers who&apos;ve stopped. For each, choose who it is, add them as a <b>former customer</b> (kept inactive with their history), or leave it out.
+          </p>
+          <div className="max-h-96 divide-y divide-slate-100 overflow-y-auto">
+            {unmatchedGroups.map((g) => (
+              <div key={g.key} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-slate-800">{[g.ref && `#${g.ref}`, g.name, g.address].filter(Boolean).join(" · ") || "(no details)"}</p>
+                  <p className="text-slate-500">{g.count} clean{g.count === 1 ? "" : "s"} · {fmtCurrency(g.total)}{g.lastDate ? ` · last ${fmtDate(g.lastDate)}` : ""}</p>
+                </div>
+                <select value={resolutions[g.key] ?? ""} onChange={(e) => setResolutions((r) => ({ ...r, [g.key]: e.target.value }))} className={cn("w-72 max-w-full rounded-lg border px-2 py-1", resolutions[g.key] ? "border-blue-300 bg-blue-50" : "border-amber-300")}>
+                  <option value="">Choose…</option>
+                  <option value="former">Add as a former customer</option>
+                  <option value="skip">Leave out</option>
+                  {rows.length > 0 && <optgroup label="New in this import">{rows.map((r) => <option key={r.rowKey} value={`new:${r.rowKey}`}>{r.name} · {r.address}</option>)}</optgroup>}
+                  {customers.length > 0 && <optgroup label="Already in Wyndos">{customers.map((c) => <option key={c.id} value={`old:${c.id}`}>{c.name} · {c.address}{c.active === false ? " (inactive)" : ""}</option>)}</optgroup>}
+                </select>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-2 text-xs">
+            <button type="button" onClick={() => setResolutions((r) => ({ ...r, ...Object.fromEntries(unmatchedGroups.filter((g) => !r[g.key]).map((g) => [g.key, "former"])) }))} className="rounded-lg border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50">Add all the rest as former customers</button>
+            <label className="flex items-center gap-1.5 text-slate-600"><input type="checkbox" checked={rememberAliases} onChange={(e) => setRememberAliases(e.target.checked)} className="accent-blue-600" /> Remember these other names and addresses for next time</label>
+          </div>
+        </div>
+      )}
+
+      {leftOut > 0 && (
+        <p className="text-xs text-slate-500">{leftOut} row{leftOut === 1 ? "" : "s"} left out by you. <button type="button" onClick={() => { setRowEdits((all) => Object.fromEntries(Object.entries(all).map(([k, e]) => [k, { ...e, skip: false }]))); setVisitEdits((all) => Object.fromEntries(Object.entries(all).map(([k, e]) => [k, { ...e, skip: false }]))); }} className="font-semibold text-blue-700 underline">Put them all back</button></p>
       )}
 
       <NotImportedList rows={willSkipCustomers} title="Customers that won't be imported" fileName="customers-not-imported.csv" />
@@ -732,6 +925,91 @@ function Stat({ label, value, sub, warn = false }: { label: string; value: strin
       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       <p className={cn("text-lg font-bold tabular-nums", warn ? "text-amber-700" : "text-slate-800")}>{value}</p>
       {sub && <p className="text-[11px] text-slate-500">{sub}</p>}
+    </div>
+  );
+}
+
+const CUSTOMER_MAP_FIELDS: MapperField[] = [
+  { key: "name", label: "Name", multi: true, hint: "Join first name + surname", defaultPlaceholder: "1st line of address" },
+  { key: "fullAddress", label: "Address (one cell)", multi: true, hint: "Or use the parts below" },
+  { key: "houseNumber", label: "House no./name" },
+  { key: "street", label: "Street" },
+  { key: "town", label: "Town", defaultPlaceholder: "e.g. Leeds" },
+  { key: "postcode", label: "Postcode" },
+  { key: "area", label: "Area / round", multi: true, defaultPlaceholder: "e.g. Monday" },
+  { key: "price", label: "Price", defaultPlaceholder: "e.g. 15" },
+  { key: "frequency", label: "How often", hint: "Weeks, or words like monthly", defaultPlaceholder: "e.g. 4" },
+  { key: "nextDue", label: "Next due" },
+  { key: "lastCleaned", label: "Last cleaned" },
+  { key: "phone", label: "Phone", multi: true },
+  { key: "email", label: "Email" },
+  { key: "payment", label: "How they pay", defaultPlaceholder: "e.g. Cash" },
+  { key: "status", label: "Active / stopped", hint: "Values meaning stopped are set by the AI" },
+  { key: "jobName", label: "Job name", defaultPlaceholder: "Window cleaning" },
+  { key: "notes", label: "Notes", multi: true },
+  { key: "customerRef", label: "Their reference / ID", hint: "Links job history to them" },
+];
+const HISTORY_MAP_FIELDS: MapperField[] = [
+  { key: "customerRef", label: "Customer reference / ID" },
+  { key: "name", label: "Customer name", multi: true },
+  { key: "fullAddress", label: "Address", multi: true },
+  { key: "postcode", label: "Postcode" },
+  { key: "visitDate", label: "Date of clean / payment" },
+  { key: "price", label: "Price of the clean", defaultPlaceholder: "e.g. 15" },
+  { key: "amountPaid", label: "Amount paid" },
+  { key: "paidStatus", label: "Paid? (yes/no column)", hint: "If there's no amount paid" },
+  { key: "payment", label: "How it was paid", defaultPlaceholder: "e.g. Cash" },
+  { key: "notes", label: "Notes", multi: true },
+];
+
+const box = "rounded border border-slate-200 bg-white px-1.5 py-1 text-xs";
+
+/** Change one customer before it's imported (values override what the file says). */
+function CustomerEditor({ row, areas, onSave, onReset, onSkip }: { row: SmartRow; areas: string[]; onSave: (e: RowEdit) => void; onReset: () => void; onSkip: () => void }) {
+  const [f, setF] = useState({
+    name: row.name, address: row.address, area: row.area, price: row.price === null ? "" : String(row.price),
+    frequencyWeeks: row.frequencyWeeks ? String(row.frequencyWeeks) : "", nextDueDate: row.nextDueDate, phone: row.phone, email: row.email, notes: row.notes, active: row.active,
+  });
+  const listId = `areas-${row.rowKey}`;
+  return (
+    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <label className="text-[11px] text-slate-500">Name<input className={cn(box, "w-full")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></label>
+        <label className="text-[11px] text-slate-500 sm:col-span-2">Address<input className={cn(box, "w-full")} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} /></label>
+        <label className="text-[11px] text-slate-500">Area<input list={listId} className={cn(box, "w-full")} value={f.area} onChange={(e) => setF({ ...f, area: e.target.value })} /><datalist id={listId}>{areas.map((a) => <option key={a} value={a} />)}</datalist></label>
+        <label className="text-[11px] text-slate-500">Price £<input type="number" step="0.01" className={cn(box, "w-full")} value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></label>
+        <label className="text-[11px] text-slate-500">Every (weeks)<input type="number" min={1} max={52} className={cn(box, "w-full")} value={f.frequencyWeeks} onChange={(e) => setF({ ...f, frequencyWeeks: e.target.value })} /></label>
+        <label className="text-[11px] text-slate-500">Next due<input type="date" className={cn(box, "w-full")} value={f.nextDueDate} onChange={(e) => setF({ ...f, nextDueDate: e.target.value })} /></label>
+        <label className="text-[11px] text-slate-500">Phone<input className={cn(box, "w-full")} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></label>
+        <label className="text-[11px] text-slate-500">Email<input className={cn(box, "w-full")} value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></label>
+        <label className="text-[11px] text-slate-500 sm:col-span-2">Notes<input className={cn(box, "w-full")} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-600"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} className="accent-blue-600" /> Active customer</label>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => onSave({
+          name: f.name.trim(), address: f.address.trim(), area: f.area.trim() || row.area, price: f.price === "" ? null : Math.max(0, Number(f.price) || 0),
+          frequencyWeeks: f.frequencyWeeks ? Math.min(52, Math.max(1, Math.round(Number(f.frequencyWeeks)))) : null,
+          nextDueDate: f.nextDueDate, phone: f.phone.trim(), email: f.email.trim(), notes: f.notes, active: f.active,
+        })} className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white">Use these values</button>
+        <button type="button" onClick={onReset} className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">Back to what the file says</button>
+        <button type="button" onClick={onSkip} className="rounded-lg border border-red-200 bg-white px-3 py-1 text-xs font-semibold text-red-700">Leave this row out</button>
+      </div>
+    </div>
+  );
+}
+
+/** Change one past clean before it's imported. */
+function VisitEditor({ row, onSave, onReset, onSkip }: { row: HistoryRow; onSave: (e: VisitEdit) => void; onReset: () => void; onSkip: () => void }) {
+  const [f, setF] = useState({ date: row.date, price: row.price === null ? "" : String(row.price), paid: row.paid === null ? "" : String(row.paid) });
+  return (
+    <div className="flex flex-wrap items-end gap-2" onClick={(e) => e.stopPropagation()}>
+      <label className="text-[11px] text-slate-500">Date<input type="date" className={cn(box, "block")} value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></label>
+      <label className="text-[11px] text-slate-500">Price £<input type="number" step="0.01" className={cn(box, "block w-24")} value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></label>
+      <label className="text-[11px] text-slate-500">Paid £<input type="number" step="0.01" className={cn(box, "block w-24")} value={f.paid} onChange={(e) => setF({ ...f, paid: e.target.value })} /></label>
+      <button type="button" onClick={() => onSave({ date: f.date, price: f.price === "" ? null : Math.max(0, Number(f.price) || 0), paid: f.paid === "" ? null : Math.max(0, Number(f.paid) || 0) })} className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white">Use these values</button>
+      <button type="button" onClick={onReset} className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">Back to the file</button>
+      <button type="button" onClick={onSkip} className="rounded-lg border border-red-200 bg-white px-3 py-1 text-xs font-semibold text-red-700">Leave out</button>
+      <span className="text-[11px] text-slate-400">To change who it belongs to, use the list of history that didn&apos;t match, or fix the customer.</span>
     </div>
   );
 }

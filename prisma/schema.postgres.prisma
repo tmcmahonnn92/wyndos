@@ -54,6 +54,7 @@ model Tenant {
   homeUseMonths HomeUseMonth[]
   businessAssets BusinessAsset[]
   mtdQuarterLocks MtdQuarterLock[]
+  customerAliases CustomerAlias[]
   tags      Tag[]
   holidays  Holiday[]
   invites   Invite[]
@@ -386,6 +387,7 @@ model Customer {
   jobs                   Job[]
   payments               Payment[]
   bankReferences         PayerReference[]
+  aliases                CustomerAlias[]
   tags                   CustomerTag[]
 
   @@index([tenantId])
@@ -859,4 +861,22 @@ model MtdQuarterLock {
   snapshot    String
   lockedAt    DateTime @default(now())
   @@unique([tenantId, periodStart])
+}
+
+/// Other ways a customer appears in imported files (an old address, a different name, another
+/// program's reference), so job history matches them automatically next time.
+model CustomerAlias {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId  Int
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// REF | ADDRESS | NAME
+  kind        String
+  /// Normalised (lower case, letters and numbers only) for matching; label keeps it readable.
+  value       String
+  label       String   @default("")
+  createdAt   DateTime @default(now())
+  @@unique([tenantId, kind, value])
+  @@index([customerId])
 }
