@@ -19,22 +19,35 @@ const catOf = new Map(IMPORT_CATEGORIES.map((c) => [c.value, c]));
 const fmtDate = (iso: string) => (iso ? new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : "—");
 const SOURCE: Record<ExpenseRow["categorySource"], string> = { file: "from file", ai: "AI", rule: "usual", default: "not sure" };
 
-async function readGrid(file: File): Promise<string[][]> {
+/** The file as one grid. Worksheets with the same headings (e.g. one per month) are joined; origins says where each row came from. */
+async function readGrid(file: File): Promise<{ grid: string[][]; origins?: string[] }> {
   const name = file.name.toLowerCase();
   const data = await file.arrayBuffer();
   if (/\.(csv|txt|tsv)$/.test(name)) {
     let text = new TextDecoder().decode(data);
     if (name.endsWith(".tsv") || (!text.includes(",") && text.includes("\t"))) text = text.split("\n").map((l) => l.split("\t").map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
-    return parseCSVText(text);
+    return { grid: parseCSVText(text) };
   }
   const XLSX = await import("xlsx");
   const book = XLSX.read(data, { type: "array", cellDates: true });
-  let best: string[][] = [];
-  for (const sheet of book.SheetNames) {
-    const g = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[sheet], { header: 1, raw: false, defval: "", dateNF: "dd/mm/yyyy" }).map((r) => r.map((c) => String(c ?? "")));
-    if (g.filter((r) => r.some((c) => c.trim())).length > best.filter((r) => r.some((c) => c.trim())).length) best = g;
+  const sheets = book.SheetNames.map((name) => ({ name, grid: XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[name], { header: 1, raw: false, defval: "", dateNF: "dd/mm/yyyy" }).map((r) => r.map((c) => String(c ?? ""))) }))
+    .filter((sh) => sh.grid.filter((r) => r.some((c) => c.trim())).length >= 2);
+  if (sheets.length <= 1) return { grid: sheets[0]?.grid ?? [] };
+  // Group by heading row; use the layout with the most rows (other layouts are usually summaries).
+  const firstRow = (g: string[][]) => g.findIndex((r) => r.some((c) => c.trim()));
+  const sig = (g: string[][]) => (g[firstRow(g)] ?? []).map((c) => c.trim().toLowerCase()).filter(Boolean).join("|");
+  const groups = new Map<string, typeof sheets>();
+  for (const sh of sheets) groups.set(sig(sh.grid), [...(groups.get(sig(sh.grid)) ?? []), sh]);
+  const list = [...groups.values()].sort((a, b) => b.reduce((n, sh) => n + sh.grid.length, 0) - a.reduce((n, sh) => n + sh.grid.length, 0))[0];
+  if (list.length === 1) return { grid: list[0].grid };
+  const head = firstRow(list[0].grid);
+  const grid: string[][] = [list[0].grid[head]];
+  const origins: string[] = [""];
+  for (const sh of list) {
+    const h = firstRow(sh.grid);
+    sh.grid.forEach((row, i) => { if (i > h && row.some((c) => c.trim())) { grid.push(row); origins.push(`${sh.name} row ${i + 1}`); } });
   }
-  return best;
+  return { grid, origins };
 }
 
 /** The AI sample: top rows, a few later ones, and every distinct supplier (shortened). */
@@ -58,6 +71,8 @@ export function ExpenseImport({ available }: { available: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [grid, setGrid] = useState<string[][]>([]);
+  const [origins, setOrigins] = useState<string[] | undefined>(undefined);
+  const rowRef = (n: number) => origins?.[n - 1] ?? n;
   const [plan, setPlan] = useState<ExpensePlan | null>(null);
   const [source, setSource] = useState<"template" | "ai">("ai");
   const [attempt, setAttempt] = useState(0);
@@ -101,10 +116,10 @@ export function ExpenseImport({ available }: { available: boolean }) {
   const dates = toImport.map((r) => r.date).sort();
   const unsure = toImport.filter((r) => r.categorySource === "default").length;
   const shown = toImport.filter((r) => !filter || (filter === "UNSURE" ? r.categorySource === "default" : r.category === filter)).slice(0, 200);
-  const notImportedPreview: NotImportedRow[] = skipped.map((r) => ({ row: r.sheetRow, name: [fmtDate(r.date), r.supplier, r.amount ? fmtCurrency(r.amount) : ""].filter((x) => x && x !== "—").join(" · "), reason: r.skipReason }));
+  const notImportedPreview: NotImportedRow[] = skipped.map((r) => ({ row: rowRef(r.sheetRow), name: [fmtDate(r.date), r.supplier, r.amount ? fmtCurrency(r.amount) : ""].filter((x) => x && x !== "—").join(" · "), reason: r.skipReason }));
 
   const reset = () => {
-    setStage("upload"); setError(null); setFile(null); setGrid([]); setPlan(null); setAttempt(0); setOffTopic(false);
+    setStage("upload"); setError(null); setFile(null); setGrid([]); setOrigins(undefined); setPlan(null); setAttempt(0); setOffTopic(false);
     setOverrides({}); setPutBack(new Set()); setFilter(""); setFeedbackOpen(false); setFeedback(""); setHelpOpen(false); setHelpSent(false); setResult(null);
   };
 
@@ -122,7 +137,9 @@ export function ExpenseImport({ available }: { available: boolean }) {
     setStage("reading");
     try {
       if (f.size > 15 * 1024 * 1024) throw new Error("That file is very big. Split it, or ask us to import it.");
-      const g = (await readGrid(f)).slice(0, 20050);
+      const read = await readGrid(f);
+      const g = read.grid.slice(0, 20050);
+      setOrigins(read.origins);
       if (g.filter((r) => r.some((c) => String(c).trim())).length < 2) throw new Error("That file looks empty.");
       setGrid(g);
       const tpl = templateExpensePlan(g[0] ?? []);
@@ -154,12 +171,12 @@ export function ExpenseImport({ available }: { available: boolean }) {
         created += res.created;
         const skippedRows = new Set(res.notImported.map((n) => n.row));
         sum += batch.filter((r) => !skippedRows.has(r.sheetRow)).reduce((s, r) => s + r.amount, 0);
-        notImported.push(...res.notImported);
+        notImported.push(...res.notImported.map((n) => ({ ...n, row: rowRef(n.row) })));
       }
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : "The import stopped part way. Check Accounting before trying again.");
     }
-    setResult({ created, total: sum, notImported: notImported.sort((a, b) => Number(a.row) - Number(b.row)) });
+    setResult({ created, total: sum, notImported: notImported.sort((a, b) => String(a.row ?? "").localeCompare(String(b.row ?? ""), undefined, { numeric: true })) });
     setProgress("");
     setStage("done");
   };
@@ -292,7 +309,7 @@ export function ExpenseImport({ available }: { available: boolean }) {
                 <tbody className="divide-y divide-slate-100">
                   {shown.map((r) => (
                     <tr key={r.sheetRow} className={cn(r.categorySource === "default" && "bg-amber-50/60")}>
-                      <td className="px-2.5 py-1.5 text-slate-400">{r.sheetRow}</td>
+                      <td className="whitespace-nowrap px-2.5 py-1.5 text-slate-400">{rowRef(r.sheetRow)}</td>
                       <td className="whitespace-nowrap px-2.5 py-1.5">{fmtDate(r.date)}</td>
                       <td className="max-w-[260px] truncate px-2.5 py-1.5 font-medium text-slate-800" title={r.notes || r.supplier}>{r.supplier}</td>
                       <td className="px-2.5 py-1.5 text-right tabular-nums">{fmtCurrency(r.amount)}</td>

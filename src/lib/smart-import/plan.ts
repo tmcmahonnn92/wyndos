@@ -96,6 +96,8 @@ export function cleanPlan(raw: unknown, columnCount: number, rowCount: number): 
 export type SmartRow = {
   /** Row number in the file, counting from 1 as a spreadsheet does. */
   sheetRow: number;
+  /** Where it came from when several worksheets were read together ("Round 3 row 12"). */
+  where?: string;
   /** The other program's customer reference, used to link job history to this customer. */
   ref: string;
   name: string;
@@ -176,7 +178,7 @@ function addressFallbacks(grid: string[][], plan: ImportPlan) {
   return { address: find(/address|addr\b/i), postcode: find(/post\s*code|postal|zip/i) };
 }
 
-export type DroppedRow = { sheetRow: number; name: string; reason: string };
+export type DroppedRow = { sheetRow: number; where?: string; name: string; reason: string };
 
 /** `dropped` collects rows that can't become a customer, with the reason. */
 export function applyPlan(grid: string[][], plan: ImportPlan, dropped?: DroppedRow[]): SmartRow[] {
@@ -285,6 +287,7 @@ export function looksLikeCleanerPlanner(names: string[]) {
 
 export type HistoryRow = {
   sheetRow: number;
+  where?: string;
   ref: string;
   name: string;
   address: string;
