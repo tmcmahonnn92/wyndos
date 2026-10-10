@@ -46,8 +46,10 @@ export type ImportPlan = {
   warnings: string[];
   /** The owner's feedback wasn't about reading this file (it was ignored). */
   feedbackOffTopic: boolean;
-  /** Set by the owner in the preview: value to use when a field's cell is blank. */
+  /** Value to use when a field's cell is blank (set in the preview, or asked for in "try again"). */
   defaults?: Partial<Record<PlanField, string>>;
+  /** Value to use for every row, whatever the file says (e.g. "everyone is 4 weekly"). */
+  fixedValues?: Partial<Record<PlanField, string>>;
 };
 
 const clip = (v: unknown, max: number) => String(v ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max);
@@ -92,7 +94,42 @@ export function cleanPlan(raw: unknown, columnCount: number, rowCount: number): 
     summary: clip(r.summary, 600),
     warnings: (Array.isArray(r.warnings) ? r.warnings : []).slice(0, 6).map((w) => clip(w, 200)).filter(Boolean),
     feedbackOffTopic: r.feedbackOffTopic === true,
+    defaults: fieldValues(r.defaults),
+    fixedValues: fieldValues(r.fixedValues),
   };
+}
+
+/** { field: "value" } limited to known fields and short text. Empty values dropped. */
+function fieldValues(raw: unknown): Partial<Record<PlanField, string>> {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const out: Partial<Record<PlanField, string>> = {};
+  for (const f of PLAN_FIELDS) {
+    const v = String(o[f] ?? "").replace(/[\u0000-\u001f\u007f<>]/g, " ").trim().slice(0, 80);
+    if (v) out[f] = v;
+  }
+  return out;
+}
+
+/** Plain-English list of what changed between two plans (shown after "try again"). */
+export function describePlanChanges(before: ImportPlan, after: ImportPlan, headings: string[], labels: Record<string, string>): string[] {
+  const col = (list: number[]) => (list.length ? list.map((c) => `"${String(headings[c] ?? "").trim() || `column ${c + 1}`}"`).join(" + ") : "nothing");
+  const out: string[] = [];
+  if (before.kind !== after.kind) out.push(`File is now read as ${after.kind === "customers" ? "a customer list" : after.kind === "job_history" ? "job history" : "not for importing"}`);
+  if (before.headerRow !== after.headerRow) out.push(`Headings now on row ${after.headerRow + 1}`);
+  for (const f of PLAN_FIELDS) {
+    if (before.columns[f].join(",") !== after.columns[f].join(",")) out.push(`${labels[f] ?? f}: ${col(before.columns[f])} → ${col(after.columns[f])}`);
+    const fb = before.fixedValues?.[f] ?? "", fa = after.fixedValues?.[f] ?? "";
+    if (fb !== fa) out.push(fa ? `${labels[f] ?? f} set to "${fa}" for every row` : `${labels[f] ?? f} no longer fixed`);
+    const db = before.defaults?.[f] ?? "", da = after.defaults?.[f] ?? "";
+    if (db !== da) out.push(da ? `${labels[f] ?? f} = "${da}" where blank` : `${labels[f] ?? f}: blank default removed`);
+  }
+  if (before.dateOrder !== after.dateOrder) out.push(`Dates read as ${after.dateOrder === "DMY" ? "day/month/year" : after.dateOrder === "MDY" ? "month/day/year" : "year-month-day"}`);
+  if (before.defaultArea !== after.defaultArea) out.push(`Area when none given: "${after.defaultArea}"`);
+  if (before.defaultFrequencyWeeks !== after.defaultFrequencyWeeks) out.push(`Frequency when none given: ${after.defaultFrequencyWeeks} weeks`);
+  if (JSON.stringify(before.frequencyMap) !== JSON.stringify(after.frequencyMap)) out.push("How frequencies are read");
+  if (JSON.stringify(before.paymentMap) !== JSON.stringify(after.paymentMap)) out.push("How payment methods are read");
+  if (before.inactiveValues.join() !== after.inactiveValues.join() || before.quoteValues.join() !== after.quoteValues.join()) out.push("Which statuses mean stopped / quote");
+  return out;
 }
 
 export type SmartRow = {
@@ -152,6 +189,27 @@ export function readDate(value: string, order: ImportPlan["dateOrder"]): string 
 }
 
 /** Weeks between cleans from words like "4", "4w", "monthly", "8 weekly", "2 months". */
+const EMAIL = /[^\s<>@,;]+@[^\s<>@,;]+\.[a-z]{2,}/i;
+
+/** First money amount in text like "£12 cash" or "£15 exterior; £25 inside". */
+export function loosePrice(text: string): string {
+  const m = String(text ?? "").replace(/,/g, "").match(/£\s*(\d+(?:\.\d{1,2})?)|(?:^|\s)(\d+(?:\.\d{1,2})?)(?=\s|$|;|p\b)/i);
+  const v = m ? Number(m[1] ?? m[2]) : NaN;
+  return Number.isFinite(v) && v >= 0 && v < 100000 ? String(v) : "";
+}
+
+/** Frequency mentioned in free text: "8 weekly", "every 6 weeks", "4wk", "monthly", "fortnightly". */
+export function frequencyInText(text: string): number | null {
+  const v = String(text ?? "").toLowerCase();
+  let m = v.match(/(?:every\s*)?(\d{1,2})\s*-?\s*(?:weekly|weeks?|wks?|wkly)\b/);
+  if (m) { const n = Number(m[1]); return n >= 1 && n <= 52 ? n : null; }
+  m = v.match(/every\s*(\d{1,2})\s*months?\b|(\d{1,2})\s*-?\s*monthly\b/);
+  if (m) { const n = Number(m[1] ?? m[2]); return n >= 1 && n <= 12 ? n * 4 : null; }
+  if (/\bfortnightly\b|every (other|2nd|second) week/.test(v)) return 2;
+  if (/\bmonthly\b/.test(v)) return 4;
+  return null;
+}
+
 export function readFrequency(value: string, plan: ImportPlan): number | null {
   const v = value.trim().toLowerCase();
   if (!v) return null;
@@ -191,9 +249,10 @@ export function applyPlan(grid: string[][], plan: ImportPlan, dropped?: DroppedR
   const fallback = addressFallbacks(grid, plan);
   // A blank cell falls back to the owner's default for that field (if they set one).
   const dflt = (f: PlanField) => String(plan.defaults?.[f] ?? "").trim();
+  const fixed = (f: PlanField) => String(plan.fixedValues?.[f] ?? "").trim();
   const get = (row: string[], f: PlanField, sep: string) =>
-    plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep) || dflt(f);
-  const first = (row: string[], f: PlanField) => plan.columns[f].map((i) => cell(row, i)).find(Boolean) ?? dflt(f);
+    fixed(f) || plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep) || dflt(f);
+  const first = (row: string[], f: PlanField) => fixed(f) || (plan.columns[f].map((i) => cell(row, i)).find(Boolean) ?? dflt(f));
 
   for (let r = Math.max(plan.firstDataRow, plan.headerRow + 1); r < grid.length; r++) {
     const row = grid[r] ?? [];
@@ -221,18 +280,32 @@ export function applyPlan(grid: string[][], plan: ImportPlan, dropped?: DroppedR
 
     // Excel can save phone numbers as 7.7009E+09, losing digits: can't be rebuilt, so flag it.
     if (plan.columns.phone.some((i) => /^\d(\.\d+)?e\+\d+$/i.test(cell(row, i)))) problems.push("Phone number cut short by the spreadsheet");
-    const priceText = parsePrice(first(row, "price"));
+    const rawPrice = first(row, "price");
+    const priceText = parsePrice(rawPrice) || loosePrice(rawPrice);
     const price = priceText && !Number.isNaN(Number(priceText)) ? Math.max(0, Number(priceText)) : null;
     if (price === null) problems.push("No price");
+    // "£12 cash", "£15 exterior; £25 inside": first amount is the price, keep the rest as a note.
+    const priceNote = rawPrice && !parsePrice(rawPrice) && price !== null ? `Price: ${rawPrice}` : "";
     const freqText = first(row, "frequency");
-    const frequencyWeeks = freqText ? readFrequency(freqText, plan) : null;
+    // No frequency column (or blank)? Look for "8 weekly" / "every 6 weeks" / "monthly" in the notes.
+    const noteFreq = !freqText ? frequencyInText([get(row, "notes", " "), get(row, "status", " ")].join(" ")) : null;
+    const frequencyWeeks = freqText ? readFrequency(freqText, plan) : noteFreq;
     if (freqText && frequencyWeeks === null) problems.push(`Frequency "${freqText.slice(0, 20)}" not understood`);
 
-    const payText = first(row, "payment");
+    // A "Phone / Email" column: numbers to phone, addresses with @ to email.
+    const contactCells = [...plan.columns.phone, ...plan.columns.email].map((i) => cell(row, i)).filter(Boolean);
+    const emailFound = (first(row, "email").match(EMAIL) ?? contactCells.join(" ").match(EMAIL) ?? [""])[0];
+    const phoneFound = contactCells.flatMap((c) => c.split(/[\/;,]| or /i)).map((c) => fixUkPhone(c.trim()))
+      .find((p) => !p.includes("@") && !/e\+/i.test(p) && /\d{6}/.test(p.replace(/\D/g, ""))) ?? "";
+
+    // "Paid" / "Unpaid" is about the last visit, not how they pay.
+    const payCell = first(row, "payment");
+    const payText = /^(paid|unpaid|not paid|owed|owing|due|outstanding|yes|no|y|n)$/i.test(payCell.trim()) ? "" : payCell;
     const mappedPay = plan.paymentMap.find((e) => e.text === payText.toLowerCase());
     const preferredPaymentMethod = mappedPay ? mappedPay.method : normalisePaymentMethod(payText);
     const notes = [
       get(row, "notes", " · "),
+      priceNote,
       payText && !preferredPaymentMethod ? `Usually pays: ${payText}` : "",
     ].filter(Boolean).join("\n");
     const status = get(row, "status", " ").toLowerCase();
@@ -244,8 +317,8 @@ export function applyPlan(grid: string[][], plan: ImportPlan, dropped?: DroppedR
       name: name.slice(0, 120),
       address: address.slice(0, 300),
       houseNameNumber, street, town, postcode,
-      phone: (plan.columns.phone.map((i) => fixUkPhone(cell(row, i))).find((p) => !/e\+/i.test(p) && /\d{6}/.test(p.replace(/\D/g, ""))) ?? "").slice(0, 40),
-      email: first(row, "email").slice(0, 160),
+      phone: phoneFound.slice(0, 40),
+      email: emailFound.slice(0, 160),
       price,
       frequencyWeeks,
       nextDueDate: readDate(first(row, "nextDue"), plan.dateOrder),
@@ -314,8 +387,9 @@ export function applyHistoryPlan(grid: string[][], plan: ImportPlan, dropped?: D
   const fallback = addressFallbacks(grid, plan);
   const cell = (row: string[], i: number) => String(row[i] ?? "").trim();
   const dflt = (f: PlanField) => String(plan.defaults?.[f] ?? "").trim();
-  const get = (row: string[], f: PlanField, sep: string) => plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep) || dflt(f);
-  const first = (row: string[], f: PlanField) => plan.columns[f].map((i) => cell(row, i)).find(Boolean) ?? dflt(f);
+  const fixed = (f: PlanField) => String(plan.fixedValues?.[f] ?? "").trim();
+  const get = (row: string[], f: PlanField, sep: string) => fixed(f) || plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep) || dflt(f);
+  const first = (row: string[], f: PlanField) => fixed(f) || (plan.columns[f].map((i) => cell(row, i)).find(Boolean) ?? dflt(f));
   const money = (text: string) => { const t = parsePrice(text); return t && !Number.isNaN(Number(t)) ? Math.max(0, Number(t)) : null; };
 
   for (let r = Math.max(plan.firstDataRow, plan.headerRow + 1); r < grid.length; r++) {

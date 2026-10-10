@@ -7,7 +7,7 @@ import { ColumnMapper, type MapperField } from "@/components/column-mapper";
 import { unzipSync, strFromU8, gunzipSync } from "fflate";
 import { parseCSVText } from "@/lib/import-parsing";
 import {
-  applyHistoryPlan, applyPlan, looksLikeCleanerPlanner, matchHistory, wyndosExportPlan, PLAN_FIELDS,
+  applyHistoryPlan, applyPlan, describePlanChanges, looksLikeCleanerPlanner, matchHistory, wyndosExportPlan, PLAN_FIELDS,
   type DroppedRow, type HistoryRow, type ImportPlan, type MatchCandidate, type PlanField, type SmartRow,
 } from "@/lib/smart-import/plan";
 import { aiImportPlan, type PlanRequest } from "@/lib/smart-import/actions";
@@ -25,7 +25,7 @@ const normKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 const visitGroup = (v: { ref: string; name: string; address: string }) => `${normKey(v.ref)}|${normKey(v.name)}|${normKey(v.address.split(",")[0] ?? "")}`;
 type Stage = "upload" | "reading" | "preview" | "importing" | "done" | "elsewhere";
 /** One file, or one sheet of a workbook: read with its own plan. */
-type Part = { id: number; label: string; grid: string[][]; plan: ImportPlan; source: "wyndos" | "ai"; attempt: number; offTopic: boolean; /** Several same-layout sheets read together: where each row came from. */ origins?: string[] };
+type Part = { id: number; label: string; grid: string[][]; plan: ImportPlan; source: "wyndos" | "ai"; attempt: number; offTopic: boolean; /** After "try again": what changed (empty = nothing did). */ changes?: string[]; /** Several same-layout sheets read together: where each row came from. */ origins?: string[] };
 type Sheet = { label: string; file: string; sheet: string; grid: string[][] };
 type Result = { former?: number; created: number; skipped: number; errors: number; areas: string[]; quotes: number; visits: number; visitsSkipped: number; unmatched: number; notImported: NotImportedRow[]; historyNotImported: NotImportedRow[] };
 
@@ -77,7 +77,8 @@ function groupSheets(sheets: Sheet[]) {
   const groups = new Map<string, Sheet[]>();
   for (const sh of sheets) groups.set(signature(sh.grid), [...(groups.get(signature(sh.grid)) ?? []), sh]);
   return [...groups.values()].map((list) => {
-    if (list.length === 1) return { label: list[0].label, grid: list[0].grid, origins: undefined as string[] | undefined };
+    const fromBook = sheets.filter((x) => x.file === list[0].file).length > 1;
+    if (list.length === 1 && !fromBook) return { label: list[0].label, grid: list[0].grid, origins: undefined as string[] | undefined };
     const head = firstRow(list[0].grid);
     const width = Math.max(...list.map((sh) => Math.max(...sh.grid.map((r) => r.length))));
     const pad = (r: string[]) => [...r, ...Array(Math.max(0, width - r.length)).fill("")];
@@ -92,8 +93,30 @@ function groupSheets(sheets: Sheet[]) {
       });
     }
     const names = list.map((sh) => sh.sheet);
+    if (list.length === 1) return { label: `${list[0].file} · ${list[0].sheet}`, grid, origins };
     return { label: `${list[0].file} · ${list.length} sheets (${names.slice(0, 4).join(", ")}${names.length > 4 ? "…" : ""})`, grid, origins };
   });
+}
+
+/** Joined worksheets: if nothing else says which round a row is on, the sheet name is the area. */
+function withSheetArea(plan: ImportPlan, grid: string[][]): ImportPlan {
+  const head = grid[Math.max(0, plan.headerRow)] ?? [];
+  const at = head.length - 1;
+  if (plan.kind !== "customers" || plan.columns.area.length > 0 || plan.fixedValues?.area || String(head[at] ?? "") !== "Sheet") return plan;
+  return { ...plan, columns: { ...plan.columns, area: [at] } };
+}
+
+/** The first rows as a plan reads them: sent with "try again" so the AI sees what the owner saw. */
+function previewFor(grid: string[][], plan: ImportPlan): Array<Record<string, string>> {
+  if (plan.kind === "job_history") {
+    return applyHistoryPlan(grid, plan).slice(0, 8).map((v) => ({
+      Date: v.date, Name: v.name, Address: v.address, Ref: v.ref, Price: v.price == null ? "" : String(v.price), Paid: v.paid == null ? "" : String(v.paid), Method: v.paymentMethod,
+    }));
+  }
+  return applyPlan(grid, plan).slice(0, 8).map((c) => ({
+    Name: c.name, Address: c.address, Area: c.area, Price: c.price == null ? "" : String(c.price), "Every weeks": c.frequencyWeeks == null ? `(default ${plan.defaultFrequencyWeeks})` : String(c.frequencyWeeks),
+    "Next due": c.nextDueDate, "Last cleaned": c.lastCompletedDate, Phone: c.phone, Email: c.email, Pays: c.preferredPaymentMethod, Notes: c.notes.slice(0, 60), Status: c.quote ? "quote" : c.active ? "active" : "stopped",
+  }));
 }
 
 /** What goes to the AI: the top of the file, a few rows further down, and short value lists. */
@@ -282,7 +305,7 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
   };
 
   const readWithAi = async (label: string, grid: string[][], previous?: ImportPlan, said?: string, n = 1) => {
-    const res = await aiImportPlan({ ...sampleFor(label, grid), feedback: said || undefined, previousPlan: previous, attempt: n })
+    const res = await aiImportPlan({ ...sampleFor(label, grid), feedback: said || undefined, previousPlan: previous, attempt: n, previewRows: previous ? previewFor(grid, previous) : undefined })
       .catch(() => ({ ok: false as const, error: "Couldn't reach Wyndos. Check your connection and try again." }));
     return res;
   };
@@ -336,7 +359,7 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
         setProgress(usable.length > 1 ? `Reading ${s.label} (${i + 1} of ${usable.length})…` : "");
         const res = await readWithAi(s.label, grid);
         if (!res.ok) throw new Error(res.error);
-        made.push({ id: i, label: s.label, grid, plan: res.plan, source: "ai", attempt: 1, offTopic: false, origins: s.origins });
+        made.push({ id: i, label: s.label, grid, plan: withSheetArea(res.plan, grid), source: "ai", attempt: 1, offTopic: false, origins: s.origins });
       }
       setParts(made);
       setStage("preview");
@@ -354,7 +377,10 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
     const res = await readWithAi(part.label, part.grid, part.plan, feedback, part.attempt + 1);
     setBusy(false);
     if (!res.ok) { setError(res.error); return; }
-    setParts((all) => all.map((p, i) => (i === feedbackPart ? { ...p, plan: res.plan, source: "ai", attempt: p.attempt + 1, offTopic: res.plan.feedbackOffTopic } : p)));
+    const next = withSheetArea(res.plan, part.grid);
+    const labels = Object.fromEntries([...HISTORY_MAP_FIELDS, ...CUSTOMER_MAP_FIELDS].map((f) => [f.key, f.label]));
+    const changes = res.plan.feedbackOffTopic ? [] : describePlanChanges(part.plan, next, part.grid[Math.max(0, part.plan.headerRow)] ?? [], labels);
+    setParts((all) => all.map((p, i) => (i === feedbackPart ? { ...p, plan: next, source: "ai", attempt: p.attempt + 1, offTopic: res.plan.feedbackOffTopic, changes } : p)));
     setFeedbackOpen(false);
     setFeedback("");
   };
@@ -599,6 +625,16 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
               <span className="font-normal text-blue-700">{part.label}</span>
             </p>
             {part.plan.summary && <p className="mt-1 text-sm text-blue-900">{part.plan.summary}</p>}
+            {!part.offTopic && part.changes && (part.changes.length > 0 ? (
+              <div className="mt-2 rounded-lg bg-white px-3 py-2 text-xs text-emerald-800">
+                <p className="font-semibold">Changed:</p>
+                <ul className="mt-0.5 list-disc pl-4">{part.changes.slice(0, 12).map((c, i) => <li key={i}>{c}</li>)}</ul>
+              </div>
+            ) : (
+              <p className="mt-2 rounded-lg bg-white px-3 py-2 text-xs text-amber-800">
+                The AI didn&apos;t change anything this time. Use <b>Change columns</b> below to set it yourself: pick the column for each field, or type a value to use when blank.
+              </p>
+            ))}
             {part.offTopic && (
               <p className="mt-2 rounded-lg bg-white px-3 py-2 text-xs text-amber-800">
                 That box is only for fixing how your file is read (which column is which, how to read dates or prices), so nothing changed.
@@ -636,8 +672,9 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
                   headerRow={part.plan.headerRow}
                   columns={part.plan.columns}
                   defaults={(part.plan.defaults ?? {}) as Record<string, string | undefined>}
+                  fixed={(part.plan.fixedValues ?? {}) as Record<string, string | undefined>}
                   fields={part.plan.kind === "job_history" ? HISTORY_MAP_FIELDS : CUSTOMER_MAP_FIELDS}
-                  onChange={(next) => updatePlan(part.id, { columns: next.columns as ImportPlan["columns"], defaults: next.defaults as ImportPlan["defaults"], headerRow: next.headerRow, firstDataRow: next.firstDataRow })}
+                  onChange={(next) => updatePlan(part.id, { columns: next.columns as ImportPlan["columns"], defaults: next.defaults as ImportPlan["defaults"], fixedValues: next.fixed as ImportPlan["fixedValues"], headerRow: next.headerRow, firstDataRow: next.firstDataRow })}
                 />
                 <p className="text-[11px] text-slate-400">Changes show in the preview straight away. No AI is used for these.</p>
               </div>
