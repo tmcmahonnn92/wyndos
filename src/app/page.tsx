@@ -57,6 +57,7 @@ export default async function DashboardPage() {
     totalOwing,
     recentPayments,
     customersWithDebt,
+    owingCount,
     worker,
   } = await getDashboardData();
   const todo = isWorker && !(user.permissions ?? []).includes("scheduler") ? [] : await getAdminTodo().catch(() => [] as TodoItem[]);
@@ -160,6 +161,18 @@ export default async function DashboardPage() {
         </div>
       )}
 
+      {/* Money owed: easy to miss in the tiles, so it gets its own line when there is any. */}
+      {!isWorker && !hidePrices && totalOwing > 0.005 && (
+        <Link href="/payments?tab=owing" className="flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900 shadow-sm hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <PoundSterling size={20} className="flex-shrink-0 text-amber-600" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-bold">{fmtCurrency(totalOwing)} owed to you</span>
+            <span className="block text-xs text-amber-800 dark:text-amber-300">{owingCount} customer{owingCount === 1 ? "" : "s"} · see who owes and send reminders</span>
+          </span>
+          <span className="text-sm font-semibold">See who owes →</span>
+        </Link>
+      )}
+
       {/* Stats grid – 5 tiles */}
       {!isWorker && <div className="grid grid-cols-2 gap-3">
         <Card>
@@ -214,8 +227,8 @@ export default async function DashboardPage() {
               </span>
             </div>
             <p className="text-2xl font-bold text-slate-800">{hidePrices ? "–" : fmtCurrency(totalOwing)}</p>
-            <Link href="/payments" className="text-xs text-blue-600 hover:underline mt-0.5 inline-block">
-              Log payment →
+            <Link href="/payments?tab=owing" className="text-xs text-blue-600 hover:underline mt-0.5 inline-block">
+              See who owes →
             </Link>
           </CardContent>
         </Card>

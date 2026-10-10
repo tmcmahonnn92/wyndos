@@ -41,7 +41,7 @@ How to read the file:
 - If there are two sets of address columns (e.g. customer address and job/property/site address), use the set that is filled in on most rows, normally the customer's. Never choose address or postcode columns that are empty on most rows.
 - Phone: list mobile columns before landline columns.
 - Price: the price per clean, not a balance owed or a total.
-- A last column headed "Sheet" means several worksheets with the same layout were joined; it holds each row's worksheet name. If there's no other round/area column, the worksheet name is usually the round or area: use the Sheet column for area.
+- A last column headed "Sheet" means several worksheets were joined into one list; it holds each row's worksheet name. Sheets can name the same thing differently, so the joined file can have several columns for one field, each filled only for some sheets (check how full each column is). List all of them for that field: the first one with a value is used. E.g. lastCleaned ← "Round completed" + "Completion Date"; nextDue ← "Round Due" + "Due date". If there's no other round/area column, the worksheet name is usually the round or area: use the Sheet column for area.
 - Area: the round, area, day or route a customer is cleaned on. If there isn't one, set defaultArea to a sensible name (e.g. the town most rows share) and leave area empty.
 - frequency: give weeks for every distinct frequency value you're shown (4 weekly, 4w, monthly → 4; 8 weekly, 2 monthly, bi-monthly → 8; fortnightly → 2; quarterly → 13). defaultFrequencyWeeks is used when a row has none (4 if unsure).
 - payment: CASH, BACS (bank transfer, BACS, online), CARD, DD (direct debit, GoCardless, standing order), INVOICE (pays on invoice / later), or "" if it isn't a way of paying.
@@ -111,6 +111,8 @@ export type PlanRequest = {
   rowCount: number;
   /** For columns with few different values: those values (for frequency, payment, status). */
   shortValues: Array<{ column: number; values: string[] }>;
+  /** Every column: how many rows have something in it, and a few examples (from anywhere in the file). */
+  columnFill?: Array<{ column: number; filled: number; examples: string[] }>;
   /** Only with a previous plan: what the owner says looked wrong. */
   feedback?: string;
   previousPlan?: ImportPlan;
@@ -139,6 +141,11 @@ export async function aiImportPlan(req: PlanRequest): Promise<{ ok: true; plan: 
     values: (Array.isArray(s.values) ? s.values : []).slice(0, 40).map((v) => mask(String(v ?? "").replace(/[<>]/g, " ").trim()).slice(0, 30)),
   })).filter((s) => s.column >= 0 && s.column < columnCount && s.values.length);
 
+  const fill = (Array.isArray(req.columnFill) ? req.columnFill : []).slice(0, 60).map((f) => ({
+    column: Math.floor(Number(f.column)),
+    filled: Math.max(0, Math.floor(Number(f.filled) || 0)),
+    examples: (Array.isArray(f.examples) ? f.examples : []).slice(0, 3).map((v) => mask(String(v ?? "").replace(/[<>]/g, " ").trim()).slice(0, 30)),
+  })).filter((f) => f.column >= 0 && f.column < columnCount);
   const fileText = [
     `File name: ${String(req.fileName ?? "").replace(/[<>]/g, "").slice(0, 80)}`,
     `${rowCount} rows, ${columnCount} columns.`,
@@ -146,6 +153,8 @@ export async function aiImportPlan(req: PlanRequest): Promise<{ ok: true; plan: 
     ...rows.map((r) => `${r.index}: ${r.cells.map((c, i) => `[${i}] ${c}`).join(" | ")}`),
     "Every value in columns with only a few different values:",
     ...shorts.map((s) => `column ${s.column}: ${s.values.map((v) => JSON.stringify(v)).join(", ")}`),
+    "How full each column is across the whole file (rows with a value, and examples):",
+    ...fill.map((f) => `column ${f.column}: ${f.filled} rows${f.examples.length ? `, e.g. ${f.examples.map((v) => JSON.stringify(v)).join(", ")}` : ""}`),
   ].join("\n");
   const previous = req.previousPlan ? cleanPlan(req.previousPlan, columnCount, rowCount) : null;
   const preview = previous && Array.isArray(req.previewRows)

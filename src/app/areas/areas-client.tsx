@@ -492,7 +492,7 @@ export function AreasClient({
         <AddCustomerModal area={targetArea} onClose={() => setAddCustomerOpen(false)} />
       )}
 
-    <div className="h-[calc(100vh-4rem)] md:h-screen flex flex-col">
+    <div className="h-[calc(100dvh-4rem)] md:h-dvh flex flex-col">
       {/* Page header */}
       <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-200 bg-white flex-shrink-0">
         <div className="flex items-center gap-2.5">

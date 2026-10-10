@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Check, CheckCircle2, EyeOff, RotateCcw, Search, Upload, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, EyeOff, History, RotateCcw, Search, Upload, X } from "lucide-react";
 import { commitBankImport, findImportedLines, undoBankImport, type BankImportRow } from "@/lib/actions";
 import { cn, fmtCurrency } from "@/lib/utils";
 import {
@@ -37,7 +37,7 @@ type RowState = {
   customerId: number | null;
   /** Job ids ticked to pay, oldest first. */
   jobIds: number[];
-  decision: "none" | "pay" | "ignore";
+  decision: "none" | "pay" | "ignore" | "income";
   learn: boolean;
 };
 
@@ -166,7 +166,7 @@ export function BankImportClient({
     setRows((current) => current.map((r) => (r.hash === hash ? change(r) : r)));
 
   const ready = rows.filter((r) => r.decision !== "none");
-  const readyTotal = round2(ready.filter((r) => r.decision === "pay").reduce((s, r) => s + r.line.amount, 0));
+  const readyTotal = round2(ready.filter((r) => r.decision === "pay" || r.decision === "income").reduce((s, r) => s + r.line.amount, 0));
   const shown = rows.filter((r) =>
     filter === "all" ? true : filter === "ready" ? r.decision !== "none" : r.suggestion.status === filter || (filter === "unmatched" && r.suggestion.status === "ignore"));
 
@@ -174,6 +174,7 @@ export function BankImportClient({
     setError(null);
     const payload: BankImportRow[] = ready.map((r) => {
       if (r.decision === "ignore") return { action: "ignore", hash: r.hash, text: r.line.text, learn: r.learn };
+      if (r.decision === "income") return { action: "income", hash: r.hash, date: r.line.date, amount: r.line.amount, text: r.line.text };
       const split = splitAmount(r.line.amount, customerById.get(r.customerId!), r.jobIds);
       return {
         action: "pay",
@@ -325,7 +326,7 @@ export function BankImportClient({
           <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
             <div className="mx-auto flex max-w-3xl items-center gap-3">
               <button type="button" onClick={() => { forget(); setStep(0); }} className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">Cancel</button>
-              <p className="flex-1 text-xs text-slate-500">{ready.filter((r) => r.decision === "pay").length} to save · {fmtCurrency(readyTotal)}</p>
+              <p className="flex-1 text-xs text-slate-500">{ready.filter((r) => r.decision === "pay" || r.decision === "income").length} to save · {fmtCurrency(readyTotal)}</p>
               <button type="button" disabled={ready.length === 0 || busy} onClick={save}
                 className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
                 {busy ? "Saving…" : "Save"}
@@ -405,7 +406,7 @@ function RowCard({ row, customers, customer, allowCredit, onChange }: {
 
   return (
     <div className={cn("rounded-2xl border p-3 space-y-2.5 bg-white dark:bg-slate-900",
-      row.decision === "pay" ? "border-green-400 ring-1 ring-green-300" : row.decision === "ignore" ? "border-slate-300 opacity-70" : "border-slate-200 dark:border-slate-700")}>
+      row.decision === "pay" ? "border-green-400 ring-1 ring-green-300" : row.decision === "ignore" ? "border-slate-300 opacity-70" : row.decision === "income" ? "border-blue-400 ring-1 ring-blue-300" : "border-slate-200 dark:border-slate-700")}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm"><span className="font-bold">{fmtCurrency(row.line.amount)}</span> <span className="text-slate-500">· {fmtDate(row.line.date)}</span></p>
@@ -414,7 +415,12 @@ function RowCard({ row, customers, customer, allowCredit, onChange }: {
         <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", badge.cls)}>{badge.label}</span>
       </div>
 
-      {row.decision !== "ignore" && (
+      {row.decision === "income" && (
+        <p className="rounded-lg bg-blue-50 px-2.5 py-1.5 text-xs text-blue-900 dark:bg-blue-950 dark:text-blue-200">
+          Saved as cleaning income (customer not in Wyndos), so it still counts in your accounts. No customer is created.
+        </p>
+      )}
+      {row.decision !== "ignore" && row.decision !== "income" && (
         <>
           <CustomerPicker customers={customers} suggestion={row.suggestion} value={row.customerId}
             onPick={(id) => onChange((r) => ({ ...r, customerId: id, jobIds: jobsFor(customers.find((c) => c.id === id), r.line.amount), decision: "none" }))} />
@@ -459,7 +465,13 @@ function RowCard({ row, customers, customer, allowCredit, onChange }: {
             row.decision === "ignore" ? "bg-slate-700 text-white" : "border border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300")}>
           <EyeOff size={14} /> {row.decision === "ignore" ? "Skipped" : "Not a customer"}
         </button>
-        {row.line.text && (
+        <button type="button" onClick={() => onChange((r) => ({ ...r, decision: r.decision === "income" ? "none" : "income" }))}
+          title="Someone who paid you for cleaning but isn't in Wyndos, e.g. they stopped before you started using it"
+          className={cn("inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm",
+            row.decision === "income" ? "bg-blue-600 text-white" : "border border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300")}>
+          <History size={14} /> {row.decision === "income" ? "Old customer income" : "Old customer (not in Wyndos)"}
+        </button>
+        {row.line.text && row.decision !== "income" && (
           <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-500">
             <input type="checkbox" checked={row.learn} onChange={(e) => onChange((r) => ({ ...r, learn: e.target.checked }))} />
             {row.decision === "ignore" ? "Always suggest ignoring this" : "Remember this reference"}

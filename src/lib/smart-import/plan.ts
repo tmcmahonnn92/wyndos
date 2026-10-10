@@ -140,6 +140,8 @@ export type SmartRow = {
   /** Stable id for this row in the preview (part:row), for the owner's edits. */
   rowKey?: string;
   /** The other program's customer reference, used to link job history to this customer. */
+  /** The file's usual frequency, for rows that don't say (set in the preview). */
+  defaultFrequencyWeeks?: number;
   ref: string;
   name: string;
   address: string;

@@ -10,12 +10,16 @@ import { queueNotification } from "@/lib/notifications";
 import type { Prisma } from "@/generated/prisma/client";
 import { matchesLooseCustomerSearch } from "@/lib/customer-search";
 import { getExpenseCategory, getOtherIncomeCategory, getTaxTreatment, EXPENSE_CATEGORIES, OTHER_INCOME_CATEGORIES, TAX_TREATMENT_OPTIONS } from "@/lib/accounting";
-import { calcNextDue } from "@/lib/utils";
+import { calcNextDue, fmtCurrency } from "@/lib/utils";
 import { addDays, startOfDay } from "date-fns";
 import { requireAuth } from "@/lib/tenant-context";
 import { stampNote } from "@/lib/text-format";
 import { orderDays } from "@/lib/day-order";
 import { assertNotLocked } from "@/lib/mtd/data";
+import { hasTrialFeature } from "@/lib/trial-features";
+import { after } from "next/server";
+import { platformEmailConfigured, sendPlatformEmail } from "@/lib/platform-email";
+import { renderInvoicePdf } from "@/lib/invoice-build";
 import {
   getActor,
   requireMember,
@@ -616,6 +620,15 @@ async function syncAreaScheduleAfterCompletion(
   // customers keep their own due date. Frequency belongs to the area (a different
   // frequency means a different area, e.g. "Cuckney 8 weekly").
   await markCustomersCleaned(tenantId, workDay.id, fallbackCompletedDate, workDay.area);
+  // Skipped this time: due again on the area's next run (not counted from the old planned
+  // date, which made them show as overdue before that run came round).
+  const skippedIds = (await prisma.job.findMany({
+    where: { tenantId, workDayId: splitRun ? { in: splitRun.runDayIds } : workDay.id, status: "SKIPPED" },
+    select: { customerId: true },
+  })).map((j) => j.customerId);
+  if (skippedIds.length) {
+    await prisma.customer.updateMany({ where: { tenantId, id: { in: skippedIds }, OR: [{ nextDueDate: null }, { nextDueDate: { lt: nextDue } }] }, data: { nextDueDate: nextDue } });
+  }
   // Everyone cleaned on any part of a split run stays together on the next run.
   const runCustomerIds = splitRun
     ? (await prisma.job.findMany({ where: { tenantId, workDayId: { in: splitRun.runDayIds }, status: "COMPLETE" }, select: { customerId: true } })).map((j) => j.customerId)
@@ -3294,8 +3307,11 @@ export async function skipJob(jobId: number) {
     data: { status: "SKIPPED" },
   });
 
-  // Advance by this customer's own frequency (may differ from area frequency)
-  const nextDue = calcNextDue(job.workDay.date, job.customer.frequencyWeeks);
+  // Due again one cycle on: counted from the planned day or today, whichever is later (a run
+  // done late mustn't leave them overdue), using the area's cadence when it has one.
+  const from = new Date(Math.max(utcDay(job.workDay.date).getTime(), utcDay(new Date()).getTime()));
+  const area = job.customer.areaId ? await prisma.area.findFirst({ where: { id: job.customer.areaId, tenantId }, select: { scheduleType: true, frequencyWeeks: true, monthlyDay: true, isSystemArea: true } }) : null;
+  const nextDue = area && !area.isSystemArea ? nextRunAfter(area, from) : calcNextDue(from, job.customer.frequencyWeeks || 4);
   await prisma.customer.update({
     where: { id: job.customerId },
     data: {
@@ -3305,6 +3321,8 @@ export async function skipJob(jobId: number) {
 
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath("/outstanding");
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${job.customerId}`);
 }
 
 export async function markJobOutstanding(jobId: number) {
@@ -3770,12 +3788,88 @@ export async function completeDay(
     console.error("[texts] cleaned texts failed", issue);
   }
 
+  // Trial: email invoices for anything unpaid from this day. Runs after the reply so finishing a day stays quick.
+  after(() => emailDayInvoices(tenantId, workDayId).catch((issue) => console.error("[auto-invoice]", issue)));
+
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/days");
   revalidatePath("/scheduler");
   revalidatePath("/");
 
   return nextRunResult;
+}
+
+const escHtml = (v: string) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+/**
+ * Trial feature ("auto_invoice", turned on per business in Admin, then in Settings by the owner):
+ * customers with an email get an invoice for this day's cleans that are still unpaid.
+ * Each clean is only ever invoiced once (invoicedAt), so finishing a day again sends nothing new.
+ */
+async function emailDayInvoices(tenantId: number, workDayId: number) {
+  if (!platformEmailConfigured()) return;
+  if (!(await hasTrialFeature(tenantId, "auto_invoice"))) return;
+  const settings = await loadBusinessSettings(tenantId);
+  if (!settings.autoInvoiceEmail) return;
+  const jobs = await prisma.job.findMany({
+    where: { tenantId, workDayId, status: "COMPLETE", isQuote: false, invoicedAt: null, customer: { email: { not: "" } } },
+    include: {
+      workDay: { select: { date: true } },
+      allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
+      customer: { select: { id: true, name: true, address: true, email: true } },
+    },
+    orderBy: { id: "asc" },
+  });
+  const byCustomer = new Map<number, typeof jobs>();
+  for (const job of jobs) {
+    const email = job.customer.email?.trim() ?? "";
+    const unpaid = job.price - job.allocations.reduce((s, a) => s + a.amount, 0) > 0.005;
+    if (!unpaid || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+    byCustomer.set(job.customerId, [...(byCustomer.get(job.customerId) ?? []), job]);
+  }
+  const fromEmail = (process.env.PLATFORM_SMTP_FROM_EMAIL ?? process.env.PLATFORM_SMTP_USER ?? "").trim();
+  const business = settings.businessName || "Your window cleaner";
+  for (const [customerId, list] of byCustomer) {
+    const customer = list[0].customer;
+    const to = customer.email!.trim();
+    // Claim the number and mark the cleans first, so nothing is ever invoiced twice.
+    const row = await prisma.tenantSettings.update({ where: { tenantId }, data: { nextInvoiceNum: { increment: 1 }, invoiceNumbersStarted: true }, select: { nextInvoiceNum: true, invoicePrefix: true } });
+    const invoiceNumber = `${row.invoicePrefix}-${String(row.nextInvoiceNum - 1).padStart(4, "0")}`;
+    const marked = await prisma.job.updateMany({ where: { tenantId, id: { in: list.map((j) => j.id) }, invoicedAt: null }, data: { invoicedAt: new Date(), invoiceNumber } });
+    if (marked.count === 0) continue;
+    const due = list.reduce((s, j) => s + Math.max(0, j.price - j.allocations.reduce((p, a) => p + a.amount, 0)), 0);
+    const first = (customer.name.trim().split(/\s+/)[0] || "there").replace(/^(mr|mrs|ms|miss|dr)\.?$/i, "") || "there";
+    const day = list[0].workDay.date.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+    const lines = [
+      `Hi ${first},`,
+      "",
+      `Thanks, your windows were cleaned on ${day}. Invoice ${invoiceNumber} for ${fmtCurrency(due)} is attached.`,
+      settings.invoicePaymentTerms?.trim() ?? "",
+      settings.bankDetails?.trim() ? `\nHow to pay:\n${settings.bankDetails.trim()}` : "",
+      "",
+      `Thanks,\n${settings.ownerName?.trim() || business}`,
+    ].filter((l, i, all) => l !== "" || all[i - 1] !== "");
+    const text = lines.join("\n");
+    let status = "SENT", error = "";
+    try {
+      const pdf = await renderInvoicePdf(settings, customer, list, invoiceNumber);
+      await sendPlatformEmail({
+        to,
+        from: fromEmail ? `"${business.replace(/["\r\n]/g, "")}" <${fromEmail}>` : undefined,
+        replyTo: settings.email?.trim() || undefined,
+        subject: `Invoice ${invoiceNumber} from ${business}`,
+        text,
+        html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#1e293b">${escHtml(text).replace(/\n/g, "<br>")}</div>`,
+        attachments: [{ filename: `${invoiceNumber}.pdf`, content: pdf, contentType: "application/pdf" }],
+      });
+    } catch (issue) {
+      status = "FAILED";
+      error = issue instanceof Error ? issue.message.slice(0, 300) : "Couldn't send";
+      // Not sent: let it be invoiced again (by hand, or next time).
+      await prisma.job.updateMany({ where: { tenantId, id: { in: list.map((j) => j.id) }, invoiceNumber }, data: { invoicedAt: null } });
+    }
+    await prisma.messageLog.create({ data: { tenantId, customerId, workDayId, kind: "INVOICE_EMAIL", toNumber: to.slice(0, 120), body: `Invoice ${invoiceNumber} · ${fmtCurrency(due)}`, status, error } });
+  }
 }
 
 export async function reopenDay(workDayId: number) {
@@ -4097,6 +4191,7 @@ async function getWorkerDashboardData(actor: Actor) {
     totalOwing: 0,
     recentPayments: [],
     customersWithDebt: [],
+    owingCount: 0,
   };
 }
 
@@ -4185,6 +4280,7 @@ export async function getDashboardData() {
     totalOwing: Number(owingTotal.toFixed(2)),
     recentPayments,
     customersWithDebt: customersWithDebt.slice(0, 10),
+    owingCount: customersWithDebt.length,
   };
 }
 
@@ -5051,7 +5147,7 @@ export async function getAccountingPage(options?: {
   const rangeEnd = customDateToExclusive && customDateToExclusive < taxYearRangeEnd ? customDateToExclusive : taxYearRangeEnd;
   const monthSeriesStart = getUtcMonthStart(rangeStart);
 
-  const [payments, expenses, otherIncomeEntries] = await Promise.all([
+  const [payments, expenses, otherIncomeEntries, cleansDone] = await Promise.all([
     prisma.payment.findMany({
       where: { tenantId, voidedAt: null, paidAt: { gte: rangeStart, lt: rangeEnd } },
       select: { id: true, amount: true, paidAt: true, method: true, customer: { select: { id: true, name: true } } },
@@ -5065,7 +5161,23 @@ export async function getAccountingPage(options?: {
       where: { tenantId, receivedAt: { gte: rangeStart, lt: rangeEnd } },
       orderBy: { receivedAt: "desc" },
     }),
+    // Sales (accruals): the value of cleans done, whether or not they've been paid yet.
+    prisma.job.findMany({
+      where: { tenantId, status: "COMPLETE", isQuote: false, workDay: { date: { gte: rangeStart, lt: rangeEnd } } },
+      select: { price: true, workDay: { select: { date: true } } },
+    }),
   ]);
+
+  const salesByMonth = new Map<string, number>();
+  const paidByMonth = new Map<string, number>();
+  for (const job of cleansDone) {
+    const key = getMonthKey(job.workDay.date);
+    salesByMonth.set(key, Number(((salesByMonth.get(key) ?? 0) + job.price).toFixed(2)));
+  }
+  for (const payment of payments) {
+    const key = getMonthKey(payment.paidAt);
+    paidByMonth.set(key, Number(((paidByMonth.get(key) ?? 0) + payment.amount).toFixed(2)));
+  }
 
   const incomeByMonth = new Map<string, number>();
   const expenseByMonth = new Map<string, number>();
@@ -5116,6 +5228,8 @@ export async function getAccountingPage(options?: {
       expenses: expenseTotal,
       expenseVat: expenseVatByMonth.get(monthKey) ?? 0,
       net: Number((income - expenseTotal).toFixed(2)),
+      sales: salesByMonth.get(monthKey) ?? 0,
+      paidForCleans: paidByMonth.get(monthKey) ?? 0,
       paymentCount: paymentCountByMonth.get(monthKey) ?? 0,
       expenseCount: expenseCountByMonth.get(monthKey) ?? 0,
       categoryBreakdown: expenseCategoryBreakdown.get(monthKey) ?? {},
@@ -5150,6 +5264,8 @@ export async function getAccountingPage(options?: {
       net: totalNet,
       incomeVat: totalIncomeVat,
       expenseVat: totalExpenseVat,
+      sales: Number(cleansDone.reduce((s, j) => s + j.price, 0).toFixed(2)),
+      paidForCleans: Number(payments.reduce((s, p) => s + p.amount, 0).toFixed(2)),
     },
     selectedTaxYearStart,
     selectedTaxYearLabel: getTaxYearLabel(selectedTaxYearStart),
@@ -5328,6 +5444,8 @@ export async function getBusinessSettingsForClient() {
     keepWorkerOnNextRun: settings.keepWorkerOnNextRun,
     invoiceVatRate: settings.invoiceVatRate,
     invoicePaymentTerms: settings.invoicePaymentTerms,
+    autoInvoiceEmail: settings.autoInvoiceEmail,
+    autoInvoiceTrial: await hasTrialFeature(actor.tenantId, "auto_invoice"),
     logoBase64: settings.logoBase64,
     goCardlessEnvironment: settings.goCardlessEnvironment,
     goCardlessReferencePrefix: settings.goCardlessReferencePrefix,
@@ -5369,7 +5487,7 @@ export async function getBusinessSettingsForClient() {
   };
 }
 
-const SETTINGS_FIELDS = ["businessName", "ownerName", "phone", "email", "address", "bankDetails", "vatNumber", "invoicePrefix", "nextInvoiceNum", "invoiceVatEnabled", "allowCustomerCredit", "keepWorkerOnNextRun", "invoiceVatRate", "invoicePaymentTerms", "logoBase64", "goCardlessAccessToken", "goCardlessEnvironment", "goCardlessReferencePrefix", "smtpProvider", "smtpHost", "smtpPort", "smtpUser", "smtpPass", "smtpFromName", "voodooApiKey", "voodooSender", "messagingProvider", "twilioAccountSid", "twilioAuthToken", "twilioFromNumber", "metaPhoneNumberId", "metaAccessToken", "metaWabaId", "tmplCleaningReminder", "tmplJobComplete", "tmplPaymentReminder1", "tmplPaymentReminder2", "tmplPaymentReminder3", "tmplPaymentReceived", "tmplJobAndPayment", "tmplInvoiceNote", "tmplCleanedBank", "textSendMethod", "textsTestMode", "textCleanedEnabled", "textSkipCleanedIfPaid", "textPaymentReminderDays", "textPaymentReminder2Days", "runDueWindowDays"] as const;
+const SETTINGS_FIELDS = ["businessName", "ownerName", "phone", "email", "address", "bankDetails", "vatNumber", "invoicePrefix", "nextInvoiceNum", "invoiceVatEnabled", "allowCustomerCredit", "keepWorkerOnNextRun", "invoiceVatRate", "invoicePaymentTerms", "autoInvoiceEmail", "logoBase64", "goCardlessAccessToken", "goCardlessEnvironment", "goCardlessReferencePrefix", "smtpProvider", "smtpHost", "smtpPort", "smtpUser", "smtpPass", "smtpFromName", "voodooApiKey", "voodooSender", "messagingProvider", "twilioAccountSid", "twilioAuthToken", "twilioFromNumber", "metaPhoneNumberId", "metaAccessToken", "metaWabaId", "tmplCleaningReminder", "tmplJobComplete", "tmplPaymentReminder1", "tmplPaymentReminder2", "tmplPaymentReminder3", "tmplPaymentReceived", "tmplJobAndPayment", "tmplInvoiceNote", "tmplCleanedBank", "textSendMethod", "textsTestMode", "textCleanedEnabled", "textSkipCleanedIfPaid", "textPaymentReminderDays", "textPaymentReminder2Days", "runDueWindowDays"] as const;
 
 export async function updateBusinessSettings(data: {
   businessName?: string;
@@ -5387,6 +5505,7 @@ export async function updateBusinessSettings(data: {
   keepWorkerOnNextRun?: boolean;
   invoiceVatRate?: number;
   invoicePaymentTerms?: string;
+  autoInvoiceEmail?: boolean;
   logoBase64?: string | null;
   goCardlessAccessToken?: string;
   goCardlessEnvironment?: string;
@@ -5434,6 +5553,8 @@ export async function updateBusinessSettings(data: {
   const canManageProviderSettings = !actor.isWorker;
   // Only these fields, as plain values (see safe-input.ts).
   const updateData: Record<string, unknown> = pickPlain(data, SETTINGS_FIELDS);
+  // Trial feature: only businesses it's turned on for (Admin) can switch it on.
+  if (updateData.autoInvoiceEmail === true && !(await hasTrialFeature(tenantId, "auto_invoice"))) delete updateData.autoInvoiceEmail;
   if (typeof updateData.logoBase64 === "string" && !/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(updateData.logoBase64)) {
     throw new Error("The logo must be a PNG, JPG or WebP picture.");
   }
@@ -6078,7 +6199,9 @@ export async function findImportedLines(hashes: string[]) {
 
 export type BankImportRow =
   | { action: "pay"; hash: string; date: string; amount: number; text: string; customerId: number; allocations: Array<{ jobId: number; amount: number }>; extra: number; learn: boolean }
-  | { action: "ignore"; hash: string; text: string; learn: boolean };
+  | { action: "ignore"; hash: string; text: string; learn: boolean }
+  /** Someone who isn't a customer in Wyndos (e.g. left before you started): counted as cleaning income. */
+  | { action: "income"; hash: string; date: string; amount: number; text: string };
 
 async function learnReference(tenantId: number, text: string, customerId: number | null) {
   const label = text.trim().slice(0, 60);
@@ -6119,6 +6242,30 @@ export async function commitBankImport(input: { rows: BankImportRow[] }) {
         await prisma.importedLine.create({ data: { tenantId, importId: batch.id, hash, ignored: true } });
         if (row.learn) await learnReference(tenantId, text, null);
         ignoredCount++;
+        results.push({ hash, ok: true });
+        continue;
+      }
+      if (row.action === "income") {
+        const amount = round2(Number(row.amount));
+        if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) throw new Error("Amount not valid.");
+        if (!IMPORT_DATE.test(String(row.date))) throw new Error("Date not valid.");
+        const receivedAt = new Date(`${row.date}T12:00:00.000Z`);
+        if (Number.isNaN(receivedAt.getTime()) || receivedAt.getTime() > Date.now() + 2 * 86_400_000) throw new Error("Date not valid.");
+        await assertNotLocked(tenantId, receivedAt);
+        const vat = await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { vatNumber: true, invoiceVatEnabled: true, invoiceVatRate: true } });
+        const rate = vat?.vatNumber?.trim() && vat.invoiceVatEnabled ? Number(vat.invoiceVatRate) || 0 : 0;
+        const tax = calculateTaxBreakdown(amount, rate === 20 ? "STANDARD_20" : rate === 5 ? "REDUCED_5" : "NO_VAT");
+        const income = await prisma.otherIncome.create({
+          data: { tenantId, category: "PAST_CUSTOMER", source: text.slice(0, 120) || "Bank payment", amount, netAmount: tax.netAmount, vatAmount: tax.vatAmount, vatRate: tax.vatRate, taxTreatment: tax.taxTreatment, receivedAt, notes: "From bank statement (customer not in Wyndos)" },
+        });
+        try {
+          await prisma.importedLine.create({ data: { tenantId, importId: batch.id, hash, otherIncomeId: income.id } });
+        } catch (error) {
+          await prisma.otherIncome.delete({ where: { id: income.id } });
+          throw error;
+        }
+        paidCount++;
+        total = round2(total + amount);
         results.push({ hash, ok: true });
         continue;
       }
@@ -6193,11 +6340,13 @@ export async function undoBankImport(importId: number) {
   const batch = await prisma.paymentImport.findFirst({ where: { id: Number(importId), tenantId }, select: { id: true, undoneAt: true } });
   if (!batch) throw new Error("Import not found.");
   if (batch.undoneAt) return;
-  const lines = await prisma.importedLine.findMany({ where: { tenantId, importId: batch.id }, select: { paymentId: true } });
+  const lines = await prisma.importedLine.findMany({ where: { tenantId, importId: batch.id }, select: { paymentId: true, otherIncomeId: true } });
+  const incomeIds = lines.map((l) => l.otherIncomeId).filter((id): id is number => typeof id === "number");
   const paymentIds = lines.map((l) => l.paymentId).filter((id): id is number => typeof id === "number");
   const payments = await prisma.payment.findMany({ where: { tenantId, id: { in: paymentIds } }, select: { customerId: true } });
   await prisma.$transaction([
     prisma.payment.updateMany({ where: { tenantId, id: { in: paymentIds }, voidedAt: null }, data: { voidedAt: new Date(), voidReason: "Bank import undone" } }),
+    prisma.otherIncome.deleteMany({ where: { tenantId, id: { in: incomeIds } } }),
     prisma.importedLine.deleteMany({ where: { tenantId, importId: batch.id } }),
     prisma.paymentImport.update({ where: { id: batch.id }, data: { undoneAt: new Date() } }),
   ]);

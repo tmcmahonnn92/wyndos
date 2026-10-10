@@ -7,7 +7,7 @@ import { ColumnMapper, type MapperField } from "@/components/column-mapper";
 import { unzipSync, strFromU8, gunzipSync } from "fflate";
 import { parseCSVText } from "@/lib/import-parsing";
 import {
-  applyHistoryPlan, applyPlan, describePlanChanges, looksLikeCleanerPlanner, matchHistory, wyndosExportPlan, PLAN_FIELDS,
+  applyHistoryPlan, applyPlan, describePlanChanges, frequencyInText, looksLikeCleanerPlanner, matchHistory, wyndosExportPlan, PLAN_FIELDS,
   type DroppedRow, type HistoryRow, type ImportPlan, type MatchCandidate, type PlanField, type SmartRow,
 } from "@/lib/smart-import/plan";
 import { aiImportPlan, type PlanRequest } from "@/lib/smart-import/actions";
@@ -72,23 +72,43 @@ async function readSheets(name: string, data: ArrayBuffer): Promise<Sheet[]> {
  * row's worksheet name (often the round), and each row remembers where it came from.
  */
 function groupSheets(sheets: Sheet[]) {
-  const firstRow = (g: string[][]) => g.findIndex((r) => r.some((c) => String(c).trim()));
-  const signature = (g: string[][]) => (g[firstRow(g)] ?? []).map((c) => String(c).trim().toLowerCase()).filter(Boolean).join("|");
-  const groups = new Map<string, Sheet[]>();
-  for (const sh of sheets) groups.set(signature(sh.grid), [...(groups.get(signature(sh.grid)) ?? []), sh]);
-  return [...groups.values()].map((list) => {
+  const firstRow = (g: string[][]) => Math.max(0, g.findIndex((r) => r.some((c) => String(c).trim())));
+  const norm = (c: unknown) => String(c ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const headsOf = (sh: Sheet) => (sh.grid[firstRow(sh.grid)] ?? []).map(norm);
+  // Sheets whose headings mostly match (e.g. only the date column is named differently) are one list.
+  const similar = (a: string[], b: string[]) => {
+    const A = new Set(a.filter(Boolean)), B = new Set(b.filter(Boolean));
+    const shared = [...A].filter((h) => B.has(h)).length;
+    return shared / Math.max(1, Math.min(A.size, B.size)) >= 0.6 && shared >= 2;
+  };
+  const groups: Sheet[][] = [];
+  for (const sh of sheets) {
+    const g = groups.find((list) => similar(headsOf(list[0]), headsOf(sh)));
+    if (g) g.push(sh); else groups.push([sh]);
+  }
+  return groups.map((list) => {
     const fromBook = sheets.filter((x) => x.file === list[0].file).length > 1;
     if (list.length === 1 && !fromBook) return { label: list[0].label, grid: list[0].grid, origins: undefined as string[] | undefined };
-    const head = firstRow(list[0].grid);
-    const width = Math.max(...list.map((sh) => Math.max(...sh.grid.map((r) => r.length))));
-    const pad = (r: string[]) => [...r, ...Array(Math.max(0, width - r.length)).fill("")];
-    const grid: string[][] = [[...pad(list[0].grid[head]), "Sheet"]];
+    // Headings from every sheet, in the order first seen; each sheet's cells go under their own heading.
+    const heads: string[] = [];
+    const keyOf: string[] = [];
+    for (const sh of list) {
+      const row = sh.grid[firstRow(sh.grid)] ?? [];
+      row.forEach((h, i) => {
+        const k = norm(h) || `#${i}`;
+        if (!keyOf.includes(k) && heads.length < 59) { keyOf.push(k); heads.push(String(h ?? "").trim() || `Column ${i + 1}`); }
+      });
+    }
+    const grid: string[][] = [[...heads, "Sheet"]];
     const origins: string[] = [""];
     for (const sh of list) {
       const h = firstRow(sh.grid);
+      const at = (sh.grid[h] ?? []).map((c, i) => keyOf.indexOf(norm(c) || `#${i}`));
       sh.grid.forEach((row, i) => {
         if (i <= h || !row.some((c) => String(c).trim())) return;
-        grid.push([...pad(row), sh.sheet]);
+        const out = Array(heads.length).fill("");
+        row.forEach((c, k) => { if (at[k] >= 0) out[at[k]] = c; });
+        grid.push([...out, sh.sheet]);
         origins.push(`${sh.sheet} row ${i + 1}`);
       });
     }
@@ -119,6 +139,33 @@ function previewFor(grid: string[][], plan: ImportPlan): Array<Record<string, st
   }));
 }
 
+/** Split rounds by frequency: the usual frequency keeps the round's name, others get "<round> N weekly". */
+function withFrequencyAreas(list: SmartRow[], existing: AreaOption[]): SmartRow[] {
+  const byArea = new Map<string, SmartRow[]>();
+  for (const r of list) byArea.set(r.area.toLowerCase(), [...(byArea.get(r.area.toLowerCase()) ?? []), r]);
+  const out = new Map<SmartRow, string>();
+  for (const group of byArea.values()) {
+    const name = group[0].area;
+    const found = existing.find((a) => a.name.toLowerCase() === name.toLowerCase());
+    // Rows that don't say how often: the file's usual frequency for a new area, or the existing area's own.
+    // A round named with its frequency ("Bassetlaw 8 Weekly") is that frequency.
+    const named = frequencyInText(name);
+    const eff = (r: SmartRow) => r.frequencyWeeks ?? (found || named ? null : r.defaultFrequencyWeeks ?? null);
+    let main = found?.frequencyWeeks ?? named ?? null;
+    if (main == null) {
+      const counts = new Map<number, number>();
+      for (const r of group) { const f = eff(r); if (f) counts.set(f, (counts.get(f) ?? 0) + 1); }
+      main = [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
+    }
+    for (const r of group) {
+      const f = eff(r);
+      if (!f || main == null || f === main || new RegExp(`\\b${f}\\s*-?\\s*week`, "i").test(name)) continue;
+      out.set(r, `${name} ${f} weekly`.slice(0, 60));
+    }
+  }
+  return list.map((r) => (out.has(r) ? { ...r, area: out.get(r)! } : r));
+}
+
 /** What goes to the AI: the top of the file, a few rows further down, and short value lists. */
 function sampleFor(fileName: string, grid: string[][]): Omit<PlanRequest, "feedback" | "previousPlan" | "attempt"> {
   const columnCount = Math.min(60, Math.max(1, ...grid.slice(0, 200).map((r) => r.length)));
@@ -127,6 +174,7 @@ function sampleFor(fileName: string, grid: string[][]): Omit<PlanRequest, "feedb
     .filter((i, k, all) => i >= 12 && i < grid.length && all.indexOf(i) === k)
     .map((index) => ({ index, cells: grid[index] }));
   const shortValues: PlanRequest["shortValues"] = [];
+  const columnFill: NonNullable<PlanRequest["columnFill"]> = [];
   for (let c = 0; c < columnCount; c++) {
     const seen = new Set<string>();
     for (const row of grid.slice(0, 2000)) {
@@ -135,8 +183,11 @@ function sampleFor(fileName: string, grid: string[][]): Omit<PlanRequest, "feedb
       if (seen.size > 40) break;
     }
     if (seen.size > 0 && seen.size <= 40) shortValues.push({ column: c, values: [...seen] });
+    const filled = grid.slice(1).filter((r) => String(r[c] ?? "").trim()).length;
+    const examples = [...new Set(grid.slice(1).map((r) => String(r[c] ?? "").trim()).filter(Boolean))].slice(0, 3).map((v) => v.slice(0, 30));
+    columnFill.push({ column: c, filled, examples });
   }
-  return { fileName, rows: [...top, ...later], columnCount, rowCount: grid.length, shortValues };
+  return { fileName, rows: [...top, ...later], columnCount, rowCount: grid.length, shortValues, columnFill };
 }
 
 export function SmartImport({ available, areas, customers, mode = "all" }: { available: boolean; areas: AreaOption[]; customers: ExistingCustomer[]; mode?: "all" | "history" }) {
@@ -146,7 +197,7 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
   const [files, setFiles] = useState<File[]>([]);
   const [parts, setParts] = useState<Part[]>([]);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackPart, setFeedbackPart] = useState(0);
+  const [feedbackPart, setFeedbackPart] = useState(-1);
   const [feedback, setFeedback] = useState("");
   const [elsewhere, setElsewhere] = useState<{ title: string; text: string; href?: string; link?: string } | null>(null);
   const [problemsOnly, setProblemsOnly] = useState(false);
@@ -178,7 +229,7 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
         const where = p.origins?.[raw.sheetRow - 1];
         const e = rowEdits[rowKey];
         if (e?.skip) { dropped.push({ sheetRow: raw.sheetRow, where, name: raw.name, reason: "Left out by you" }); return []; }
-        const r: SmartRow = { ...raw, rowKey, where, ...(e ?? {}) } as SmartRow;
+        const r: SmartRow = { ...raw, rowKey, where, defaultFrequencyWeeks: p.plan.defaultFrequencyWeeks, ...(e ?? {}) } as SmartRow;
         if (e) {
           // Re-check what the owner fixed.
           r.problems = raw.problems.filter((x) => !(x === "No price" && r.price !== null) && !(x === "No address" && r.address));
@@ -191,7 +242,9 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
     });
     return [all, dropped] as const;
   }, [parts, rowEdits]);
-  const custRows = useMemo(() => rows.filter((r) => !r.quote), [rows]);
+  // One area = one frequency. Customers cleaned on a different frequency from the rest of their
+  // round (or from the existing Wyndos area) go in their own area, e.g. "Waverley 8 weekly".
+  const custRows = useMemo(() => withFrequencyAreas(rows.filter((r) => !r.quote), areas), [rows, areas]);
   const quoteRows = useMemo(() => rows.filter((r) => r.quote), [rows]);
   const areaSummary = useMemo(() => {
     const map = new Map<string, { name: string; count: number; value: number; existing: AreaOption | undefined }>();
@@ -300,7 +353,7 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
   const reset = () => {
     setRowEdits({}); setVisitEdits({}); setResolutions({}); setEditing(null); setMapperOpen(null);
     setStage("upload"); setError(null); setFiles([]); setParts([]); setProgress("");
-    setFeedbackOpen(false); setFeedback(""); setFeedbackPart(0); setElsewhere(null); setResult(null);
+    setFeedbackOpen(false); setFeedback(""); setFeedbackPart(-1); setElsewhere(null); setResult(null);
     setHelpOpen(false); setHelpText(""); setHelpSent(false); setProblemsOnly(false); setUnmatchedOnly(false);
   };
 
@@ -369,18 +422,26 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
     }
   };
 
+  // -1 = every part of the import (the usual choice); otherwise just one file / group of sheets.
   const retry = async () => {
-    const part = parts[feedbackPart];
-    if (!part) return;
+    const targets = parts.map((p, i) => ({ p, i })).filter(({ p, i }) => (feedbackPart < 0 || i === feedbackPart) && p.attempt < 4);
+    if (!targets.length) return;
     setBusy(true);
     setError(null);
-    const res = await readWithAi(part.label, part.grid, part.plan, feedback, part.attempt + 1);
-    setBusy(false);
-    if (!res.ok) { setError(res.error); return; }
-    const next = withSheetArea(res.plan, part.grid);
     const labels = Object.fromEntries([...HISTORY_MAP_FIELDS, ...CUSTOMER_MAP_FIELDS].map((f) => [f.key, f.label]));
-    const changes = res.plan.feedbackOffTopic ? [] : describePlanChanges(part.plan, next, part.grid[Math.max(0, part.plan.headerRow)] ?? [], labels);
-    setParts((all) => all.map((p, i) => (i === feedbackPart ? { ...p, plan: next, source: "ai", attempt: p.attempt + 1, offTopic: res.plan.feedbackOffTopic, changes } : p)));
+    const updated = new Map<number, Partial<Part>>();
+    for (const { p, i } of targets) {
+      if (targets.length > 1) setProgress(`Reading ${p.label} again (${updated.size + 1} of ${targets.length})…`);
+      const res = await readWithAi(p.label, p.grid, p.plan, feedback, p.attempt + 1);
+      if (!res.ok) { setError(res.error); break; }
+      const next = withSheetArea(res.plan, p.grid);
+      const changes = res.plan.feedbackOffTopic ? [] : describePlanChanges(p.plan, next, p.grid[Math.max(0, p.plan.headerRow)] ?? [], labels);
+      updated.set(i, { plan: next, source: "ai", attempt: p.attempt + 1, offTopic: res.plan.feedbackOffTopic, changes });
+    }
+    setProgress("");
+    setBusy(false);
+    if (!updated.size) return;
+    setParts((all) => all.map((p, i) => (updated.has(i) ? { ...p, ...updated.get(i) } : p)));
     setFeedbackOpen(false);
     setFeedback("");
   };
@@ -392,7 +453,8 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
     const freqOf = new Map<string, number>();
     for (const a of areaSummary) {
       const counts = new Map<number, number>();
-      for (const c of custRows) if (c.area.toLowerCase() === a.name.toLowerCase() && c.frequencyWeeks) counts.set(c.frequencyWeeks, (counts.get(c.frequencyWeeks) ?? 0) + 1);
+      const named = frequencyInText(a.name);
+      for (const c of custRows) { const f = c.frequencyWeeks ?? named ?? c.defaultFrequencyWeeks; if (c.area.toLowerCase() === a.name.toLowerCase() && f) counts.set(f, (counts.get(f) ?? 0) + 1); }
       freqOf.set(a.name.toLowerCase(), [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? 4);
     }
     const areasMade = new Set<string>();
@@ -889,7 +951,7 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
               </button>
             )}
             {available && (
-              <button type="button" disabled={stage === "importing" || parts.every((p) => p.attempt >= 4)} onClick={() => { setFeedbackPart(0); setFeedbackOpen(true); }}
+              <button type="button" disabled={stage === "importing" || parts.every((p) => p.attempt >= 4)} onClick={() => { setFeedbackPart(-1); setFeedbackOpen(true); }}
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                 <RotateCcw size={15} /> Not quite, try again
               </button>
@@ -912,7 +974,8 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
           <p className="text-sm font-semibold text-slate-800">What&apos;s wrong with the preview?</p>
           {parts.length > 1 && (
             <select value={feedbackPart} onChange={(e) => setFeedbackPart(Number(e.target.value))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-              {parts.map((p, i) => <option key={p.id} value={i} disabled={p.attempt >= 4}>{p.label}</option>)}
+              <option value={-1}>All of it ({parts.length} parts)</option>
+              {parts.map((p, i) => <option key={p.id} value={i} disabled={p.attempt >= 4}>Only {p.label}</option>)}
             </select>
           )}
           <p className="text-xs text-slate-500">
@@ -924,10 +987,10 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
           <div className="flex items-center gap-2">
             <button type="button" disabled={busy || feedback.trim().length < 3} onClick={retry}
               className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-              {busy ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} {busy ? "Reading again…" : "Try again"}
+              {busy ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} {busy ? (progress || "Reading again…") : "Try again"}
             </button>
             <button type="button" onClick={() => setFeedbackOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
-            <span className="ml-auto text-[11px] text-slate-400">{feedback.length}/500 · {Math.max(0, 4 - (parts[feedbackPart]?.attempt ?? maxAttempt))} tries left</span>
+            <span className="ml-auto text-[11px] text-slate-400">{feedback.length}/500 · {Math.max(0, 4 - (feedbackPart >= 0 ? parts[feedbackPart]?.attempt ?? maxAttempt : maxAttempt))} tries left</span>
           </div>
         </div>
       )}

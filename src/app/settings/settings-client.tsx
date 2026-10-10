@@ -30,7 +30,7 @@ interface Settings {
   businessName: string; ownerName: string; phone: string; email: string;
   address: string; bankDetails: string; vatNumber: string;
   invoicePrefix: string; nextInvoiceNum: number; invoiceNumbersStarted: boolean;
-  invoiceVatEnabled: boolean; invoiceVatRate: number; allowCustomerCredit?: boolean; keepWorkerOnNextRun?: boolean; invoicePaymentTerms: string; logoBase64: string | null;
+  invoiceVatEnabled: boolean; invoiceVatRate: number; allowCustomerCredit?: boolean; keepWorkerOnNextRun?: boolean; invoicePaymentTerms: string; autoInvoiceEmail?: boolean; autoInvoiceTrial?: boolean; logoBase64: string | null;
   goCardlessEnvironment: string; goCardlessReferencePrefix: string;
   goCardlessAccessTokenConfigured: boolean; goCardlessLastSyncedAt: string | null;
   smtpProvider: string; smtpHost: string; smtpPort: number;
@@ -191,6 +191,7 @@ export function SettingsClient({
     keepWorkerOnNextRun: settings.keepWorkerOnNextRun ?? true,
     invoiceVatRate: String(settings.invoiceVatRate ?? 20),
     invoicePaymentTerms: settings.invoicePaymentTerms ?? "",
+    autoInvoiceEmail: settings.autoInvoiceEmail ?? false,
     runDueWindowDays: settings.runDueWindowDays == null ? "" : String(settings.runDueWindowDays),
   });
 
@@ -653,6 +654,15 @@ export function SettingsClient({
                 <textarea id="inv-terms" className={cn(inp, "resize-none")} rows={3} maxLength={1000} value={form.invoicePaymentTerms} onChange={(e) => setForm((f) => ({ ...f, invoicePaymentTerms: e.target.value }))} placeholder={"Payment due within 14 days.\nPlease use your invoice number as the reference."} />
                 <p className="text-xs text-slate-400 mt-1">Printed on every invoice, above the bank details.</p>
               </div>
+              {settings.autoInvoiceTrial && (
+                <label className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                  <input type="checkbox" className="mt-1" checked={form.autoInvoiceEmail} onChange={(e) => setForm((f) => ({ ...f, autoInvoiceEmail: e.target.checked }))} />
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-800">Email invoices when a day is finished <span className="ml-1 rounded-full bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-900">Trial</span></span>
+                    <span className="block text-xs text-slate-500">Customers with an email address get an invoice for anything still unpaid from that day, with the PDF attached. Replies come to your email ({settings.email || "set it above"}).</span>
+                  </span>
+                </label>
+              )}
               <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-3">
                 <input type="checkbox" className="mt-1" checked={form.allowCustomerCredit} onChange={(e) => setForm((f) => ({ ...f, allowCustomerCredit: e.target.checked }))} />
                 <span>

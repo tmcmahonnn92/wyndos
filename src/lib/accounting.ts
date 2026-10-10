@@ -70,6 +70,8 @@ export const EXPENSE_CATEGORIES: ExpenseCategoryDefinition[] = [
 export const OTHER_INCOME_CATEGORIES: OtherIncomeCategoryDefinition[] = [
   { value: "OTHER", label: "Other income" },
   { value: "COMMERCIAL", label: "Commercial work" },
+  // Bank payments from someone who isn't (or is no longer) a customer in Wyndos.
+  { value: "PAST_CUSTOMER", label: "Cleaning: customer not in Wyndos" },
   { value: "BONUS", label: "Bonus / tip" },
   { value: "EQUIPMENT_SALE", label: "Equipment sale" },
   { value: "ADJUSTMENT", label: "Adjustment" },
