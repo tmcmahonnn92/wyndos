@@ -7,7 +7,7 @@ import { AlertTriangle, CheckCircle2, Columns3, Download, LifeBuoy, Loader2, Rot
 import { parseCSVText } from "@/lib/import-parsing";
 import { HMRC_EXPENSE_CATEGORIES } from "@/lib/accounting";
 import {
-  applyExpensePlan, EXPENSE_FIELDS, IMPORT_CATEGORIES, merchantKey, templateExpensePlan,
+  applyExpensePlan, describeExpenseChanges, EXPENSE_FIELDS, IMPORT_CATEGORIES, merchantKey, templateExpensePlan,
   type ExpenseField, type ExpensePlan, type ExpenseRow,
 } from "@/lib/smart-import/expense-plan";
 import { aiExpensePlan, importExpenses, type ExpensePlanRequest } from "@/lib/smart-import/expense-actions";
@@ -78,6 +78,7 @@ export function ExpenseImport({ available }: { available: boolean }) {
   const [source, setSource] = useState<"template" | "ai">("ai");
   const [attempt, setAttempt] = useState(0);
   const [offTopic, setOffTopic] = useState(false);
+  const [changes, setChanges] = useState<string[] | null>(null);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [putBack, setPutBack] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
@@ -134,14 +135,19 @@ export function ExpenseImport({ available }: { available: boolean }) {
   const notImportedPreview: NotImportedRow[] = skipped.map((r) => ({ row: rowRef(r.sheetRow), name: [fmtDate(r.date), r.supplier, r.amount ? fmtCurrency(r.amount) : ""].filter((x) => x && x !== "—").join(" · "), reason: r.skipReason }));
 
   const reset = () => {
-    setStage("upload"); setError(null); setFile(null); setGrid([]); setOrigins(undefined); setPlan(null); setAttempt(0); setOffTopic(false);
+    setStage("upload"); setError(null); setFile(null); setGrid([]); setOrigins(undefined); setPlan(null); setAttempt(0); setOffTopic(false); setChanges(null);
     setOverrides({}); setPutBack(new Set()); setRowEdits({}); setEditingRow(null); setMapperOpen(false); setFilter(""); setFeedbackOpen(false); setFeedback(""); setHelpOpen(false); setHelpSent(false); setResult(null);
   };
 
   const askAi = async (g: string[][], f: File, previous: ExpensePlan | null, said: string, n: number) => {
-    const res = await aiExpensePlan({ ...sampleFor(f.name, g), feedback: said || undefined, previousPlan: previous ?? undefined, attempt: n })
+    const previewRows = previous ? applyExpensePlan(g, previous).slice(0, 10).map((r) => ({
+      Date: r.date, Supplier: r.supplier, Amount: String(r.amount), Category: r.category, Status: r.skip ? `left out: ${r.skipReason}` : "imported",
+    })) : undefined;
+    const res = await aiExpensePlan({ ...sampleFor(f.name, g), feedback: said || undefined, previousPlan: previous ?? undefined, attempt: n, previewRows })
       .catch(() => ({ ok: false as const, error: "Couldn't reach Wyndos. Check your connection and try again." }));
     if (!res.ok) { setError(res.error); return false; }
+    const head = g[Math.max(0, (previous ?? res.plan).headerRow)] ?? [];
+    setChanges(previous && !res.plan.feedbackOffTopic ? describeExpenseChanges(previous, res.plan, head, Object.fromEntries(EXPENSE_MAP_FIELDS.map((x) => [x.key, x.label]))) : null);
     setPlan(res.plan); setSource("ai"); setAttempt(n); setOffTopic(res.plan.feedbackOffTopic);
     return true;
   };
@@ -270,6 +276,11 @@ export function ExpenseImport({ available }: { available: boolean }) {
       <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
         <p className="flex items-center gap-2 text-sm font-semibold text-blue-900"><Sparkles size={15} /> {source === "template" ? "Wyndos template" : plan.kind === "bank_statement" ? "Bank statement" : "Expenses"} <span className="font-normal text-blue-700">{file?.name}</span></p>
         {plan.summary && <p className="mt-1 text-sm text-blue-900">{plan.summary}</p>}
+        {!offTopic && changes && (changes.length > 0 ? (
+          <div className="mt-2 rounded-lg bg-white px-3 py-2 text-xs text-emerald-800"><p className="font-semibold">Changed:</p><ul className="mt-0.5 list-disc pl-4">{changes.slice(0, 14).map((c, i) => <li key={i}>{c}</li>)}</ul></div>
+        ) : (
+          <p className="mt-2 rounded-lg bg-white px-3 py-2 text-xs text-amber-800">The AI didn&apos;t change anything this time. Use <b>Change columns or defaults</b>, or change a category straight in the list below.</p>
+        ))}
         {offTopic && <p className="mt-2 rounded-lg bg-white px-3 py-2 text-xs text-amber-800">That box is only for fixing how your file is read or how suppliers are categorised, so nothing changed.</p>}
         {plan.warnings.length > 0 && <ul className="mt-2 space-y-0.5 text-xs text-amber-800">{plan.warnings.map((w, i) => <li key={i} className="flex gap-1"><AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />{w}</li>)}</ul>}
         {used.length > 0 && headings.length > 0 && <p className="mt-2 text-[11px] text-blue-800">{used.map((f) => `${FIELD_LABELS[f]} ← ${plan.columns[f].map((c) => headings[c]?.trim() || `column ${c + 1}`).join(" + ")}`).join(" · ")}</p>}

@@ -14,13 +14,15 @@ const letter = (i: number) => {
  * Change how a file is read, after the AI (or a template) has had a go: which column(s) feed
  * each field, which row has the headings, and a value to use when a cell is blank.
  */
-export function ColumnMapper({ grid, headerRow, columns, defaults, fields, onChange }: {
+export function ColumnMapper({ grid, headerRow, columns, defaults, fixed = {}, fields, onChange }: {
   grid: string[][];
   headerRow: number;
   columns: Record<string, number[]>;
   defaults: Record<string, string | undefined>;
+  /** Value used on every row, whatever the file says (set by "try again"). */
+  fixed?: Record<string, string | undefined>;
   fields: MapperField[];
-  onChange: (next: { columns: Record<string, number[]>; defaults: Record<string, string | undefined>; headerRow: number; firstDataRow: number }) => void;
+  onChange: (next: { columns: Record<string, number[]>; defaults: Record<string, string | undefined>; fixed: Record<string, string | undefined>; headerRow: number; firstDataRow: number }) => void;
 }) {
   const width = Math.min(60, Math.max(1, ...grid.slice(0, 50).map((r) => r.length)));
   const headings = headerRow >= 0 ? grid[headerRow] ?? [] : [];
@@ -30,15 +32,16 @@ export function ColumnMapper({ grid, headerRow, columns, defaults, fields, onCha
     const eg = String(sample[i] ?? "").trim().slice(0, 24);
     return `${letter(i)}${h ? ` · ${h}` : ""}${eg ? ` (e.g. ${eg})` : ""}`;
   };
-  const set = (key: string, list: number[]) => onChange({ columns: { ...columns, [key]: list }, defaults, headerRow, firstDataRow: headerRow + 1 });
-  const setDefault = (key: string, value: string) => onChange({ columns, defaults: { ...defaults, [key]: value || undefined }, headerRow, firstDataRow: headerRow + 1 });
+  const set = (key: string, list: number[]) => onChange({ columns: { ...columns, [key]: list }, defaults, fixed, headerRow, firstDataRow: headerRow + 1 });
+  const setDefault = (key: string, value: string) => onChange({ columns, defaults: { ...defaults, [key]: value || undefined }, fixed, headerRow, firstDataRow: headerRow + 1 });
+  const clearFixed = (key: string) => onChange({ columns, defaults, fixed: { ...fixed, [key]: undefined }, headerRow, firstDataRow: headerRow + 1 });
 
   return (
     <div className="space-y-2">
       <label className="flex items-center gap-2 text-xs text-slate-600">
         Headings are on row
         <input type="number" min={0} max={50} value={headerRow + 1}
-          onChange={(e) => { const h = Math.max(0, Math.min(50, (Number(e.target.value) || 0) - 1)); onChange({ columns, defaults, headerRow: h, firstDataRow: h + 1 }); }}
+          onChange={(e) => { const h = Math.max(0, Math.min(50, (Number(e.target.value) || 0) - 1)); onChange({ columns, defaults, fixed, headerRow: h, firstDataRow: h + 1 }); }}
           className="w-16 rounded border border-slate-200 px-1.5 py-0.5" />
         <span className="text-slate-400">(0 = no heading row)</span>
       </label>
@@ -74,7 +77,12 @@ export function ColumnMapper({ grid, headerRow, columns, defaults, fields, onCha
                     </div>
                   </td>
                   <td className="py-1.5">
-                    <input value={defaults[f.key] ?? ""} onChange={(e) => setDefault(f.key, e.target.value)} placeholder={f.defaultPlaceholder ?? "—"} className="w-36 rounded border border-slate-200 px-1.5 py-1" />
+                    {fixed[f.key] ? (
+                      <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-1 text-blue-800">
+                        Every row: <b>{fixed[f.key]}</b>
+                        <button type="button" onClick={() => clearFixed(f.key)} className="text-blue-400 hover:text-red-600" aria-label="Stop using this for every row"><X size={12} /></button>
+                      </span>
+                    ) : <input value={defaults[f.key] ?? ""} onChange={(e) => setDefault(f.key, e.target.value)} placeholder={f.defaultPlaceholder ?? "—"} className="w-36 rounded border border-slate-200 px-1.5 py-1" />}
                   </td>
                 </tr>
               );

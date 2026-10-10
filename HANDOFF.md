@@ -211,3 +211,9 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Any preview row can be edited or left out (customers: name, address, area, price, frequency, next due, phone, email, notes, active; history: date, price, paid; expenses: date, supplier, amount, VAT). Left-out rows show in "won't be imported" and can be put back.
 - History that doesn't match: grouped per person; choose a customer (existing or new in the upload), "former customer" (created inactive in the Inactive customers area with their history), or leave out.
 - `CustomerAlias` (REF / ADDRESS / NAME): saved when the owner matches by hand ("remember for next time") and for every reference in an imported customer file; matching uses them. In backups.
+
+## Smart import: "try again" that listens (new72)
+- AI now sees `<current_preview>` (first rows as the last plan read them) and the feedback rule says do every import-related change the owner asks for.
+- Plans have `fixedValues` (every row) as well as `defaults` (when blank); both survive retries. Mapper shows "Every row: X" with a clear button.
+- After a retry the page lists exactly what changed, or says nothing did and points to Change columns. Same for expenses (category moves, left out / put back).
+- Messy files: "£12 cash" style prices (full text kept in notes), "Phone / Email" columns split, frequency read from notes ("8 Weekly - Due Dec"), Paid/Unpaid not treated as a payment method, and every sheet of a multi-sheet workbook gets a Sheet column used as the area.

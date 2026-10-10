@@ -66,7 +66,34 @@ export function cleanExpensePlan(raw: unknown, columnCount: number, rowCount: nu
     summary: clip(r.summary, 600),
     warnings: (Array.isArray(r.warnings) ? r.warnings : []).slice(0, 6).map((w) => clip(w, 200)).filter(Boolean),
     feedbackOffTopic: r.feedbackOffTopic === true,
+    defaults: Object.fromEntries(EXPENSE_FIELDS.flatMap((f) => {
+      const v = clip(((r.defaults ?? {}) as Record<string, unknown>)[f], 80).replace(/[<>]/g, "");
+      return v ? [[f, v]] : [];
+    })),
   };
+}
+
+/** Plain-English list of what changed between two expense plans (shown after "try again"). */
+export function describeExpenseChanges(before: ExpensePlan, after: ExpensePlan, headings: string[], labels: Record<string, string>): string[] {
+  const col = (list: number[]) => (list.length ? list.map((c) => `"${String(headings[c] ?? "").trim() || `column ${c + 1}`}"`).join(" + ") : "nothing");
+  const catLabel = (v: string) => IMPORT_CATEGORIES.find((c) => c.value === v)?.label ?? v;
+  const out: string[] = [];
+  if (before.headerRow !== after.headerRow) out.push(`Headings now on row ${after.headerRow + 1}`);
+  for (const f of EXPENSE_FIELDS) {
+    if (before.columns[f].join(",") !== after.columns[f].join(",")) out.push(`${labels[f] ?? f}: ${col(before.columns[f])} → ${col(after.columns[f])}`);
+    if ((before.defaults?.[f] ?? "") !== (after.defaults?.[f] ?? "")) out.push(after.defaults?.[f] ? `${labels[f] ?? f} = "${after.defaults[f]}" where blank` : `${labels[f] ?? f}: blank default removed`);
+  }
+  if (before.sign !== after.sign) out.push(after.sign === "out_negative" ? "Spending now read as negative amounts" : "Spending now read as positive amounts");
+  if (before.dateOrder !== after.dateOrder) out.push(`Dates read as ${after.dateOrder === "DMY" ? "day/month/year" : after.dateOrder === "MDY" ? "month/day/year" : "year-month-day"}`);
+  const was = new Map(before.categoryMap.map((e) => [e.text, e.category]));
+  const moved = after.categoryMap.filter((e) => was.get(e.text) !== e.category);
+  for (const e of moved.slice(0, 8)) out.push(`"${e.text}" → ${catLabel(e.category)}`);
+  if (moved.length > 8) out.push(`…and ${moved.length - 8} more suppliers recategorised`);
+  const skipNew = after.skipTexts.filter((t) => !before.skipTexts.includes(t));
+  const skipBack = before.skipTexts.filter((t) => !after.skipTexts.includes(t));
+  if (skipNew.length) out.push(`Now left out: ${skipNew.slice(0, 6).map((t) => `"${t}"`).join(", ")}${skipNew.length > 6 ? "…" : ""}`);
+  if (skipBack.length) out.push(`Now included: ${skipBack.slice(0, 6).map((t) => `"${t}"`).join(", ")}${skipBack.length > 6 ? "…" : ""}`);
+  return out;
 }
 
 const BANK_WORDS = /\b(card payment to|card payment|payment to|purchase|pos|contactless|visa|debit card|direct debit|dd|standing order|so|faster payment|fpo|fps|bill payment|bp|ref|reference|on|at|gbp|ltd|limited|plc|uk|www|com|co)\b/g;
