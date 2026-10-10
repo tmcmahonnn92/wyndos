@@ -31,6 +31,8 @@ export type ExpensePlan = {
   summary: string;
   warnings: string[];
   feedbackOffTopic: boolean;
+  /** Set by the owner in the preview: value to use when a field's cell is blank. */
+  defaults?: Partial<Record<ExpenseField, string>>;
 };
 
 const clip = (v: unknown, max: number) => String(v ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max);
@@ -81,7 +83,8 @@ export function merchantKey(text: string) {
 
 /** Everyday suppliers a window cleaner uses, as a fallback when the AI didn't say. */
 const RULES: Array<[RegExp, string]> = [
-  [/\b(shell|bp|esso|texaco|jet|gulf|murco|fuel|petrol|diesel|tesco fuel|asda fuel|sainsburys fuel|morrisons fuel|applegreen|certas|ev charg|pod point|ionity|tfl|congestion|ulez|parking|ringgo|paybyphone|toll|train|trainline)\b/, "FUEL"],
+  [/\b(parking|ringgo|paybyphone|justpark|ncp|toll|dart charge|congestion|ulez|tfl)\b/, "PARKING"],
+  [/\b(shell|bp|esso|texaco|jet|gulf|murco|fuel|petrol|diesel|tesco fuel|asda fuel|sainsburys fuel|morrisons fuel|applegreen|certas|ev charg|pod point|ionity|train|trainline)\b/, "FUEL"],
   [/\b(kwik fit|halfords auto|mot|garage|tyres?|national tyres|ats euromaster|autocentre|car wash)\b/, "VEHICLE_MAINTENANCE"],
   [/\b(dvla|vehicle tax|road tax)\b/, "VEHICLE_COSTS"],
   [/\b(screwfix|toolstation|b&q|wickes|homebase|machine mart|ladder|unger|ettore|pure water|reach & wash|gardiner|window cleaning warehouse|wcw|streamline|clearwater)\b/, "EQUIPMENT"],
@@ -138,14 +141,14 @@ export type ExpenseRow = {
   categorySource: "file" | "ai" | "rule" | "default";
   notes: string;
   /** Why it won't be imported; empty = will be imported. "personal" ones can be put back in. */
-  skip: "" | "money_in" | "no_date" | "no_amount" | "personal";
+  skip: "" | "money_in" | "no_date" | "no_amount" | "personal" | "owner";
   skipReason: string;
 };
 
 export function applyExpensePlan(grid: string[][], plan: ExpensePlan): ExpenseRow[] {
   const out: ExpenseRow[] = [];
   const cell = (row: string[], i: number) => String(row[i] ?? "").trim();
-  const get = (row: string[], f: ExpenseField, sep = " ") => plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep);
+  const get = (row: string[], f: ExpenseField, sep = " ") => plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep) || String(plan.defaults?.[f] ?? "").trim();
   const aiCat = new Map(plan.categoryMap.map((e) => [e.text, e.category]));
   const skipKeys = new Set(plan.skipTexts);
 
@@ -184,18 +187,21 @@ export function applyExpensePlan(grid: string[][], plan: ExpensePlan): ExpenseRo
     // Category: the file's own, then the AI's, then everyday rules, then Other.
     let category = "OTHER";
     let categorySource: ExpenseRow["categorySource"] = "default";
-    const fromFile = categoryFromText(get(row, "category"));
+    // The file's own category cell (not the owner's default, which only fills in at the end).
+    const fromFile = categoryFromText(plan.columns.category.map((i) => cell(row, i)).filter(Boolean).join(" "));
+    const fromDefault = plan.defaults?.category ? categoryFromText(plan.defaults.category) : null;
     const rule = ruleCategory(`${supplierText} ${description}`);
     if (fromFile && fromFile !== "__SKIP__") { category = fromFile; categorySource = "file"; }
     else if (aiCat.has(key)) { category = aiCat.get(key)!; categorySource = "ai"; }
     else if (rule && rule !== "__SKIP__") { category = rule; categorySource = "rule"; }
+    else if (fromDefault && fromDefault !== "__SKIP__") { category = fromDefault; categorySource = "file"; }
 
     let skip: ExpenseRow["skip"] = "";
     let skipReason = "";
     if (!date) { skip = "no_date"; skipReason = "No date"; }
     else if (moneyIn) { skip = "money_in"; skipReason = "Money in, not an expense"; }
     else if (!amount) { skip = "no_amount"; skipReason = "No amount"; }
-    else if (skipKeys.has(key) || (categorySource !== "file" && rule === "__SKIP__")) { skip = "personal"; skipReason = "Looks like a transfer, tax payment or personal spending"; }
+    else if (skipKeys.has(key) || (!(fromFile && fromFile !== "__SKIP__") && rule === "__SKIP__")) { skip = "personal"; skipReason = "Looks like a transfer, tax payment or personal spending"; }
 
     out.push({
       sheetRow: r + 1, date, supplier, description: description.slice(0, 200), key, amount: amount ?? 0, vat, category, categorySource,

@@ -46,6 +46,8 @@ export type ImportPlan = {
   warnings: string[];
   /** The owner's feedback wasn't about reading this file (it was ignored). */
   feedbackOffTopic: boolean;
+  /** Set by the owner in the preview: value to use when a field's cell is blank. */
+  defaults?: Partial<Record<PlanField, string>>;
 };
 
 const clip = (v: unknown, max: number) => String(v ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max);
@@ -96,6 +98,10 @@ export function cleanPlan(raw: unknown, columnCount: number, rowCount: number): 
 export type SmartRow = {
   /** Row number in the file, counting from 1 as a spreadsheet does. */
   sheetRow: number;
+  /** Where it came from when several worksheets were read together ("Round 3 row 12"). */
+  where?: string;
+  /** Stable id for this row in the preview (part:row), for the owner's edits. */
+  rowKey?: string;
   /** The other program's customer reference, used to link job history to this customer. */
   ref: string;
   name: string;
@@ -176,16 +182,18 @@ function addressFallbacks(grid: string[][], plan: ImportPlan) {
   return { address: find(/address|addr\b/i), postcode: find(/post\s*code|postal|zip/i) };
 }
 
-export type DroppedRow = { sheetRow: number; name: string; reason: string };
+export type DroppedRow = { sheetRow: number; where?: string; name: string; reason: string };
 
 /** `dropped` collects rows that can't become a customer, with the reason. */
 export function applyPlan(grid: string[][], plan: ImportPlan, dropped?: DroppedRow[]): SmartRow[] {
   const out: SmartRow[] = [];
   const cell = (row: string[], i: number) => String(row[i] ?? "").trim();
   const fallback = addressFallbacks(grid, plan);
+  // A blank cell falls back to the owner's default for that field (if they set one).
+  const dflt = (f: PlanField) => String(plan.defaults?.[f] ?? "").trim();
   const get = (row: string[], f: PlanField, sep: string) =>
-    plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep);
-  const first = (row: string[], f: PlanField) => plan.columns[f].map((i) => cell(row, i)).find(Boolean) ?? "";
+    plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep) || dflt(f);
+  const first = (row: string[], f: PlanField) => plan.columns[f].map((i) => cell(row, i)).find(Boolean) ?? dflt(f);
 
   for (let r = Math.max(plan.firstDataRow, plan.headerRow + 1); r < grid.length; r++) {
     const row = grid[r] ?? [];
@@ -285,6 +293,8 @@ export function looksLikeCleanerPlanner(names: string[]) {
 
 export type HistoryRow = {
   sheetRow: number;
+  where?: string;
+  rowKey?: string;
   ref: string;
   name: string;
   address: string;
@@ -303,8 +313,9 @@ export function applyHistoryPlan(grid: string[][], plan: ImportPlan, dropped?: D
   const out: HistoryRow[] = [];
   const fallback = addressFallbacks(grid, plan);
   const cell = (row: string[], i: number) => String(row[i] ?? "").trim();
-  const get = (row: string[], f: PlanField, sep: string) => plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep);
-  const first = (row: string[], f: PlanField) => plan.columns[f].map((i) => cell(row, i)).find(Boolean) ?? "";
+  const dflt = (f: PlanField) => String(plan.defaults?.[f] ?? "").trim();
+  const get = (row: string[], f: PlanField, sep: string) => plan.columns[f].map((i) => cell(row, i)).filter(Boolean).join(sep) || dflt(f);
+  const first = (row: string[], f: PlanField) => plan.columns[f].map((i) => cell(row, i)).find(Boolean) ?? dflt(f);
   const money = (text: string) => { const t = parsePrice(text); return t && !Number.isNaN(Number(t)) ? Math.max(0, Number(t)) : null; };
 
   for (let r = Math.max(plan.firstDataRow, plan.headerRow + 1); r < grid.length; r++) {
@@ -365,13 +376,14 @@ export function matchHistory<K>(rows: HistoryRow[], candidates: Array<MatchCandi
     const pc = normPostcode(h.postcode) || postcodeIn(h.address);
     const line = firstLine(h.address);
     if (line) {
-      let found = byLine.get(line) ?? [];
+      // The same customer can appear more than once (their address and an alias): count them once.
+      let found = [...new Map((byLine.get(line) ?? []).map((c) => [c.key, c])).values()];
       if (pc) found = found.filter((c) => { const cp = normPostcode(c.postcode ?? "") || postcodeIn(c.address); return !cp || cp === pc; });
       if (found.length > 1 && h.name) found = found.filter((c) => normText(c.name) === normText(h.name));
       if (found.length === 1) return found[0].key;
       if (found.length > 1) return null;
     }
-    const named = h.name ? byName.get(normText(h.name)) ?? [] : [];
+    const named = [...new Map((h.name ? byName.get(normText(h.name)) ?? [] : []).map((c) => [c.key, c])).values()];
     return named.length === 1 ? named[0].key : null;
   });
 }

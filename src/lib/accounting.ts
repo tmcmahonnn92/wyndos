@@ -43,7 +43,8 @@ const hmrc = (key: (typeof HMRC_EXPENSE_CATEGORIES)[number]["key"]) => ({ hmrcCa
 export const EXPENSE_CATEGORIES: ExpenseCategoryDefinition[] = [
   { value: "FUEL", label: "Fuel and travel", ...hmrc("carVanTravelExpenses") },
   { value: "VEHICLE_MAINTENANCE", label: "Vehicle repairs and servicing", ...hmrc("carVanTravelExpenses") },
-  { value: "VEHICLE_COSTS", label: "Vehicle tax, insurance, parking and tolls", ...hmrc("carVanTravelExpenses") },
+  { value: "VEHICLE_COSTS", label: "Vehicle tax and insurance", ...hmrc("carVanTravelExpenses") },
+  { value: "PARKING", label: "Parking and tolls", ...hmrc("carVanTravelExpenses") },
   { value: "SUPPLIES", label: "Cleaning supplies", ...hmrc("costOfGoods") },
   { value: "SUBCONTRACTORS", label: "Subcontractors", ...hmrc("paymentsToSubcontractors") },
   { value: "WAGES", label: "Wages and staff costs", ...hmrc("wagesAndStaffCosts") },

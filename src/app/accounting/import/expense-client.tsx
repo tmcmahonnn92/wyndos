@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
+import { ColumnMapper, type MapperField } from "@/components/column-mapper";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Download, LifeBuoy, Loader2, RotateCcw, Sparkles, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Columns3, Download, LifeBuoy, Loader2, RotateCcw, Sparkles, Upload } from "lucide-react";
 import { parseCSVText } from "@/lib/import-parsing";
 import { HMRC_EXPENSE_CATEGORIES } from "@/lib/accounting";
 import {
@@ -19,22 +20,35 @@ const catOf = new Map(IMPORT_CATEGORIES.map((c) => [c.value, c]));
 const fmtDate = (iso: string) => (iso ? new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : "—");
 const SOURCE: Record<ExpenseRow["categorySource"], string> = { file: "from file", ai: "AI", rule: "usual", default: "not sure" };
 
-async function readGrid(file: File): Promise<string[][]> {
+/** The file as one grid. Worksheets with the same headings (e.g. one per month) are joined; origins says where each row came from. */
+async function readGrid(file: File): Promise<{ grid: string[][]; origins?: string[] }> {
   const name = file.name.toLowerCase();
   const data = await file.arrayBuffer();
   if (/\.(csv|txt|tsv)$/.test(name)) {
     let text = new TextDecoder().decode(data);
     if (name.endsWith(".tsv") || (!text.includes(",") && text.includes("\t"))) text = text.split("\n").map((l) => l.split("\t").map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
-    return parseCSVText(text);
+    return { grid: parseCSVText(text) };
   }
   const XLSX = await import("xlsx");
   const book = XLSX.read(data, { type: "array", cellDates: true });
-  let best: string[][] = [];
-  for (const sheet of book.SheetNames) {
-    const g = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[sheet], { header: 1, raw: false, defval: "", dateNF: "dd/mm/yyyy" }).map((r) => r.map((c) => String(c ?? "")));
-    if (g.filter((r) => r.some((c) => c.trim())).length > best.filter((r) => r.some((c) => c.trim())).length) best = g;
+  const sheets = book.SheetNames.map((name) => ({ name, grid: XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[name], { header: 1, raw: false, defval: "", dateNF: "dd/mm/yyyy" }).map((r) => r.map((c) => String(c ?? ""))) }))
+    .filter((sh) => sh.grid.filter((r) => r.some((c) => c.trim())).length >= 2);
+  if (sheets.length <= 1) return { grid: sheets[0]?.grid ?? [] };
+  // Group by heading row; use the layout with the most rows (other layouts are usually summaries).
+  const firstRow = (g: string[][]) => g.findIndex((r) => r.some((c) => c.trim()));
+  const sig = (g: string[][]) => (g[firstRow(g)] ?? []).map((c) => c.trim().toLowerCase()).filter(Boolean).join("|");
+  const groups = new Map<string, typeof sheets>();
+  for (const sh of sheets) groups.set(sig(sh.grid), [...(groups.get(sig(sh.grid)) ?? []), sh]);
+  const list = [...groups.values()].sort((a, b) => b.reduce((n, sh) => n + sh.grid.length, 0) - a.reduce((n, sh) => n + sh.grid.length, 0))[0];
+  if (list.length === 1) return { grid: list[0].grid };
+  const head = firstRow(list[0].grid);
+  const grid: string[][] = [list[0].grid[head]];
+  const origins: string[] = [""];
+  for (const sh of list) {
+    const h = firstRow(sh.grid);
+    sh.grid.forEach((row, i) => { if (i > h && row.some((c) => c.trim())) { grid.push(row); origins.push(`${sh.name} row ${i + 1}`); } });
   }
-  return best;
+  return { grid, origins };
 }
 
 /** The AI sample: top rows, a few later ones, and every distinct supplier (shortened). */
@@ -58,6 +72,8 @@ export function ExpenseImport({ available }: { available: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [grid, setGrid] = useState<string[][]>([]);
+  const [origins, setOrigins] = useState<string[] | undefined>(undefined);
+  const rowRef = (n: number) => origins?.[n - 1] ?? n;
   const [plan, setPlan] = useState<ExpensePlan | null>(null);
   const [source, setSource] = useState<"template" | "ai">("ai");
   const [attempt, setAttempt] = useState(0);
@@ -71,17 +87,31 @@ export function ExpenseImport({ available }: { available: boolean }) {
   const [helpText, setHelpText] = useState("");
   const [helpSent, setHelpSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** The owner's changes to single rows (by row number). */
+  const [rowEdits, setRowEdits] = useState<Record<number, { date?: string; supplier?: string; amount?: number; vat?: number; skip?: boolean; include?: boolean }>>({});
+  const [editingRow, setEditingRow] = useState<number | null>(null);
+  const [mapperOpen, setMapperOpen] = useState(false);
   const [progress, setProgress] = useState("");
   const [result, setResult] = useState<{ created: number; total: number; notImported: NotImportedRow[] } | null>(null);
 
   const all = useMemo(() => (plan && plan.kind !== "not_expenses" ? applyExpensePlan(grid, plan) : []), [grid, plan]);
   // Owner's changes: a category picked for one row applies to every row from that supplier.
-  const rows = useMemo(() => all.map((r) => ({
-    ...r,
-    category: overrides[r.key] ?? r.category,
-    categorySource: overrides[r.key] ? ("file" as const) : r.categorySource,
-    skip: r.skip === "personal" && putBack.has(r.key) ? ("" as const) : r.skip,
-  })), [all, overrides, putBack]);
+  const rows = useMemo(() => all.map((r) => {
+    const e = rowEdits[r.sheetRow];
+    const amount = e?.amount ?? r.amount;
+    const date = e?.date ?? r.date;
+    // Fixing a missing date or amount, or saying "include it", brings a row back in.
+    let skip = r.skip === "personal" && (putBack.has(r.key) || e?.include) ? ("" as const) : r.skip;
+    if ((skip === "no_date" && date) || (skip === "no_amount" && amount > 0)) skip = "";
+    if (e?.skip) skip = "owner";
+    return {
+      ...r, date, amount, supplier: e?.supplier ?? r.supplier, vat: e?.vat ?? r.vat,
+      category: overrides[r.key] ?? r.category,
+      categorySource: overrides[r.key] ? ("file" as const) : r.categorySource,
+      skip,
+      skipReason: skip === "owner" ? "Left out by you" : skip ? r.skipReason : "",
+    };
+  }), [all, overrides, putBack, rowEdits]);
   const toImport = rows.filter((r) => !r.skip);
   const skipped = rows.filter((r) => r.skip);
   const personal = useMemo(() => {
@@ -101,11 +131,11 @@ export function ExpenseImport({ available }: { available: boolean }) {
   const dates = toImport.map((r) => r.date).sort();
   const unsure = toImport.filter((r) => r.categorySource === "default").length;
   const shown = toImport.filter((r) => !filter || (filter === "UNSURE" ? r.categorySource === "default" : r.category === filter)).slice(0, 200);
-  const notImportedPreview: NotImportedRow[] = skipped.map((r) => ({ row: r.sheetRow, name: [fmtDate(r.date), r.supplier, r.amount ? fmtCurrency(r.amount) : ""].filter((x) => x && x !== "—").join(" · "), reason: r.skipReason }));
+  const notImportedPreview: NotImportedRow[] = skipped.map((r) => ({ row: rowRef(r.sheetRow), name: [fmtDate(r.date), r.supplier, r.amount ? fmtCurrency(r.amount) : ""].filter((x) => x && x !== "—").join(" · "), reason: r.skipReason }));
 
   const reset = () => {
-    setStage("upload"); setError(null); setFile(null); setGrid([]); setPlan(null); setAttempt(0); setOffTopic(false);
-    setOverrides({}); setPutBack(new Set()); setFilter(""); setFeedbackOpen(false); setFeedback(""); setHelpOpen(false); setHelpSent(false); setResult(null);
+    setStage("upload"); setError(null); setFile(null); setGrid([]); setOrigins(undefined); setPlan(null); setAttempt(0); setOffTopic(false);
+    setOverrides({}); setPutBack(new Set()); setRowEdits({}); setEditingRow(null); setMapperOpen(false); setFilter(""); setFeedbackOpen(false); setFeedback(""); setHelpOpen(false); setHelpSent(false); setResult(null);
   };
 
   const askAi = async (g: string[][], f: File, previous: ExpensePlan | null, said: string, n: number) => {
@@ -122,7 +152,9 @@ export function ExpenseImport({ available }: { available: boolean }) {
     setStage("reading");
     try {
       if (f.size > 15 * 1024 * 1024) throw new Error("That file is very big. Split it, or ask us to import it.");
-      const g = (await readGrid(f)).slice(0, 20050);
+      const read = await readGrid(f);
+      const g = read.grid.slice(0, 20050);
+      setOrigins(read.origins);
       if (g.filter((r) => r.some((c) => String(c).trim())).length < 2) throw new Error("That file looks empty.");
       setGrid(g);
       const tpl = templateExpensePlan(g[0] ?? []);
@@ -154,12 +186,12 @@ export function ExpenseImport({ available }: { available: boolean }) {
         created += res.created;
         const skippedRows = new Set(res.notImported.map((n) => n.row));
         sum += batch.filter((r) => !skippedRows.has(r.sheetRow)).reduce((s, r) => s + r.amount, 0);
-        notImported.push(...res.notImported);
+        notImported.push(...res.notImported.map((n) => ({ ...n, row: rowRef(n.row) })));
       }
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : "The import stopped part way. Check Accounting before trying again.");
     }
-    setResult({ created, total: sum, notImported: notImported.sort((a, b) => Number(a.row) - Number(b.row)) });
+    setResult({ created, total: sum, notImported: notImported.sort((a, b) => String(a.row ?? "").localeCompare(String(b.row ?? ""), undefined, { numeric: true })) });
     setProgress("");
     setStage("done");
   };
@@ -241,6 +273,29 @@ export function ExpenseImport({ available }: { available: boolean }) {
         {offTopic && <p className="mt-2 rounded-lg bg-white px-3 py-2 text-xs text-amber-800">That box is only for fixing how your file is read or how suppliers are categorised, so nothing changed.</p>}
         {plan.warnings.length > 0 && <ul className="mt-2 space-y-0.5 text-xs text-amber-800">{plan.warnings.map((w, i) => <li key={i} className="flex gap-1"><AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />{w}</li>)}</ul>}
         {used.length > 0 && headings.length > 0 && <p className="mt-2 text-[11px] text-blue-800">{used.map((f) => `${FIELD_LABELS[f]} ← ${plan.columns[f].map((c) => headings[c]?.trim() || `column ${c + 1}`).join(" + ")}`).join(" · ")}</p>}
+        <button type="button" onClick={() => setMapperOpen(!mapperOpen)} className="mt-2 inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100"><Columns3 size={12} /> {mapperOpen ? "Done" : "Change columns or defaults"}</button>
+        {mapperOpen && (
+          <div className="mt-2 space-y-2 rounded-xl bg-white p-3">
+            <label className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+              With one amount column, spending is
+              <select value={plan.sign} onChange={(e) => setPlan({ ...plan, sign: e.target.value as ExpensePlan["sign"] })} className="rounded border border-slate-200 px-1.5 py-1">
+                <option value="out_negative">negative numbers (most bank exports)</option>
+                <option value="out_positive">positive numbers (receipt lists)</option>
+              </select>
+              Dates are
+              <select value={plan.dateOrder} onChange={(e) => setPlan({ ...plan, dateOrder: e.target.value as ExpensePlan["dateOrder"] })} className="rounded border border-slate-200 px-1.5 py-1">
+                <option value="DMY">day/month/year</option><option value="MDY">month/day/year</option><option value="YMD">year-month-day</option>
+              </select>
+            </label>
+            <ColumnMapper
+              grid={grid} headerRow={plan.headerRow} columns={plan.columns}
+              defaults={(plan.defaults ?? {}) as Record<string, string | undefined>}
+              fields={EXPENSE_MAP_FIELDS}
+              onChange={(next) => setPlan({ ...plan, columns: next.columns as ExpensePlan["columns"], defaults: next.defaults as ExpensePlan["defaults"], headerRow: next.headerRow, firstDataRow: next.firstDataRow })}
+            />
+            <p className="text-[11px] text-slate-400">A default category (e.g. &quot;Fuel and travel&quot;) is used for rows with no category in the file and no supplier match. No AI is used for these changes.</p>
+          </div>
+        )}
       </div>
 
       {plan.kind === "not_expenses" ? (
@@ -291,10 +346,11 @@ export function ExpenseImport({ available }: { available: boolean }) {
                 <thead><tr className="border-b border-slate-100 bg-slate-50 text-left text-slate-500">{["Row", "Date", "Supplier", "Amount", "VAT", "Category", ""].map((h) => <th key={h} className="px-2.5 py-2 font-semibold">{h}</th>)}</tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {shown.map((r) => (
-                    <tr key={r.sheetRow} className={cn(r.categorySource === "default" && "bg-amber-50/60")}>
-                      <td className="px-2.5 py-1.5 text-slate-400">{r.sheetRow}</td>
+                    <Fragment key={r.sheetRow}>
+                    <tr className={cn(r.categorySource === "default" && "bg-amber-50/60", rowEdits[r.sheetRow] && "outline outline-1 -outline-offset-1 outline-blue-300")}>
+                      <td className="whitespace-nowrap px-2.5 py-1.5 text-slate-400">{rowRef(r.sheetRow)}</td>
                       <td className="whitespace-nowrap px-2.5 py-1.5">{fmtDate(r.date)}</td>
-                      <td className="max-w-[260px] truncate px-2.5 py-1.5 font-medium text-slate-800" title={r.notes || r.supplier}>{r.supplier}</td>
+                      <td className="max-w-[260px] truncate px-2.5 py-1.5 font-medium text-slate-800" title={r.notes || r.supplier}><button type="button" onClick={() => setEditingRow(editingRow === r.sheetRow ? null : r.sheetRow)} className="max-w-full truncate text-left hover:text-blue-700 hover:underline">{r.supplier}</button></td>
                       <td className="px-2.5 py-1.5 text-right tabular-nums">{fmtCurrency(r.amount)}</td>
                       <td className="px-2.5 py-1.5 text-right tabular-nums text-slate-500">{r.vat ? fmtCurrency(r.vat) : ""}</td>
                       <td className="px-2.5 py-1.5">
@@ -304,11 +360,38 @@ export function ExpenseImport({ available }: { available: boolean }) {
                       </td>
                       <td className="whitespace-nowrap px-2.5 py-1.5 text-[11px] text-slate-400">{SOURCE[r.categorySource]}</td>
                     </tr>
+                    {editingRow === r.sheetRow && (
+                      <tr><td colSpan={7} className="bg-blue-50/60 px-3 py-2">
+                        <ExpenseRowEditor row={r}
+                          onSave={(e) => { setRowEdits((all) => ({ ...all, [r.sheetRow]: { ...all[r.sheetRow], ...e } })); setEditingRow(null); }}
+                          onReset={() => { setRowEdits((all) => { const n = { ...all }; delete n[r.sheetRow]; return n; }); setEditingRow(null); }}
+                          onSkip={() => { setRowEdits((all) => ({ ...all, [r.sheetRow]: { ...all[r.sheetRow], skip: true } })); setEditingRow(null); }} />
+                      </td></tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {skipped.some((r) => r.skip === "no_date" || r.skip === "no_amount" || r.skip === "owner") && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-3 text-xs">
+              <p className="font-semibold text-slate-700">Fix and include</p>
+              <div className="mt-1 divide-y divide-slate-100">
+                {skipped.filter((r) => r.skip === "no_date" || r.skip === "no_amount" || r.skip === "owner").slice(0, 50).map((r) => (
+                  <div key={r.sheetRow} className="py-1.5">
+                    <div className="flex items-center justify-between gap-2"><span>{rowRef(r.sheetRow)} · {r.supplier || "(no supplier)"} · <span className="text-amber-700">{r.skipReason}</span></span>
+                      <button type="button" onClick={() => setEditingRow(editingRow === r.sheetRow ? null : r.sheetRow)} className="font-semibold text-blue-700">{editingRow === r.sheetRow ? "Close" : "Fix"}</button></div>
+                    {editingRow === r.sheetRow && <div className="mt-1 rounded-lg bg-blue-50/60 p-2"><ExpenseRowEditor row={r}
+                      onSave={(e) => { setRowEdits((all) => ({ ...all, [r.sheetRow]: { ...all[r.sheetRow], ...e, skip: false } })); setEditingRow(null); }}
+                      onReset={() => { setRowEdits((all) => { const n = { ...all }; delete n[r.sheetRow]; return n; }); setEditingRow(null); }}
+                      onSkip={() => setEditingRow(null)} /></div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <NotImportedList rows={notImportedPreview} title="Won't be imported" fileName="expenses-not-imported.csv" />
         </>
@@ -373,6 +456,35 @@ function Stat({ label, value, sub, warn = false }: { label: string; value: strin
       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       <p className={cn("text-lg font-bold tabular-nums", warn ? "text-amber-700" : "text-slate-800")}>{value}</p>
       {sub && <p className="text-[11px] text-slate-500">{sub}</p>}
+    </div>
+  );
+}
+
+const EXPENSE_MAP_FIELDS: MapperField[] = [
+  { key: "date", label: "Date" },
+  { key: "supplier", label: "Supplier / payee", multi: true },
+  { key: "description", label: "Description", multi: true },
+  { key: "amount", label: "Amount (one column)", hint: "Or money out / in below" },
+  { key: "moneyOut", label: "Money out" },
+  { key: "moneyIn", label: "Money in" },
+  { key: "vat", label: "VAT", defaultPlaceholder: "e.g. 0" },
+  { key: "category", label: "Category", defaultPlaceholder: "e.g. Fuel and travel" },
+  { key: "notes", label: "Notes", multi: true },
+];
+
+const ebox = "rounded border border-slate-200 bg-white px-1.5 py-1 text-xs";
+/** Change one expense before it's imported. */
+function ExpenseRowEditor({ row, onSave, onReset, onSkip }: { row: ExpenseRow; onSave: (e: { date?: string; supplier?: string; amount?: number; vat?: number; include?: boolean }) => void; onReset: () => void; onSkip: () => void }) {
+  const [f, setF] = useState({ date: row.date, supplier: row.supplier, amount: row.amount ? String(row.amount) : "", vat: row.vat ? String(row.vat) : "" });
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <label className="text-[11px] text-slate-500">Date<input type="date" className={cn(ebox, "block")} value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></label>
+      <label className="text-[11px] text-slate-500">Supplier<input className={cn(ebox, "block w-48")} value={f.supplier} onChange={(e) => setF({ ...f, supplier: e.target.value })} /></label>
+      <label className="text-[11px] text-slate-500">Amount £<input type="number" step="0.01" className={cn(ebox, "block w-24")} value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></label>
+      <label className="text-[11px] text-slate-500">VAT £<input type="number" step="0.01" className={cn(ebox, "block w-20")} value={f.vat} onChange={(e) => setF({ ...f, vat: e.target.value })} /></label>
+      <button type="button" onClick={() => onSave({ date: f.date, supplier: f.supplier.trim(), amount: Math.max(0, Number(f.amount) || 0), vat: Math.max(0, Number(f.vat) || 0), include: true })} className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white">Use these values</button>
+      <button type="button" onClick={onReset} className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">Back to the file</button>
+      <button type="button" onClick={onSkip} className="rounded-lg border border-red-200 bg-white px-3 py-1 text-xs font-semibold text-red-700">Leave out</button>
     </div>
   );
 }

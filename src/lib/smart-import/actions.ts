@@ -41,6 +41,7 @@ How to read the file:
 - If there are two sets of address columns (e.g. customer address and job/property/site address), use the set that is filled in on most rows, normally the customer's. Never choose address or postcode columns that are empty on most rows.
 - Phone: list mobile columns before landline columns.
 - Price: the price per clean, not a balance owed or a total.
+- A last column headed "Sheet" means several worksheets with the same layout were joined; it holds each row's worksheet name. If there's no other round/area column, the worksheet name is usually the round or area: use the Sheet column for area.
 - Area: the round, area, day or route a customer is cleaned on. If there isn't one, set defaultArea to a sensible name (e.g. the town most rows share) and leave area empty.
 - frequency: give weeks for every distinct frequency value you're shown (4 weekly, 4w, monthly → 4; 8 weekly, 2 monthly, bi-monthly → 8; fortnightly → 2; quarterly → 13). defaultFrequencyWeeks is used when a row has none (4 if unsure).
 - payment: CASH, BACS (bank transfer, BACS, online), CARD, DD (direct debit, GoCardless, standing order), INVOICE (pays on invoice / later), or "" if it isn't a way of paying.
