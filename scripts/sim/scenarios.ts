@@ -108,6 +108,28 @@ async function test(name: string, fn: () => Promise<string | true>) {
     return done === 1 && upcoming === 0 ? true : `done cleans ${done} (expected 1), still on next run: ${upcoming}`;
   });
 
+  await test("imports never mix up two customers with the same name", async () => {
+    const b = await fresh("samename");
+    const area = await prisma.area.findFirst({ where: { tenantId: b.tenantId, isSystemArea: false } });
+    const rows = [
+      { name: "Tom", address: "", houseNameNumber: "166", street: "Highfield Lane", town: "Waverley", price: 17, areaId: area!.id },
+      { name: "Tom", address: "", houseNameNumber: "92", street: "Lescar Road", town: "Waverley", price: 12, areaId: area!.id },
+    ];
+    const r1 = await act.bulkImportCustomers(rows, {});
+    const r2 = await act.bulkImportCustomers(rows, {}); // running it again adds nobody
+    const toms = await prisma.customer.findMany({ where: { tenantId: b.tenantId, name: "Tom" } });
+    const h = await act.bulkImportJobHistory([
+      { customerName: "Tom", address: "92 Lescar Road, Waverley", date: "2026-10-01", price: 12 },
+      { customerName: "Tom", date: "2026-10-01", price: 17 },
+    ], {});
+    const lescar = toms.find((t) => t.address.startsWith("92"))!;
+    const onLescar = await prisma.job.count({ where: { customerId: lescar.id, workDay: { date: new Date("2026-10-01T00:00:00Z") } } });
+    if (r1.created !== 2 || r2.created !== 0 || toms.length !== 2) return `created ${r1.created} then ${r2.created}, ${toms.length} Toms`;
+    if (onLescar !== 1) return `history row for 92 Lescar Road went to the wrong Tom`;
+    if (h.errors.length !== 1) return `history row with no address should be refused (2 Toms), got ${h.errors.length} errors`;
+    return true;
+  });
+
   await test("changing area keeps a done-but-unpaid clean", async () => {
     const b = await fresh("area");
     await act.startDay(b.run.id);
