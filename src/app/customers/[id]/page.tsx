@@ -4,6 +4,7 @@ import { getCustomer, getCustomerBankReferences, getAreas, getBusinessSettings, 
 import { getActiveUserContext, requirePermission } from "@/lib/tenant-context";
 import { CustomerDetail } from "./customer-detail";
 import { BankReferences } from "./bank-references";
+import { DirectDebitPanel } from "./direct-debit-panel";
 import { PlaceAfter } from "./place-after";
 import { getCustomerTexts } from "@/lib/text-actions";
 
@@ -47,6 +48,7 @@ export default async function CustomerPage({ params }: Props) {
         allTags={allTags}
         hidePrices={hidePrices}
         goCardlessReferencePrefix={settings.goCardlessReferencePrefix || "WD"}
+        goCardlessOn={settings.goCardlessOn}
         texts={texts.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() }))}
       />
       <PlaceAfter
@@ -54,6 +56,10 @@ export default async function CustomerPage({ params }: Props) {
         afterName={customer.placeAfterCustomerId ? pickList.find((c) => c.id === customer.placeAfterCustomerId)?.name ?? null : null}
       />
       {canPay && <BankReferences refs={bankRefs.map(({ id, label }) => ({ id, label }))} />}
+      {settings.goCardlessOn && settings.goCardlessConfigured && (user.role === "OWNER" || user.role === "SUPER_ADMIN") && (
+        <DirectDebitPanel customerId={customer.id} mandateId={customer.goCardlessMandateId ?? null} mandateStatus={customer.goCardlessMandateStatus ?? null}
+          waitingForSignup={Boolean(customer.goCardlessBillingRequestId)} reference={customer.goCardlessCustomerReference ?? ""} />
+      )}
     </Suspense>
   );
 }

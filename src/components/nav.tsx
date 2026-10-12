@@ -342,7 +342,7 @@ export function Nav({
 
       <nav className="print:hidden md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0A0E1A] border-t border-[#1E2840]">
         {mobileMenuOpen && (
-          <div className="absolute bottom-20 left-4 right-4 max-h-[75vh] overflow-y-auto rounded-3xl border border-[#1E2840] bg-[#0F1626] p-3 shadow-2xl">
+          <div className="absolute bottom-20 left-4 right-4 max-h-[75dvh] overflow-y-auto rounded-3xl border border-[#1E2840] bg-[#0F1626] p-3 shadow-2xl">
             <div className="mb-2 flex items-center justify-between px-1">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#4A5568]">Quick Add</p>

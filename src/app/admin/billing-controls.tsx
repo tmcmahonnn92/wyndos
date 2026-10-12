@@ -2,13 +2,17 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { extendTrial, setFreeForever } from "@/lib/admin-billing";
+import { extendTrial, setFreeForever, setTrialFeature } from "@/lib/admin-billing";
+
+/** Keep in step with TRIAL_FEATURES in lib/trial-features.ts. */
+const FEATURES = [{ key: "auto_invoice", label: "Trial: auto-email invoices" }, { key: "gocardless", label: "Trial: GoCardless" }];
 
 type Row = {
   id: number;
   name: string;
   createdAt: string;
   billingExempt: boolean;
+  trialFeatures: string[];
   subscriptionStatus: string;
   stripeCustomerId: string | null;
   state: { kind: string; daysLeft: number; trialEndsAt: string; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean };
@@ -56,6 +60,12 @@ export function BillingControls({ rows }: { rows: Row[] }) {
               <input type="checkbox" checked={r.billingExempt} disabled={pending} onChange={(e) => run(() => setFreeForever(r.id, e.target.checked))} />
               Free forever
             </label>
+            {FEATURES.map((f) => (
+              <label key={f.key} className="flex items-center gap-2 text-xs text-amber-300">
+                <input type="checkbox" checked={r.trialFeatures.includes(f.key)} disabled={pending} onChange={(e) => run(() => setTrialFeature(r.id, f.key, e.target.checked))} />
+                {f.label}
+              </label>
+            ))}
             {!r.billingExempt && (
               <div className="flex items-center gap-1.5">
                 <input type="number" min={1} max={3650} placeholder="days" value={days[r.id] ?? ""} onChange={(e) => setDays((d) => ({ ...d, [r.id]: e.target.value }))}

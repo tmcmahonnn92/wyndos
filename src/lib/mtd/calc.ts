@@ -30,7 +30,7 @@ export type HmrcExpenseField = (typeof HMRC_EXPENSE_FIELDS)[number];
 const ALWAYS_DISALLOWED = new Set<string>(["businessEntertainmentCosts", "depreciation"]);
 const MILEAGE_REPLACES = new Set(["FUEL", "VEHICLE_MAINTENANCE", "VEHICLE_COSTS"]);
 /** Other-income categories that are really sales (turnover), not "other business income". */
-const TURNOVER_INCOME = new Set(["COMMERCIAL", "BONUS", "OPENING"]);
+const TURNOVER_INCOME = new Set(["COMMERCIAL", "BONUS", "OPENING", "PAST_CUSTOMER"]);
 export const CONSOLIDATED_LIMIT = 90000;
 
 export type Basis = "CASH" | "ACCRUALS";

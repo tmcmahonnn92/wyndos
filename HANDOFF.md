@@ -217,3 +217,23 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Plans have `fixedValues` (every row) as well as `defaults` (when blank); both survive retries. Mapper shows "Every row: X" with a clear button.
 - After a retry the page lists exactly what changed, or says nothing did and points to Change columns. Same for expenses (category moves, left out / put back).
 - Messy files: "£12 cash" style prices (full text kept in notes), "Phone / Email" columns split, frequency read from notes ("8 Weekly - Due Dec"), Paid/Unpaid not treated as a payment method, and every sheet of a multi-sheet workbook gets a Sheet column used as the area.
+
+## Customer feedback round (new73)
+- Bank matching: "Old customer (not in Wyndos)" saves the line as Other income, category PAST_CUSTOMER (counts as turnover in MTD). `ImportedLine.otherIncomeId`; undo deletes it. Migration `20261010120000_bank_line_income`.
+- Skip: next due = area's next run from max(planned day, today); finishing a day sets skipped customers to the area's next run. Fixes "skipped shows overdue".
+- Invoice logo: `lib/logo-image.ts` flattens onto white with sharp (see-through PNGs went black in react-pdf). PDF building moved to `lib/invoice-build.ts`.
+- Phones: Areas, bulk edit, pop-ups and the quick-add menu use dvh (100vh hid the bottom under the browser bar).
+- Trial features: `Tenant.trialFeatures` (comma list), switched per business in Admin → Billing. First one `auto_invoice`: Settings toggle `autoInvoiceEmail` shows only when trialled; finishing a day emails an invoice (PDF) for unpaid cleans to customers with an email, via platform SMTP, reply-to the business. Each clean invoiced once; failures logged (MessageLog kind INVOICE_EMAIL) and un-marked. Migration `20261010140000_trial_features`.
+- Owing: amber "£X owed to you" line on the dashboard → /payments?tab=owing.
+- Accounting: "Sales v money in" (cleans done v payments) and per-month line.
+- Smart import: sheets with mostly matching headings are merged into one list (union of headings + Sheet); AI gets per-column fill counts. "Try again" defaults to all parts. Customers on a different frequency from their round go in "<round> N weekly" (round names that state a frequency use it).
+
+## Aworka import + smart import upgrades (new74)
+- `/customers/import/aworka`: reads an Aworka full export in the browser (`lib/aworka/parse.ts`) into the CleanerPlanner plan, so it shares the screen (`MoveImport source=…`) and server actions. jobs.csv → customers (rounds split by frequency; On Request / One Off → one-offs; Suspended/Deleted/Transferred → inactive; Estimates listed as not imported; repeated jobs kept once, live one preferred). Balances are per customer, put on the main job; Aworka negative = owes. activity-*.csv → cleans, payments (on clean / invoice / own; repeated "payment" rows skipped), tips (negative Tip/Bad Debt on a paid clean → Other income BONUS), bad debts (write-off: lowers the oldest unpaid cleans' price). Checked on a real export: 563/564 balances rebuild exactly. expenses.csv → expenses via `importExpenses`, category per Aworka category (editable), loan repayments left out by default.
+- CleanerPlanner history fix: payments in the same batch as new cleans now pay them (previously could become credit).
+- Smart import: optional notes before reading (`hints` → `<owner_instructions>`), with quick chips; new-area panel (rename/join existing, colour, frequency); Edit button per row + Issues column; existing customers skip/fill/overwrite; same address more than once → extra one-off jobs (One-Off area, "Extra job") / separate customers / same customer twice (left out). `bulkImportCustomers` gets `matchJob` (name+address+job).
+
+## GoCardless per business (new75)
+- Switched on per business: Admin → Billing → "Trial: GoCardless" (`Tenant.trialFeatures` contains `gocardless`), or server-wide with the build flag. `goCardlessOn(tenantId)` in `lib/trial-features.ts` gates actions, the Direct Debit page, the cron, Settings (card and saving the token), Payments buttons and the customer page.
+- Customer page: Direct Debit panel (status, mandate, "Get sign-up link" with copy) for owners when switched on and a token is saved.
+- Testing steps: `deploy/GOCARDLESS-TESTING.md`.

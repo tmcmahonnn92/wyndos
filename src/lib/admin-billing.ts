@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
 import { requireSuperAdmin } from "@/lib/tenant-context";
 import { billingStateOf, trialEndOf } from "@/lib/billing";
+import { TRIAL_FEATURES, featureList } from "@/lib/trial-features";
 
 /** Every business with its billing state, for the admin console. */
 export async function getAdminBilling() {
@@ -11,7 +12,7 @@ export async function getAdminBilling() {
   const tenants = await prisma.tenant.findMany({
     orderBy: { createdAt: "desc" },
     select: {
-      id: true, name: true, createdAt: true, trialEndsAt: true, billingExempt: true,
+      id: true, name: true, createdAt: true, trialEndsAt: true, billingExempt: true, trialFeatures: true,
       subscriptionStatus: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, stripeCustomerId: true,
     },
   });
@@ -20,6 +21,7 @@ export async function getAdminBilling() {
     name: t.name,
     createdAt: t.createdAt.toISOString(),
     billingExempt: t.billingExempt,
+    trialFeatures: featureList(t.trialFeatures),
     subscriptionStatus: t.subscriptionStatus,
     stripeCustomerId: t.stripeCustomerId,
     state: billingStateOf(t),
@@ -42,4 +44,17 @@ export async function extendTrial(tenantId: number, days: number) {
   const from = Math.max(Date.now(), trialEndOf(t).getTime());
   await prisma.tenant.update({ where: { id: tenantId }, data: { trialEndsAt: new Date(from + n * 86_400_000) } });
   revalidatePath("/admin");
+}
+
+/** Turn a trial feature on or off for one business. */
+export async function setTrialFeature(tenantId: number, key: string, on: boolean) {
+  await requireSuperAdmin();
+  if (!TRIAL_FEATURES.some((f) => f.key === key)) throw new Error("Unknown feature.");
+  const t = await prisma.tenant.findUniqueOrThrow({ where: { id: Number(tenantId) }, select: { trialFeatures: true } });
+  const list = new Set(featureList(t.trialFeatures));
+  if (on) list.add(key); else list.delete(key);
+  await prisma.tenant.update({ where: { id: Number(tenantId) }, data: { trialFeatures: [...list].join(",") } });
+  if (!on && key === "auto_invoice") await prisma.tenantSettings.updateMany({ where: { tenantId: Number(tenantId) }, data: { autoInvoiceEmail: false } });
+  revalidatePath("/admin");
+  revalidatePath("/settings");
 }

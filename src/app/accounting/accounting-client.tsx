@@ -19,6 +19,8 @@ type MonthlySummary = {
   expenses: number;
   expenseVat: number;
   net: number;
+  sales: number;
+  paidForCleans: number;
   paymentCount: number;
   expenseCount: number;
   categoryBreakdown: Record<string, number>;
@@ -193,7 +195,7 @@ export function AccountingClient({
   recentExpenses: RecentExpense[];
   recentPayments: RecentPayment[];
   recentOtherIncome: RecentOtherIncome[];
-  totals: { income: number; expenses: number; net: number; incomeVat: number; expenseVat: number };
+  totals: { income: number; expenses: number; net: number; incomeVat: number; expenseVat: number; sales: number; paidForCleans: number };
   expenseCategories: ExpenseCategoryDefinition[];
   otherIncomeCategories: OtherIncomeCategoryDefinition[];
   taxTreatmentOptions: TaxTreatmentDefinition[];
@@ -683,6 +685,17 @@ export function AccountingClient({
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
+        <Card className="md:col-span-2 xl:col-span-2">
+          <CardHeader><CardTitle>Sales v money in</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div><p className="text-xs text-slate-500">Sales (cleans done)</p><p className="text-lg font-bold text-slate-800">{fmtCurrency(totals.sales)}</p></div>
+              <div><p className="text-xs text-slate-500">Paid for cleans</p><p className="text-lg font-bold text-green-700">{fmtCurrency(totals.paidForCleans)}</p></div>
+              <div><p className="text-xs text-slate-500">Difference</p><p className={cn("text-lg font-bold", totals.sales - totals.paidForCleans > 0.005 ? "text-amber-700" : "text-slate-800")}>{fmtCurrency(totals.sales - totals.paidForCleans)}</p></div>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Sales is the work you did in {selectedTaxYearLabel} (accruals). Paid is the money that came in (cash). A gap is mostly money still owed, or payments for cleans done before or after these dates. Your tax basis is set under MTD.</p>
+          </CardContent>
+        </Card>
         <Card><CardHeader><CardTitle>VAT On Income</CardTitle></CardHeader><CardContent><p className="text-xl font-bold text-slate-800">{fmtCurrency(totals.incomeVat)}</p><p className="mt-1 text-xs text-slate-500">Output VAT inside the selected filter range</p></CardContent></Card>
         <Card><CardHeader><CardTitle>VAT On Expenses</CardTitle></CardHeader><CardContent><p className="text-xl font-bold text-slate-800">{fmtCurrency(totals.expenseVat)}</p><p className="mt-1 text-xs text-slate-500">Input VAT inside the selected filter range</p></CardContent></Card>
       </div>
@@ -721,6 +734,7 @@ export function AccountingClient({
                     <div className="rounded-lg border border-slate-200 bg-white px-2 py-2"><p className="text-slate-400">Expenses</p><p className="mt-1 font-semibold text-slate-800">{fmtCurrency(month.expenses)}</p><p className="text-[11px] text-slate-400">VAT {fmtCurrency(month.expenseVat)}</p></div>
                     <div className="rounded-lg border border-slate-200 bg-white px-2 py-2"><p className="text-slate-400">Net</p><p className={cn("mt-1 font-semibold", month.net >= 0 ? "text-green-700" : "text-red-700")}>{fmtCurrency(month.net)}</p><p className="text-[11px] text-slate-400">Gross view</p></div>
                   </div>
+                  <p className="mt-2 text-[11px] text-slate-500">Cleans done {fmtCurrency(month.sales)} · paid for cleans {fmtCurrency(month.paidForCleans)}</p>
                   {Object.keys(month.categoryBreakdown).length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{Object.entries(month.categoryBreakdown).map(([category, amount]) => { const definition = expenseCategories.find((entry) => entry.value === category); return <span key={category} className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">{definition?.label ?? category}: {fmtCurrency(amount)}</span>; })}</div>}
                 </div>
               ))}
@@ -794,7 +808,7 @@ export function AccountingClient({
 
       {quickAddOpen && (
         <div className="fixed inset-0 z-50 flex items-end bg-slate-900/40 xl:hidden">
-          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-3xl bg-white p-4 shadow-2xl">
+          <div className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-white p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-base font-semibold text-slate-800">{editingExpenseId ? "Edit expense" : editingIncomeId ? "Edit income" : "Quick add"}</p>

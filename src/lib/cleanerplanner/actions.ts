@@ -19,6 +19,7 @@ const money = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Mat
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const METHODS = new Set(["CASH", "BACS", "CARD"]);
 const PREFERENCES = new Set(["CASH", "BACS", "CARD", "DD", "INVOICE"]);
+const SOURCES = new Set(["CleanerPlanner", "Aworka"]);
 
 export type CpImportRow = {
   key: string;
@@ -68,7 +69,8 @@ async function historyDay(tenantId: number, areaId: number, iso: string, cache: 
  * Step 1: areas and customers (plus what each one owes or has in credit).
  * Someone already in Wyndos with the same name, address and job is left alone.
  */
-export async function importCpCustomers(rows: CpImportRow[]) {
+export async function importCpCustomers(rows: CpImportRow[], source = "CleanerPlanner") {
+  const from = SOURCES.has(source) ? source : "CleanerPlanner";
   const actor = await requireOwner();
   const tenantId = actor.tenantId;
   if (!Array.isArray(rows) || rows.length > 500) throw new Error("Send at most 500 customers at a time.");
@@ -148,13 +150,13 @@ export async function importCpCustomers(rows: CpImportRow[]) {
         await prisma.job.create({
           data: {
             tenantId, workDayId, customerId: customer.id, name: "Balance brought forward", price: bal,
-            status: "COMPLETE", completedAt: day(when), isOneOff: true, notes: "Owed when moving from CleanerPlanner",
+            status: "COMPLETE", completedAt: day(when), isOneOff: true, notes: `Owed when moving from ${from}`,
           },
         });
         owedTotal += bal;
       } else if (bal < -0.004) {
         await prisma.payment.create({
-          data: { tenantId, customerId: customer.id, amount: -bal, method: "BACS", paidAt: day(when), notes: "Credit brought forward from CleanerPlanner" },
+          data: { tenantId, customerId: customer.id, amount: -bal, method: "BACS", paidAt: day(when), notes: `Credit brought forward from ${from}` },
         });
         creditTotal += -bal;
       }
@@ -168,13 +170,15 @@ export async function importCpCustomers(rows: CpImportRow[]) {
   return { created, skipped, oneOffs, ids, areasCreated, datedAreaIds: [...datedAreas], owedTotal: money(owedTotal), creditTotal: money(creditTotal), errors };
 }
 
-export type CpHistoryItem = { customerId: number; kind: "charge" | "payment"; date: string; amount: number; method: string; note: string };
+/** charge = a clean; payment; tip = extra on top of a payment (other income); writeoff = bad debt cleared off the oldest unpaid cleans. */
+export type CpHistoryItem = { customerId: number; kind: "charge" | "payment" | "tip" | "writeoff"; date: string; amount: number; method: string; note: string };
 
 /**
  * Step 2 (optional): past cleans, then payments. Send every charge before any payment:
  * payments pay off the oldest unpaid cleans first and anything left over becomes credit.
  */
-export async function importCpHistory(items: CpHistoryItem[]) {
+export async function importCpHistory(items: CpHistoryItem[], source = "CleanerPlanner") {
+  const from = SOURCES.has(source) ? source : "CleanerPlanner";
   const actor = await requireOwner();
   const tenantId = actor.tenantId;
   if (!Array.isArray(items) || items.length > 2000) throw new Error("Send at most 2000 history rows at a time.");
@@ -184,12 +188,12 @@ export async function importCpHistory(items: CpHistoryItem[]) {
     (await prisma.customer.findMany({ where: { tenantId, id: { in: customerIds } }, select: { id: true, areaId: true, jobName: true } })).map((c) => [c.id, c]),
   );
   const dayCache = new Map<string, number>();
-  let cleans = 0, payments = 0, skipped = 0;
+  let cleans = 0, payments = 0, skipped = 0, tips = 0, writtenOff = 0;
   const skippedItems: string[] = [];
 
   // Unpaid cleans per customer, oldest first (loaded once for the customers paying in this batch).
   const owing = new Map<number, Array<{ id: number; left: number }>>();
-  const payers = [...new Set(items.filter((i) => i.kind === "payment").map((i) => i.customerId))].filter((id) => customers.has(id));
+  const payers = [...new Set(items.filter((i) => i.kind === "payment" || i.kind === "writeoff").map((i) => i.customerId))].filter((id) => customers.has(id));
   if (payers.length) {
     const jobs = await prisma.job.findMany({
       where: { tenantId, customerId: { in: payers }, status: "COMPLETE" },
@@ -212,13 +216,35 @@ export async function importCpHistory(items: CpHistoryItem[]) {
     }
     if (it.kind === "charge") {
       const workDayId = await historyDay(tenantId, c.areaId, it.date, dayCache);
-      await prisma.job.create({
+      const job = await prisma.job.create({
         data: {
           tenantId, workDayId, customerId: c.id, name: c.jobName, price: amount, status: "COMPLETE",
           completedAt: new Date(day(it.date).getTime() + 12 * 3600000), notes: text(it.note, 200) || null,
         },
+        select: { id: true },
       });
+      // Payments later in this same batch can pay it.
+      owing.set(c.id, [...(owing.get(c.id) ?? []), { id: job.id, left: amount }]);
       cleans++;
+    } else if (it.kind === "tip") {
+      await prisma.otherIncome.create({
+        data: { tenantId, category: "BONUS", source: "Tip", amount, netAmount: amount, receivedAt: new Date(day(it.date).getTime() + 12 * 3600000), notes: `From ${from}` },
+      });
+      tips++;
+    } else if (it.kind === "writeoff") {
+      // Bad debt: take it off the oldest unpaid cleans (their price comes down, so it isn't owed or counted as sales).
+      let rest = amount;
+      for (const j of owing.get(c.id) ?? []) {
+        if (rest <= 0.004) break;
+        if (j.left <= 0.004) continue;
+        const take = money(Math.min(j.left, rest));
+        const job = await prisma.job.findUnique({ where: { id: j.id }, select: { price: true, notes: true } });
+        if (!job) continue;
+        await prisma.job.update({ where: { id: j.id }, data: { price: money(job.price - take), notes: [job.notes, `£${take.toFixed(2)} written off (bad debt in ${from})`].filter(Boolean).join(" · ").slice(0, 500) } });
+        j.left = money(j.left - take);
+        rest = money(rest - take);
+        writtenOff = money(writtenOff + take);
+      }
     } else {
       let rest = amount;
       const allocations: Array<{ tenantId: number; jobId: number; amount: number }> = [];
@@ -233,14 +259,14 @@ export async function importCpHistory(items: CpHistoryItem[]) {
       await prisma.payment.create({
         data: {
           tenantId, customerId: c.id, amount, method: METHODS.has(it.method) ? (it.method as "CASH" | "BACS" | "CARD") : "CASH",
-          paidAt: new Date(day(it.date).getTime() + 12 * 3600000), notes: text(it.note, 200) || "From CleanerPlanner",
+          paidAt: new Date(day(it.date).getTime() + 12 * 3600000), notes: text(it.note, 200) || `From ${from}`,
           allocations: { create: allocations },
         },
       });
       payments++;
     }
   }
-  return { cleans, payments, skipped, skippedItems };
+  return { cleans, payments, skipped, skippedItems, tips, writtenOff };
 }
 
 /** Step 3: book each imported area's next run from its customers' due dates. */

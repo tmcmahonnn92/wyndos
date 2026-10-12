@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import { GOCARDLESS_ENABLED } from "@/lib/features";
+import { goCardlessOn } from "@/lib/trial-features";
 import { syncTenant } from "@/lib/gocardless/core";
 
 /**
@@ -13,10 +13,11 @@ export async function GET(request: Request) {
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
-  if (!GOCARDLESS_ENABLED) return NextResponse.json({ ok: true, skipped: "GoCardless is switched off" });
+  // Only businesses it's switched on for (server-wide flag, or trialling it in Admin).
   const tenants = await prisma.tenantSettings.findMany({ where: { NOT: { goCardlessAccessToken: "" } }, select: { tenantId: true } });
   const results = [];
   for (const { tenantId } of tenants) {
+    if (!(await goCardlessOn(tenantId))) continue;
     try {
       results.push({ tenantId, ...(await syncTenant(tenantId)) });
     } catch (issue) {

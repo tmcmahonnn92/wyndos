@@ -46,12 +46,15 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
     <div className="px-4 py-5 max-w-3xl mx-auto space-y-5">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="text-xl font-bold text-slate-800">Payments</h1>
+          <div>
+            <h1 className="text-xl font-bold text-slate-800">Payments</h1>
+            <p className="text-xs text-slate-500">Who owes you, what&apos;s been paid, and credit</p>
+          </div>
           <PaymentsToolbar
             customers={debtors}
             allCustomers={allCustomers}
             allowCredit={settings.allowCustomerCredit ?? true}
-            goCardlessConfigured={settings.goCardlessConfigured}
+            goCardlessConfigured={settings.goCardlessConfigured && settings.goCardlessOn}
             goCardlessLastSyncedAt={settings.goCardlessLastSyncedAt ? settings.goCardlessLastSyncedAt.toISOString() : null}
           />
         </div>

@@ -31,7 +31,7 @@ export default async function BulkEditPage() {
   const areaData = areas.map((a) => ({ id: a.id, name: a.name, frequencyWeeks: a.frequencyWeeks }));
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div className="flex flex-col h-dvh overflow-hidden">
       <BulkEditClient customers={customerData} areas={areaData} />
     </div>
   );

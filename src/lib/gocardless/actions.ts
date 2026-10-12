@@ -5,15 +5,16 @@
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
 import { requireOwner } from "@/lib/guards";
-import { GOCARDLESS_ENABLED } from "@/lib/features";
+import { goCardlessOn } from "@/lib/trial-features";
 import {
   cleansToCollect, collectForJobs, createSignupLink, gcConnection, GC_MANDATE_USABLE,
   listCustomersAndMandates, suggestLinks, syncTenant, testConnection,
 } from "@/lib/gocardless/core";
 
 async function owner() {
-  if (!GOCARDLESS_ENABLED) throw new Error("Direct Debit isn't switched on.");
-  return requireOwner();
+  const actor = await requireOwner();
+  if (!(await goCardlessOn(actor.tenantId))) throw new Error("Direct Debit isn't switched on for your account.");
+  return actor;
 }
 const message = (issue: unknown) => (issue instanceof Error ? issue.message : "Something went wrong with GoCardless.");
 

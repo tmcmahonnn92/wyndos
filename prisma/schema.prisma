@@ -27,6 +27,8 @@ model Tenant {
   trialEndsAt          DateTime?
   /// Never asked to pay (early users, Tom's own businesses).
   billingExempt        Boolean   @default(false)
+  /// Features being trialled with this business (comma list, e.g. "auto_invoice"). Set in Admin only.
+  trialFeatures        String    @default("")
   stripeCustomerId     String?   @unique
   stripeSubscriptionId String?
   /// Stripe subscription status: trialing, active, past_due, canceled, unpaid, incomplete…
@@ -82,6 +84,8 @@ model TenantSettings {
   nextInvoiceNum  Int    @default(1)
   /// Set once the first invoice number is used; the start number can no longer change.
   invoiceNumbersStarted Boolean @default(false)
+  /// Trial feature: email an invoice to customers with an email when a day is finished.
+  autoInvoiceEmail      Boolean @default(false)
   /// Show VAT on invoices (needs a VAT number). Prices are treated as including VAT.
   invoiceVatEnabled Boolean @default(false)
   invoiceVatRate    Float   @default(20)
@@ -759,6 +763,8 @@ model ImportedLine {
   import    PaymentImport @relation(fields: [importId], references: [id], onDelete: Cascade)
   hash      String
   paymentId Int?
+  /** "Customer not in Wyndos": saved as cleaning income instead of a payment. */
+  otherIncomeId Int?
   ignored   Boolean       @default(false)
   createdAt DateTime      @default(now())
 

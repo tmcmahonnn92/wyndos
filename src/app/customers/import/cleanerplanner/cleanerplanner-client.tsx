@@ -4,6 +4,9 @@ import { useMemo, useState } from "react";
 import { unzipSync, strFromU8 } from "fflate";
 import { ArrowLeftRight, CheckCircle2, FileArchive, Loader2, Upload } from "lucide-react";
 import { pickFiles, readBackup, type CpBackup, type CpCustomer } from "@/lib/cleanerplanner/parse";
+import { readAworka } from "@/lib/aworka/parse";
+import { importExpenses } from "@/lib/smart-import/expense-actions";
+import { IMPORT_CATEGORIES } from "@/lib/smart-import/expense-plan";
 import { NotImportedList } from "@/components/not-imported-list";
 import { finishCpImport, importCpCustomers, importCpHistory, type CpHistoryItem, type CpImportRow } from "@/lib/cleanerplanner/actions";
 import { cn, fmtCurrency } from "@/lib/utils";
@@ -24,14 +27,22 @@ async function readFiles(list: FileList): Promise<Array<{ name: string; text: st
   return out;
 }
 
-type Options = { inactive: boolean; balances: boolean; history: boolean; bookRuns: boolean; flip: boolean };
-type Result = { created: number; skipped: number; oneOffs: number; areas: string[]; owed: number; credit: number; cleans: number; payments: number; runs: number; errors: string[] };
+type Options = { inactive: boolean; balances: boolean; history: boolean; bookRuns: boolean; flip: boolean; expenses: boolean; loans: boolean };
+type Result = { created: number; skipped: number; oneOffs: number; areas: string[]; owed: number; credit: number; cleans: number; payments: number; tips: number; writtenOff: number; expenses: number; runs: number; errors: string[] };
+type Source = "CleanerPlanner" | "Aworka";
 
 export function CleanerPlannerImport() {
+  return <MoveImport source="CleanerPlanner" />;
+}
+
+/** Moving from another program's backup: CleanerPlanner or Aworka. Same checks, same screen. */
+export function MoveImport({ source }: { source: Source }) {
   const [backup, setBackup] = useState<CpBackup | null>(null);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
-  const [opts, setOpts] = useState<Options>({ inactive: true, balances: true, history: true, bookRuns: true, flip: false });
+  const [opts, setOpts] = useState<Options>({ inactive: true, balances: true, history: true, bookRuns: true, flip: false, expenses: true, loans: false });
+  /** Expense category per category in the file (the owner can change them). */
+  const [expenseCats, setExpenseCats] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
@@ -42,12 +53,13 @@ export function CleanerPlannerImport() {
     const label = list.length === 1 ? list[0].name : `${list.length} files`;
     setError(""); setBackup(null); setResult(null);
     try {
-      const files = pickFiles(await readFiles(list));
-      const b = readBackup(files);
+      const entries = await readFiles(list);
+      const b = source === "Aworka" ? readAworka(entries) : readBackup(pickFiles(entries));
       if (b.customers.length === 0) throw new Error("No jobs found in this backup.");
       setBackup(b);
       setFileName(label);
-      setOpts((o) => ({ ...o, history: b.txns.length > 0, flip: false }));
+      setOpts((o) => ({ ...o, history: b.txns.length > 0, flip: false, expenses: Boolean(b.expenses?.length) }));
+      setExpenseCats({});
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't read that file.");
     }
@@ -89,6 +101,17 @@ export function CleanerPlannerImport() {
     return { owed, credit, owing, inCredit };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chosen, sign]);
+  const expenseRows = useMemo(() => (backup?.expenses ?? []).filter((e) => !e.skip || opts.loans), [backup, opts.loans]);
+  const expenseGroups = useMemo(() => {
+    const m = new Map<string, { name: string; count: number; total: number; picked: Record<string, number> }>();
+    for (const e of expenseRows) {
+      const g = m.get(e.sourceCategory) ?? { name: e.sourceCategory, count: 0, total: 0, picked: {} };
+      g.count++; g.total += e.amount; g.picked[e.category] = (g.picked[e.category] ?? 0) + 1;
+      m.set(e.sourceCategory, g);
+    }
+    return [...m.values()].sort((a, b) => b.total - a.total);
+  }, [expenseRows]);
+  const loanRows = (backup?.expenses ?? []).filter((e) => e.skip);
   const biggest = useMemo(() => [...chosen].filter((c) => Math.abs(c.balance) > 0.004).sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))[0], [chosen]);
 
   const run = async () => {
@@ -116,7 +139,7 @@ export function CleanerPlannerImport() {
       });
       const ids: Record<string, number> = {};
       const areaIds = new Set<number>();
-      const res: Result = { created: 0, skipped: 0, oneOffs: 0, areas: [], owed: 0, credit: 0, cleans: 0, payments: 0, runs: 0, errors: [] };
+      const res: Result = { created: 0, skipped: 0, oneOffs: 0, areas: [], owed: 0, credit: 0, cleans: 0, payments: 0, tips: 0, writtenOff: 0, expenses: 0, runs: 0, errors: [...(backup.notImported ?? []).map((n) => `${n.name}: ${n.reason}`)] };
       const chosenKeys = new Set(chosen.map((c) => c.key));
       const historyItems: CpHistoryItem[] = useHistory ? backup.txns.filter((t) => chosenKeys.has(t.jobKey)).map((t) => ({
         customerId: 0, kind: t.kind, date: t.date, amount: t.amount, method: t.method, note: t.note, key: t.jobKey,
@@ -127,7 +150,7 @@ export function CleanerPlannerImport() {
 
       setBusy("Adding customers…");
       for (let i = 0; i < rows.length; i += 250) {
-        const r = await importCpCustomers(rows.slice(i, i + 250));
+        const r = await importCpCustomers(rows.slice(i, i + 250), source);
         Object.assign(ids, r.ids);
         r.datedAreaIds.forEach((id) => areaIds.add(id));
         res.created += r.created; res.skipped += r.skipped; res.oneOffs += r.oneOffs; res.areas.push(...r.areasCreated);
@@ -141,11 +164,26 @@ export function CleanerPlannerImport() {
         const linked = (historyItems as Array<CpHistoryItem & { key: string }>)
           .filter((h) => ids[h.key])
           .map(({ key, ...h }) => ({ ...h, customerId: ids[key] }));
-        const ordered = [...linked.filter((h) => h.kind === "charge"), ...linked.filter((h) => h.kind === "payment")];
+        const ordered = (["charge", "writeoff", "payment", "tip"] as const).flatMap((k) => linked.filter((h) => h.kind === k));
         for (let i = 0; i < ordered.length; i += 1500) {
-          const r = await importCpHistory(ordered.slice(i, i + 1500));
-          res.cleans += r.cleans; res.payments += r.payments; res.errors.push(...r.skippedItems);
+          const r = await importCpHistory(ordered.slice(i, i + 1500), source);
+          res.cleans += r.cleans; res.payments += r.payments; res.tips += r.tips ?? 0; res.writtenOff += r.writtenOff ?? 0; res.errors.push(...r.skippedItems);
           tick();
+        }
+      }
+
+      // 3. Expenses (Aworka): with the categories chosen above.
+      const exp = expenseRows;
+      if (opts.expenses && exp.length) {
+        setBusy("Adding expenses…");
+        for (let i = 0; i < exp.length; i += 500) {
+          const r = await importExpenses(exp.slice(i, i + 500).map((e) => ({
+            row: e.row, date: e.date, supplier: e.supplier, amount: e.amount, vat: e.vat,
+            category: expenseCats[e.sourceCategory] && expenseCats[e.sourceCategory] !== "AUTO" ? expenseCats[e.sourceCategory] : e.category,
+            notes: [e.description, `From ${source}: ${e.sourceCategory}`].filter(Boolean).join(" · "),
+          })));
+          res.expenses += r.created;
+          res.errors.push(...r.notImported.map((n) => `Expense ${n.name}: ${n.reason}`));
         }
       }
 
@@ -172,11 +210,14 @@ export function CleanerPlannerImport() {
           {result.skipped > 0 && <li>{result.skipped} were already in Wyndos and left as they were.</li>}
           {(result.owed > 0 || result.credit > 0) && <li>{fmtCurrency(result.owed)} owed and {fmtCurrency(result.credit)} in credit brought forward.</li>}
           {(result.cleans > 0 || result.payments > 0) && <li>{result.cleans} past cleans and {result.payments} payments.</li>}
+          {result.tips > 0 && <li>{result.tips} tips added to Accounting as other income.</li>}
+          {result.writtenOff > 0 && <li>{fmtCurrency(result.writtenOff)} of bad debts written off, as in {source}.</li>}
+          {result.expenses > 0 && <li>{result.expenses} expenses added to Accounting.</li>}
           {result.runs > 0 && <li>{result.runs} areas put on the schedule from their due dates.</li>}
         </ul>
         <NotImportedList
           rows={result.errors.map((e) => { const at = e.indexOf(": "); return at > 0 ? { name: e.slice(0, at), reason: e.slice(at + 2) } : { reason: e }; })}
-          fileName="cleanerplanner-not-imported.csv"
+          fileName={`${source.toLowerCase()}-not-imported.csv`}
         />
         <div className="flex flex-wrap gap-2 pt-1">
           <a href="/scheduler" className="rounded-lg bg-green-600 px-4 py-2 font-semibold text-white">Open scheduler</a>
@@ -191,14 +232,21 @@ export function CleanerPlannerImport() {
     <div className="space-y-4">
       {!backup && (
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-sm font-semibold text-slate-800">1. Get your backup from CleanerPlanner</p>
-          <p className="text-sm text-slate-600">
-            In CleanerPlanner, make a <strong>backup</strong> (it downloads as a .zip of spreadsheets). Upload that zip here as it is,
-            or pick the CSV files from inside it.
-          </p>
+          <p className="text-sm font-semibold text-slate-800">1. Get your {source === "Aworka" ? "export" : "backup"} from {source}</p>
+          {source === "Aworka" ? (
+            <p className="text-sm text-slate-600">
+              In Aworka, download your <strong>full export</strong> (a .zip with jobs.csv, the activity files and expenses.csv). Upload that zip here as it is,
+              or pick the CSV files from inside it.
+            </p>
+          ) : (
+            <p className="text-sm text-slate-600">
+              In CleanerPlanner, make a <strong>backup</strong> (it downloads as a .zip of spreadsheets). Upload that zip here as it is,
+              or pick the CSV files from inside it.
+            </p>
+          )}
           <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-300 px-4 py-8 text-center hover:border-blue-400 hover:bg-blue-50/40">
             <FileArchive size={28} className="text-blue-600" />
-            <span className="text-sm font-semibold text-slate-800">Choose your CleanerPlanner backup</span>
+            <span className="text-sm font-semibold text-slate-800">Choose your {source} {source === "Aworka" ? "export" : "backup"}</span>
             <span className="text-xs text-slate-500">.zip, or the CSV files from it</span>
             <input type="file" accept=".zip,.csv" multiple className="hidden" onChange={(e) => { void load(e.target.files); e.target.value = ""; }} />
           </label>
@@ -223,6 +271,9 @@ export function CleanerPlannerImport() {
               <Stat label="In credit" value={fmtCurrency(totals.credit)} sub={plural(totals.inCredit, "customer")} />
             </div>
             {backup.warnings.map((w) => <p key={w} className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{w}</p>)}
+            {Boolean(backup.notImported?.length) && (
+              <NotImportedList rows={backup.notImported!.map((n) => ({ name: n.name, reason: n.reason }))} fileName={`${source.toLowerCase()}-not-imported.csv`} />
+            )}
 
             <div>
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Areas</p>
@@ -234,7 +285,7 @@ export function CleanerPlannerImport() {
                   </div>
                 ))}
               </div>
-              <p className="mt-1 text-xs text-slate-500">Each CleanerPlanner round becomes an area. A round with customers on different cycles is split, e.g. &quot;Town 8 weekly&quot;.</p>
+              <p className="mt-1 text-xs text-slate-500">Each {source} round becomes an area. A round with customers on different cycles is split, e.g. &quot;Town 8 weekly&quot;.</p>
             </div>
 
             <div>
@@ -264,7 +315,9 @@ export function CleanerPlannerImport() {
 
             {biggest && (
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                {backup.balanceSign !== null && !opts.flip ? (
+                {backup.counts2 && !opts.flip ? (
+                  <p>We rebuilt each balance from your history: <strong>{backup.counts2.balancesMatched} of {backup.counts2.balancesChecked}</strong> match {source} exactly.{backup.counts2.balancesMatched < backup.counts2.balancesChecked ? " The rest are a little out in Aworka itself; check them under Payments after." : ""}</p>
+                ) : backup.balanceSign !== null && !opts.flip ? (
                   <p>We checked the balances against your payment history, so owed and credit are the right way round.</p>
                 ) : (
                   <p>
@@ -285,8 +338,38 @@ export function CleanerPlannerImport() {
               title="What each customer owes or has in credit" sub="Shows under Payments, ready to chase or use up." />
             {backup.txns.length > 0 && (
               <Check checked={opts.history} onChange={(v) => setOpts((o) => ({ ...o, history: v }))}
-                title={`Past cleans and payments (${backup.counts.charges} cleans, ${backup.counts.payments} payments)`}
+                title={`Past cleans and payments (${backup.counts.charges} cleans, ${backup.counts.payments} payments${backup.counts2?.tips ? `, ${backup.counts2.tips} tips` : ""}${backup.counts2?.writeoffs ? `, ${backup.counts2.writeoffs} bad debts` : ""})`}
                 sub={backup.historyRange ? `${ukDate(backup.historyRange.from)} to ${ukDate(backup.historyRange.to)}. Gives each customer their history and keeps your accounts complete.` : undefined} />
+            )}
+            {Boolean(backup.expenses?.length) && (
+              <div className="rounded-lg border border-slate-200 p-2">
+                <Check checked={opts.expenses} onChange={(v) => setOpts((o) => ({ ...o, expenses: v }))}
+                  title={`Expenses (${expenseRows.length}, ${fmtCurrency(expenseRows.reduce((s, e) => s + e.amount, 0))})`}
+                  sub="Go into Accounting with HMRC categories. Change a category below if it's not right; you can also change any expense later." />
+                {opts.expenses && (
+                  <div className="ml-7 space-y-1.5">
+                    {expenseGroups.map((g) => {
+                      const auto = Object.entries(g.picked).sort((a, b) => b[1] - a[1]);
+                      return (
+                        <div key={g.name} className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="w-44 truncate font-medium text-slate-700">{g.name}</span>
+                          <span className="w-24 text-slate-500">{g.count} · {fmtCurrency(g.total)}</span>
+                          <select value={expenseCats[g.name] ?? "AUTO"} onChange={(e) => setExpenseCats((c) => ({ ...c, [g.name]: e.target.value }))}
+                            className="rounded border border-slate-200 bg-white px-1.5 py-1">
+                            <option value="AUTO">{auto.length > 1 ? `By description (${auto.map(([k, n]) => `${IMPORT_CATEGORIES.find((c) => c.value === k)?.label ?? k} ${n}`).join(", ")})` : (IMPORT_CATEGORIES.find((c) => c.value === auto[0]?.[0])?.label ?? "Other")}</option>
+                            {IMPORT_CATEGORIES.map((c) => <option key={c.value} value={c.value}>All: {c.label}</option>)}
+                          </select>
+                        </div>
+                      );
+                    })}
+                    {loanRows.length > 0 && (
+                      <Check checked={opts.loans} onChange={(v) => setOpts((o) => ({ ...o, loans: v }))}
+                        title={`Include loan repayments (${loanRows.length}, ${fmtCurrency(loanRows.reduce((s, e) => s + e.amount, 0))})`}
+                        sub="Left out: paying back a loan isn't a business expense for tax. Only the interest is." />
+                    )}
+                  </div>
+                )}
+              </div>
             )}
             {backup.counts.inactive > 0 && (
               <Check checked={opts.inactive} onChange={(v) => setOpts((o) => ({ ...o, inactive: v }))}

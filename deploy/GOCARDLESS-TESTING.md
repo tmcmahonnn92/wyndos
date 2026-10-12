@@ -1,6 +1,8 @@
-# GoCardless (Direct Debit): testing on staging
+# GoCardless (Direct Debit): testing
 
-Direct Debit only appears where the build has `NEXT_PUBLIC_GOCARDLESS_ENABLED=1`. Production stays off until this is signed off.
+Direct Debit is switched on **per business**: Admin → Billing → tick **Trial: GoCardless** on that business.
+(`NEXT_PUBLIC_GOCARDLESS_ENABLED=1` at build time still switches it on for every business, e.g. on your own computer.)
+Each business uses **its own GoCardless access token** (pasted in Settings); there's no partner app.
 
 ## Testing on your own computer (run-local.sh)
 
@@ -12,17 +14,17 @@ GOCARDLESS_DEV_TOKEN=sandbox_...your sandbox token...
 Run `./run-local.sh`. The dev token is used when no token is saved in Settings (local only, never on the live server).
 There's no cron locally: press **Sync now** instead. Then follow steps 2–11 below.
 
-## 1. Set up on staging (once)
+## 1. Set up on the server (once)
 
 1. GoCardless **sandbox** account: https://manage-sandbox.gocardless.com/signup
-2. Sandbox dashboard → **Developers → Create → Access token** → name "Wyndos staging", **Read-write**. Copy it.
-3. Staging `.env.production` (`/opt/wyndos-staging/shared/.env.production`): add
-   `NEXT_PUBLIC_GOCARDLESS_ENABLED=1` (and make sure `CRON_SECRET` is set). Redeploy staging (it's read at build time).
-4. Run the database migration (deploy does this): `20261008100000_gocardless_collect`.
-5. Cron on the VPS (staging is behind a password, so call it directly on its port):
+2. Sandbox dashboard → **Developers → Create → Access token** → name "Wyndos test", **Read-write**. Copy it.
+3. Deploy (runs the migration `20261008100000_gocardless_collect`). Make sure `CRON_SECRET` is set in `.env.production`.
+4. Admin → Billing → tick **Trial: GoCardless** on your test business only.
+5. Cron on the VPS (every 15 minutes):
    ```
-   0,15,30,45 * * * * curl -fsS -H "Authorization: Bearer STAGING_CRON_SECRET" http://127.0.0.1:3001/api/cron/gocardless >/dev/null
+   0,15,30,45 * * * * curl -fsS -H "Authorization: Bearer YOUR_CRON_SECRET" http://127.0.0.1:3000/api/cron/gocardless >/dev/null
    ```
+   Only businesses with GoCardless switched on and a token saved are synced.
 
 ## 2. Connect
 

@@ -114,7 +114,11 @@ export type CpCustomer = {
   startingBalanceDate: string;
 };
 
-export type CpTxn = { jobKey: string; kind: "charge" | "payment"; date: string; amount: number; method: "CASH" | "BACS" | "CARD"; note: string };
+/** charge = a clean; payment; tip = extra paid on top (other income); writeoff = bad debt cleared off what they owe. */
+export type CpTxn = { jobKey: string; kind: "charge" | "payment" | "tip" | "writeoff"; date: string; amount: number; method: "CASH" | "BACS" | "CARD"; note: string };
+
+/** An expense brought across with the backup (Aworka). */
+export type CpExpense = { row: number; date: string; supplier: string; description: string; sourceCategory: string; amount: number; vat: number; category: string; skip: boolean; skipReason: string };
 
 export type CpBackup = {
   customers: CpCustomer[];
@@ -125,6 +129,12 @@ export type CpBackup = {
   counts: { jobs: number; active: number; inactive: number; unscheduled: number; charges: number; payments: number; skippedTxns: number };
   historyRange: { from: string; to: string } | null;
   warnings: string[];
+  /** Which program it came from (for labels and notes). */
+  source?: "CleanerPlanner" | "Aworka";
+  /** Rows not brought in, with why (e.g. estimates). */
+  notImported?: Array<{ name: string; reason: string }>;
+  expenses?: CpExpense[];
+  counts2?: { tips: number; writeoffs: number; balancesChecked: number; balancesMatched: number };
 };
 
 const FILES = ["Jobs.csv", "Customers.csv", "Contacts.csv", "Rounds.csv", "Services.csv", "PaymentMethods.csv", "Notes.csv", "Transactions.csv"] as const;

@@ -120,7 +120,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
 
         {tab === "billing" && (
           <section className="space-y-2">
-            <p className="text-sm text-slate-400">Free forever (friends, testers) and trial extensions. Businesses never see these.</p>
+            <p className="text-sm text-slate-400">Free forever (friends, testers), trial extensions, and features being trialled. Businesses never see these switches.</p>
             <BillingControls rows={billing} />
           </section>
         )}

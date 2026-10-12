@@ -28,7 +28,7 @@ import { greetingName } from "@/lib/text-format";
 import { logPhoneText, queuePhoneTexts } from "@/lib/text-actions";
 import { SendOnPhone } from "@/components/send-on-phone";
 import { ukMobile } from "@/lib/text-format";
-import { GOCARDLESS_ENABLED, INVOICE_EMAIL_ENABLED } from "@/lib/features";
+import { INVOICE_EMAIL_ENABLED } from "@/lib/features";
 
 export type Debtor = PaymentCustomerOption & {
   email: string;
@@ -83,11 +83,11 @@ export function PaymentsToolbar({
 
   return (
     <div className="flex items-center gap-2">
-      {GOCARDLESS_ENABLED && goCardlessConfigured && <div className="text-right hidden sm:block">
+      {goCardlessConfigured && <div className="text-right hidden sm:block">
         <p className="text-[11px] font-medium text-slate-500">GoCardless</p>
         <p className="text-[11px] text-slate-400">{goCardlessLastSyncedAt ? `Last sync ${new Date(goCardlessLastSyncedAt).toLocaleString("en-GB")}` : "Not synced yet"}</p>
       </div>}
-      {GOCARDLESS_ENABLED && goCardlessConfigured && <button
+      {goCardlessConfigured && <button
         type="button"
         onClick={handleSync}
         disabled={!goCardlessConfigured || isSyncing}
@@ -97,7 +97,7 @@ export function PaymentsToolbar({
         <RefreshCw size={14} className={cn(isSyncing && "animate-spin")} />
         {isSyncing ? "Syncing..." : "Sync GoCardless"}
       </button>}
-      {GOCARDLESS_ENABLED && goCardlessConfigured && <Link
+      {goCardlessConfigured && <Link
         href="/payments/direct-debit"
         className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
         title="Collect by Direct Debit through GoCardless"
