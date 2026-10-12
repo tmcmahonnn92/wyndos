@@ -1513,44 +1513,42 @@ export function DayView({
           {completePending.length > 0 && (
             <>
               <p className="text-sm text-slate-600">
-                {completePending.length} job{completePending.length !== 1 ? "s" : ""} still unfinished. Ticked jobs carry over to the day below. Untick any you want to skip this time (they wait for their next normal visit).
+                {completePending.length} job{completePending.length !== 1 ? "s" : ""} not done yet. For each one choose <b>Carry over</b> (do it on another day) or <b>Skip</b> (not this time: they wait for their next normal visit).
               </p>
 
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-slate-500">{selectedPendingIds.size} selected</p>
-                <div className="flex items-center gap-3 text-xs">
-                  <button type="button" onClick={() => setSelectedPendingIds(new Set(completePending.map((j) => j.id)))} className="text-blue-600 hover:underline">
-                    Select all
+                <p className="text-xs font-medium text-slate-500">
+                  {selectedPendingIds.size} to carry over · {completePending.length - selectedPendingIds.size} to skip
+                </p>
+                <div className="flex items-center gap-2 text-xs">
+                  <button type="button" onClick={() => setSelectedPendingIds(new Set(completePending.map((j) => j.id)))} className="rounded-lg border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50">
+                    Carry over all
                   </button>
-                  <button type="button" onClick={() => setSelectedPendingIds(new Set())} className="text-slate-400 hover:underline">
-                    Clear
+                  <button type="button" onClick={() => setSelectedPendingIds(new Set())} className="rounded-lg border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50">
+                    Skip all
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-1.5 max-h-56 overflow-y-auto">
+              <div className="space-y-1.5 max-h-64 overflow-y-auto">
                 {completePending.map((job) => {
-                  const checked = selectedPendingIds.has(job.id);
+                  const carry = selectedPendingIds.has(job.id);
                   const area = multi ? dayById.get(job.workDayId)?.area?.name : null;
+                  const set = (on: boolean) => { if (on !== carry) togglePendingSelected(job.id); };
                   return (
-                    <button
-                      key={job.id}
-                      type="button"
-                      onClick={() => togglePendingSelected(job.id)}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors",
-                        checked ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300 bg-white"
-                      )}
-                    >
-                      {checked ? <CheckSquare size={16} className="text-blue-600 flex-shrink-0" /> : <Square size={16} className="text-slate-400 flex-shrink-0" />}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate">{job.customer.name}</p>
-                        <p className="text-xs font-medium text-blue-700 truncate">{getJobTitle(job)}{area && ` · ${area}`}</p>
-                        <p className="text-xs text-slate-500 truncate">
-                          {job.customer.address}{!hidePrices && ` · ${fmtCurrency(job.price)}`}
-                        </p>
+                    <div key={job.id} className={cn("flex items-center gap-3 rounded-lg border px-3 py-2", carry ? "border-blue-200 bg-blue-50/60" : "border-slate-200 bg-slate-50")}>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-800">{job.customer.name}</p>
+                        <p className="truncate text-xs font-medium text-blue-700">{getJobTitle(job)}{area && ` · ${area}`}</p>
+                        <p className="truncate text-xs text-slate-500">{job.customer.address}{!hidePrices && ` · ${fmtCurrency(job.price)}`}</p>
                       </div>
-                    </button>
+                      <div className="flex flex-shrink-0 overflow-hidden rounded-lg border border-slate-200 text-xs font-semibold" role="group" aria-label={`What to do with ${job.customer.name}`}>
+                        <button type="button" onClick={() => set(true)} aria-pressed={carry}
+                          className={cn("px-2.5 py-1.5", carry ? "bg-blue-600 text-white" : "bg-white text-slate-600 hover:bg-blue-50")}>Carry over</button>
+                        <button type="button" onClick={() => set(false)} aria-pressed={!carry}
+                          className={cn("border-l border-slate-200 px-2.5 py-1.5", !carry ? "bg-slate-700 text-white" : "bg-white text-slate-600 hover:bg-slate-100")}>Skip</button>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
@@ -1560,7 +1558,7 @@ export function DayView({
                   {!bulkMoveOpen ? (
                     <Button onClick={() => setBulkMoveOpen(true)} variant="outline" className="w-full">
                       <ArrowRight size={14} />
-                      Move {selectedPendingIds.size} selected to another day
+                      Where should the {selectedPendingIds.size} carried over go?
                     </Button>
                   ) : (
                     <>
