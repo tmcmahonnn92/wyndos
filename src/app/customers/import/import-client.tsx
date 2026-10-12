@@ -323,7 +323,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
   // What to do with rows for customers already in Wyndos (re-running an import).
   const [existingMode, setExistingMode] = useState<"skip" | "fill" | "overwrite">("skip");
   const updateExisting = existingMode !== "skip";
-  const [matchField, setMatchField] = useState<"name" | "nameAddress">("name");
+  const [matchField, setMatchField] = useState<"name" | "nameAddress">("nameAddress");
   const [isPending, startTransition] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
   // ── Start-fresh / history state ───────────────────────────────────────────────
@@ -940,7 +940,7 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                 </div>
                 <div className="flex flex-wrap items-center gap-2 mt-2">
                   <span className="text-xs text-slate-500">Match by</span>
-                  {(["name", "nameAddress"] as const).map((v) => (
+                  {(["nameAddress", "name"] as const).map((v) => (
                     <button
                       key={v}
                       type="button"
@@ -952,10 +952,13 @@ export function ImportClient({ areas }: { areas: Area[] }) {
                           : "border-slate-200 bg-white text-slate-600 hover:border-blue-300"
                       )}
                     >
-                      {v === "name" ? "Name" : "Name + address"}
+                      {v === "name" ? "Name only" : "Name + address"}
                     </button>
                   ))}
                 </div>
+                {matchField === "name" && (
+                  <p className="mt-1 text-[11px] text-amber-700">Only use this if no two customers share a name. Two Rebeccas at different houses would be treated as the same person.</p>
+                )}
               </div>
             </div>
             {datesMapped && (

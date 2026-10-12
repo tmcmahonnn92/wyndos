@@ -1431,6 +1431,7 @@ export async function bulkImportCustomers(
   const tenantId = actor.tenantId;
   const errors: Array<{ row: number; message: string }> = [];
   const skippedRows: Array<{ row: number; reason: string }> = [];
+  const createdThisImport = new Set<number>();
   const datedAreaIds = new Set<number>();
   let created = 0;
   let updated = 0;
@@ -1562,21 +1563,29 @@ export async function bulkImportCustomers(
 
       // ── Create, skip, fill in or overwrite ─────────────────────────────────
       const mode = options.existingMode ?? (options.updateExisting ? "overwrite" : "skip");
-      const matchField = options.matchField ?? "name";
-      const existing = await prisma.customer.findFirst({
-        where: matchField === "nameAddress"
-          ? { tenantId, name: r.name.trim(), address: addressFields.address, ...(options.matchJob ? { jobName: String(customerData.jobName ?? "Window Cleaning") } : {}) }
-          : { tenantId, name: r.name.trim() },
+      // Same name AND same address (ignoring case, spaces and punctuation) is the same customer.
+      // Lots of customers share a first name ("Rebecca", "Tom"), so name alone never merges two
+      // different houses: with "Name" matching, rows created earlier in this same sheet are
+      // never matched (they're different people with the same name).
+      const matchField = options.matchField ?? "nameAddress";
+      const sameName = await prisma.customer.findMany({
+        where: { tenantId, name: r.name.trim(), ...(matchField === "nameAddress" && options.matchJob ? { jobName: String(customerData.jobName ?? "Window Cleaning") } : {}) },
+        orderBy: { id: "asc" },
       });
+      const addrKey = (a: string | null | undefined) => (a ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const existing = matchField === "nameAddress"
+        ? sameName.find((c) => addrKey(c.address) === addrKey(addressFields.address)) ?? null
+        : sameName.find((c) => !createdThisImport.has(c.id)) ?? null;
       const datesGiven = Boolean(r.nextDueDate || r.lastCompletedDate);
       if (!existing) {
         const made = await prisma.customer.create({ data: { tenantId, name: r.name.trim(), ...customerData } });
+        createdThisImport.add(made.id);
         if (datesGiven) datedAreaIds.add(resolvedAreaId);
         await linkImportTags(made.id, r.tags);
         created++;
       } else if (mode === "skip") {
         skipped++;
-        skippedRows.push({ row: i + 1, reason: "Already in Wyndos (same name and address), left as it was" });
+        skippedRows.push({ row: i + 1, reason: matchField === "nameAddress" ? "Already in Wyndos (same name and address), left as it was" : "Already in Wyndos (same name), left as it was" });
       } else if (mode === "fill") {
         // Only what's missing. Area, price, frequency, dates, order and active are left
         // exactly as they are, so nothing on the schedule moves.
@@ -1619,6 +1628,12 @@ export async function bulkImportCustomers(
   }
 
   const runsBooked = options.bookRuns ? await bookImportedAreaRuns(tenantId, [...datedAreaIds]) : [];
+  // New customers in an area whose run was already booked (an earlier import, or added by
+  // hand) go onto it too if they're due by then; otherwise they'd wait a whole cycle.
+  for (const id of createdThisImport) {
+    const c = await prisma.customer.findUnique({ where: { id }, select: { areaId: true, active: true } });
+    if (c?.active) await autoAddToScheduledDays(tenantId, id, c.areaId);
+  }
 
   revalidatePath("/customers");
   revalidatePath("/areas");
