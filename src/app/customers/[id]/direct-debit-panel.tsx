@@ -24,7 +24,7 @@ export function DirectDebitPanel({ customerId, mandateId, mandateStatus, waiting
   const ok = mandateId && USABLE.has(mandateStatus ?? "");
 
   return (
-    <section className="mx-auto max-w-3xl px-4 pb-4">
+    <section className="mx-auto max-w-lg px-4 pb-4">
       <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4 dark:border-[#1E2840] dark:bg-[#131929]">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100"><Landmark size={15} /> Direct Debit</p>

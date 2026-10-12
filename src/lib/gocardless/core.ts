@@ -400,7 +400,8 @@ export async function syncTenant(tenantId: number) {
       if (!customerId) continue;
       // Pay the oldest unpaid clean it covers; anything left over stays as credit on the payment.
       const open = await prisma.job.findMany({
-        where: { tenantId, customerId, status: "COMPLETE", isQuote: false, goCardlessPaymentId: null },
+        // Cleans not being collected: never sent to GoCardless, or their collection failed.
+        where: { tenantId, customerId, status: "COMPLETE", isQuote: false, OR: [{ goCardlessPaymentId: null }, { goCardlessStatus: { in: [...GC_FAILED] } }] },
         select: { id: true, price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
         orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
         take: 200,
@@ -410,12 +411,21 @@ export async function syncTenant(tenantId: number) {
       summary.imported++;
     }
 
+    // 3c. A payment made outside Wyndos that was recorded and has since failed or been charged
+    // back: undo it, so the cleans it paid owe again.
+    for (const p of payments) {
+      const rec = recorded.get(p.id);
+      if (!rec || rec.voidedAt || collectingIds.has(p.id) || !GC_FAILED.has(p.status)) continue;
+      await prisma.payment.update({ where: { id: rec.id }, data: { voidedAt: new Date(), voidReason: `Direct Debit ${p.status.replace(/_/g, " ")}`, goCardlessStatus: p.status } });
+      summary.failed++;
+    }
+
     // 4. Auto-collect cleans completed since auto-collect was turned on.
     const settings = await prisma.tenantSettings.findFirst({ where: { tenantId }, select: { goCardlessAutoCollect: true, goCardlessAutoCollectFrom: true } });
     if (settings?.goCardlessAutoCollect && settings.goCardlessAutoCollectFrom) {
       const due = await cleansToCollect(tenantId, { since: settings.goCardlessAutoCollectFrom });
       // Never auto-retry a failed collection: the owner decides.
-      const fresh = due.filter((j) => !j.goCardlessPaymentId);
+      const fresh = due.filter((j) => !j.goCardlessPaymentId && (!j.customer.goCardlessMandateStatus || GC_MANDATE_USABLE.has(j.customer.goCardlessMandateStatus)));
       if (fresh.length) {
         const res = await collectForJobs(tenantId, fresh.map((j) => j.id));
         summary.autoCollected = res.collected.length;
@@ -428,5 +438,26 @@ export async function syncTenant(tenantId: number) {
     const message = issue instanceof Error ? issue.message : "GoCardless sync failed";
     await prisma.tenantSettings.update({ where: { tenantId }, data: { goCardlessLastError: message.slice(0, 300) } }).catch(() => undefined);
     throw issue;
+  }
+}
+
+/**
+ * "Collect automatically when a clean is done": called straight after cleans are ticked off.
+ * Only when the business has it on, only cleans owing for customers with a working Direct
+ * Debit, never one that already failed. Problems are left for the next sync to report.
+ */
+export async function autoCollectNow(tenantId: number, jobIds: number[]) {
+  if (!jobIds.length) return;
+  try {
+    const settings = await prisma.tenantSettings.findFirst({ where: { tenantId }, select: { goCardlessAutoCollect: true, goCardlessAutoCollectFrom: true } });
+    if (!settings?.goCardlessAutoCollect || !settings.goCardlessAutoCollectFrom) return;
+    const { goCardlessOn } = await import("@/lib/trial-features");
+    if (!(await goCardlessOn(tenantId))) return;
+    const due = await cleansToCollect(tenantId, { since: settings.goCardlessAutoCollectFrom });
+    const wanted = new Set(jobIds);
+    const ids = due.filter((j) => wanted.has(j.id) && !j.goCardlessPaymentId && (!j.customer.goCardlessMandateStatus || GC_MANDATE_USABLE.has(j.customer.goCardlessMandateStatus))).map((j) => j.id);
+    if (ids.length) await collectForJobs(tenantId, ids);
+  } catch (issue) {
+    console.error("[gocardless] auto-collect after clean failed", issue);
   }
 }

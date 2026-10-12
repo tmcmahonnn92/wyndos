@@ -11,7 +11,7 @@ export function BankReferences({ refs }: { refs: Array<{ id: number; label: stri
   const [busy, start] = useTransition();
   if (refs.length === 0) return null;
   return (
-    <div className="px-4 pb-8 max-w-3xl mx-auto">
+    <div className="px-4 pb-8 max-w-lg mx-auto">
       <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
         <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Bank references</p>
         <p className="mt-0.5 text-xs text-slate-500">Used to suggest this customer when you match a bank statement. You still check every payment.</p>
