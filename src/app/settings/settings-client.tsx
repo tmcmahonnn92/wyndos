@@ -728,6 +728,7 @@ export function SettingsClient({
                   <li>Press <b>Test connection</b>. Then link your customers on <b>Payments → Direct Debit</b>.</li>
                 </ol>
                 <p>The token is stored encrypted. You can delete it in GoCardless at any time to disconnect Wyndos.</p>
+                <p><Link href="/guide/direct-debit" className="font-semibold underline">Full step-by-step instructions →</Link></p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
