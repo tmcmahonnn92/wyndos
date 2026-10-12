@@ -134,6 +134,8 @@ export type CpBackup = {
   /** Rows not brought in, with why (e.g. estimates). */
   notImported?: Array<{ name: string; reason: string }>;
   expenses?: CpExpense[];
+  /** Estimates (Aworka): brought in as quotes, not customers. */
+  quotes?: Array<{ name: string; address: string; houseNameNumber: string; street: string; town: string; postcode: string; phone: string; email: string; notes: string; price: number; frequencyWeeks?: number; jobName: string }>;
   counts2?: { tips: number; writeoffs: number; balancesChecked: number; balancesMatched: number };
 };
 

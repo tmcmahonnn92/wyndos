@@ -6,6 +6,7 @@ import { ArrowLeftRight, CheckCircle2, FileArchive, Loader2, Upload } from "luci
 import { pickFiles, readBackup, type CpBackup, type CpCustomer } from "@/lib/cleanerplanner/parse";
 import { readAworka } from "@/lib/aworka/parse";
 import { importExpenses } from "@/lib/smart-import/expense-actions";
+import { importQuotes } from "@/lib/actions";
 import { IMPORT_CATEGORIES } from "@/lib/smart-import/expense-plan";
 import { NotImportedList } from "@/components/not-imported-list";
 import { finishCpImport, importCpCustomers, importCpHistory, type CpHistoryItem, type CpImportRow } from "@/lib/cleanerplanner/actions";
@@ -27,8 +28,8 @@ async function readFiles(list: FileList): Promise<Array<{ name: string; text: st
   return out;
 }
 
-type Options = { inactive: boolean; balances: boolean; history: boolean; bookRuns: boolean; flip: boolean; expenses: boolean; loans: boolean };
-type Result = { created: number; skipped: number; oneOffs: number; areas: string[]; owed: number; credit: number; cleans: number; payments: number; tips: number; writtenOff: number; expenses: number; runs: number; errors: string[] };
+type Options = { inactive: boolean; balances: boolean; history: boolean; bookRuns: boolean; flip: boolean; expenses: boolean; loans: boolean; quotes: boolean };
+type Result = { created: number; skipped: number; oneOffs: number; areas: string[]; owed: number; credit: number; cleans: number; payments: number; tips: number; writtenOff: number; expenses: number; quotes: number; runs: number; errors: string[] };
 type Source = "CleanerPlanner" | "Aworka";
 
 export function CleanerPlannerImport() {
@@ -40,7 +41,7 @@ export function MoveImport({ source }: { source: Source }) {
   const [backup, setBackup] = useState<CpBackup | null>(null);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
-  const [opts, setOpts] = useState<Options>({ inactive: true, balances: true, history: true, bookRuns: true, flip: false, expenses: true, loans: false });
+  const [opts, setOpts] = useState<Options>({ inactive: true, balances: true, history: true, bookRuns: true, flip: false, expenses: true, loans: false, quotes: true });
   /** Expense category per category in the file (the owner can change them). */
   const [expenseCats, setExpenseCats] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
@@ -139,7 +140,7 @@ export function MoveImport({ source }: { source: Source }) {
       });
       const ids: Record<string, number> = {};
       const areaIds = new Set<number>();
-      const res: Result = { created: 0, skipped: 0, oneOffs: 0, areas: [], owed: 0, credit: 0, cleans: 0, payments: 0, tips: 0, writtenOff: 0, expenses: 0, runs: 0, errors: [...(backup.notImported ?? []).map((n) => `${n.name}: ${n.reason}`)] };
+      const res: Result = { created: 0, skipped: 0, oneOffs: 0, areas: [], owed: 0, credit: 0, cleans: 0, payments: 0, tips: 0, writtenOff: 0, expenses: 0, quotes: 0, runs: 0, errors: [...(backup.notImported ?? []).map((n) => `${n.name}: ${n.reason}`)] };
       const chosenKeys = new Set(chosen.map((c) => c.key));
       const historyItems: CpHistoryItem[] = useHistory ? backup.txns.filter((t) => chosenKeys.has(t.jobKey)).map((t) => ({
         customerId: 0, kind: t.kind, date: t.date, amount: t.amount, method: t.method, note: t.note, key: t.jobKey,
@@ -187,6 +188,14 @@ export function MoveImport({ source }: { source: Source }) {
         }
       }
 
+      // 4. Estimates → quotes (on the Quotes screen, ready to visit or price).
+      if (opts.quotes && backup.quotes?.length) {
+        setBusy("Adding quotes…");
+        const q = await importQuotes(backup.quotes.map(({ jobName: _j, ...rest }) => rest));
+        res.quotes = q.created;
+        res.errors.push(...q.skippedRows.map((s) => `Quote ${backup.quotes![s.row - 1]?.name ?? ""}: ${s.reason}`));
+      }
+
       setBusy("Finishing…");
       const fin = await finishCpImport([...areaIds], opts.bookRuns, Object.values(ids));
       res.runs = fin.runs.length;
@@ -213,6 +222,7 @@ export function MoveImport({ source }: { source: Source }) {
           {result.tips > 0 && <li>{result.tips} tips added to Accounting as other income.</li>}
           {result.writtenOff > 0 && <li>{fmtCurrency(result.writtenOff)} of bad debts written off, as in {source}.</li>}
           {result.expenses > 0 && <li>{result.expenses} expenses added to Accounting.</li>}
+          {result.quotes > 0 && <li>{result.quotes} estimates added as quotes: <a href="/quotes" className="font-semibold underline">see quotes</a>.</li>}
           {result.runs > 0 && <li>{result.runs} areas put on the schedule from their due dates.</li>}
         </ul>
         <NotImportedList
@@ -343,6 +353,11 @@ export function MoveImport({ source }: { source: Source }) {
               <Check checked={opts.history} onChange={(v) => setOpts((o) => ({ ...o, history: v }))}
                 title={`Past cleans and payments (${backup.counts.charges} cleans, ${backup.counts.payments} payments${backup.counts2?.tips ? `, ${backup.counts2.tips} tips` : ""}${backup.counts2?.writeoffs ? `, ${backup.counts2.writeoffs} bad debts` : ""})`}
                 sub={backup.historyRange ? `${ukDate(backup.historyRange.from)} to ${ukDate(backup.historyRange.to)}. Gives each customer their history and keeps your accounts complete.` : undefined} />
+            )}
+            {Boolean(backup.quotes?.length) && (
+              <Check checked={opts.quotes} onChange={(v) => setOpts((o) => ({ ...o, quotes: v }))}
+                title={`Estimates as quotes (${backup.quotes!.length})`}
+                sub={`${backup.quotes!.slice(0, 3).map((q) => q.name).join(", ")}${backup.quotes!.length > 3 ? "…" : ""}. They go on the Quotes screen, not your rounds.`} />
             )}
             {Boolean(backup.expenses?.length) && (
               <div className="rounded-lg border border-slate-200 p-2">

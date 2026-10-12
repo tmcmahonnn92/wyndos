@@ -74,6 +74,7 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
   if (!jobs[0] || !("Aworka Job ID" in jobs[0])) throw new Error("This jobs.csv isn't from Aworka (no 'Aworka Job ID' column).");
   const warnings: string[] = [];
   const notImported: Array<{ name: string; reason: string }> = [];
+  const quotes: NonNullable<CpBackup["quotes"]> = [];
 
   const out: CpCustomer[] = [];
   const jobsOf = new Map<string, Array<{ c: CpCustomer; row: CpRow }>>();
@@ -93,7 +94,6 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
     const town = bits.slice(m ? 1 : bits.length > 2 ? 2 : 1).join(", ");
     const address = [...bits, postcode].filter(Boolean).join(", ");
     const name = (j["Job Contact Name"] || j["Customer Name"] || j["Job Company"] || j["Customer Company"] || line1 || `Customer ${j["Customer Ref"] || key}`).replace(/\s+/g, " ").trim();
-    if (status === "estimate") { notImported.push({ name: `${name} (${address})`, reason: "An estimate in Aworka, not a customer yet. Add it under Quotes." }); continue; }
     const weeks = aworkaWeeks(j.Frequency ?? "");
     const scheduled = weeks !== null && status !== "done";
     if (!scheduled) unscheduled++;
@@ -138,6 +138,12 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
       startingBalance: 0,
       startingBalanceDate: "",
     };
+    // An estimate isn't a customer yet: it comes in as a quote.
+    if (status === "estimate") {
+      quotes.push({ name, address, houseNameNumber, street, town, postcode, phone: c.phone, email: c.email, price: c.price, frequencyWeeks: weeks ?? undefined, jobName: c.jobName,
+        notes: [c.jobName && !/^window clean/i.test(c.jobName) ? c.jobName : "", c.notes, "Estimate from Aworka"].filter(Boolean).join("\n") });
+      continue;
+    }
     out.push(c);
     const cid = j["Aworka Customer ID"] || `job${key}`;
     jobsOf.set(cid, [...(jobsOf.get(cid) ?? []), { c, row: j }]);
@@ -339,5 +345,6 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
     warnings,
     notImported,
     expenses,
+    quotes,
   };
 }
