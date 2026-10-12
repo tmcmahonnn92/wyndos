@@ -287,7 +287,8 @@ async function recordReceived(tenantId: number, customerId: number, p: GcPayment
   const paidAt = p.charge_date ? new Date(`${p.charge_date}T00:00:00.000Z`) : new Date();
   let onJob = 0;
   if (jobId) {
-    const job = await prisma.job.findFirst({ where: { id: jobId, tenantId }, select: { price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } } });
+    // Only a clean that's done can be paid (one un-ticked since keeps the money as credit).
+    const job = await prisma.job.findFirst({ where: { id: jobId, tenantId, status: "COMPLETE" }, select: { price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } } });
     if (job) onJob = Math.max(0, Math.min(amount, round2(job.price - job.allocations.reduce((s, a) => s + a.amount, 0))));
   }
   await prisma.$transaction(async (tx) => {
@@ -459,5 +460,29 @@ export async function autoCollectNow(tenantId: number, jobIds: number[]) {
     if (ids.length) await collectForJobs(tenantId, ids);
   } catch (issue) {
     console.error("[gocardless] auto-collect after clean failed", issue);
+  }
+}
+
+/**
+ * A clean un-ticked ("Undo") while its Direct Debit is being collected: cancel the collection if
+ * GoCardless still allows it (before it's sent to the bank). Returns what happened.
+ */
+export async function cancelCollectionForJob(tenantId: number, jobId: number): Promise<"none" | "cancelled" | "too_late" | "error"> {
+  const job = await prisma.job.findFirst({ where: { id: jobId, tenantId }, select: { goCardlessPaymentId: true, goCardlessStatus: true } });
+  if (!job?.goCardlessPaymentId || GC_FAILED.has(job.goCardlessStatus ?? "") || GC_RECEIVED.has(job.goCardlessStatus ?? "")) return "none";
+  try {
+    const conn = await requireConnection(tenantId);
+    const p = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${job.goCardlessPaymentId}`)).payments;
+    if (GC_RECEIVED.has(p.status)) return "none";
+    if (!["pending_customer_approval", "pending_submission"].includes(p.status)) {
+      await prisma.job.update({ where: { id: jobId }, data: { goCardlessStatus: p.status } });
+      return GC_FAILED.has(p.status) ? "none" : "too_late";
+    }
+    await gc(conn, "POST", `/payments/${job.goCardlessPaymentId}/actions/cancel`, { body: {} });
+    await prisma.job.update({ where: { id: jobId }, data: { goCardlessPaymentId: null, goCardlessStatus: null } });
+    return "cancelled";
+  } catch (issue) {
+    console.error("[gocardless] cancel on undo failed", issue);
+    return "error";
   }
 }

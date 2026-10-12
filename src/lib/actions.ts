@@ -3382,6 +3382,13 @@ export async function uncompleteJob(jobId: number, opts: { payment?: "auto" | "k
   // Anything else (a bank payment next week, a payment covering several cleans, GoCardless)
   // is real money: it stays, and just goes back to credit for their other cleans.
   const tickedAt = job.completedAt ? job.completedAt.getTime() : null;
+  // A Direct Debit being collected for this clean: cancel it while GoCardless still lets us.
+  // Too late (already sent to the bank): it carries on and the money is kept as credit.
+  let directDebit: "none" | "cancelled" | "too_late" | "error" = "none";
+  if (job.goCardlessPaymentId) {
+    const { cancelCollectionForJob } = await import("@/lib/gocardless/core");
+    directDebit = await cancelCollectionForJob(tenantId, job.id);
+  }
   await prisma.$transaction(async (tx) => {
     const voided = new Set<number>();
     for (const allocation of job.allocations) {
@@ -3462,6 +3469,7 @@ export async function uncompleteJob(jobId: number, opts: { payment?: "auto" | "k
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath(`/customers/${job.customerId}`);
   revalidatePath("/payments");
+  return { directDebit };
 }
 
 export async function skipJob(jobId: number) {

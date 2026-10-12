@@ -1658,8 +1658,10 @@ export function DayView({
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            await uncompleteJob(job.id, { payment });
+            const res = await uncompleteJob(job.id, { payment });
             setSelectedJob(null); setOpenJobInPayMode(false);
+            if (res?.directDebit === "too_late") setActionError("The Direct Debit for that clean had already gone to the bank, so it couldn't be stopped. When the money arrives it's kept as credit for their next clean.");
+            if (res?.directDebit === "error") setActionError("Couldn't reach GoCardless to stop the Direct Debit for that clean. Check Payments → Direct Debit; if it's collected, the money is kept as credit.");
             router.refresh();
           });
         }}
