@@ -11,7 +11,15 @@ export type TrialFeature = (typeof TRIAL_FEATURES)[number]["key"];
 
 export const featureList = (raw: string | null | undefined) => String(raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
+/**
+ * Sandbox / demo copies (running locally with `npm run dev`, or a server started with
+ * WYNDOS_SANDBOX=1): every trial feature is on for every business, so they can be tested
+ * without switching them on in Admin. Never set WYNDOS_SANDBOX on the live server.
+ */
+export const ALL_TRIALS_ON = process.env.NODE_ENV === "development" || process.env.WYNDOS_SANDBOX === "1";
+
 export async function hasTrialFeature(tenantId: number, key: TrialFeature) {
+  if (ALL_TRIALS_ON) return true;
   const t = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { trialFeatures: true } });
   return featureList(t?.trialFeatures).includes(key);
 }
