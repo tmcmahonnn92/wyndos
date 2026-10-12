@@ -180,7 +180,8 @@ async function moveJobsToDateFor(
             tenantId,
             date: d,
             areaId: src.areaId,
-            partOfId: src.status === "COMPLETE" ? (currentRun?.id ?? null) : (src.partOfId ?? src.id),
+            // No open run yet: it stays a part of the finished run it came from.
+            partOfId: src.status === "COMPLETE" ? (currentRun?.id ?? src.partOfId ?? src.id) : (src.partOfId ?? src.id),
             assignedUserId: src.assignedUserId ?? undefined,
           },
           select: { id: true, assignedUserId: true },
@@ -759,7 +760,13 @@ async function syncAreaScheduleAfterCompletion(
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
-  const newJobs = eligibleCustomers.filter((customer) => !targetCustomerIds.has(customer.id) && !waitingOnParts.includes(customer.id));
+  // Never book someone twice: anyone with a visit still to do on any open day of this area
+  // (a carried-over or moved house) waits for that visit instead.
+  const stillToDo = new Set((await prisma.job.findMany({
+    where: { tenantId, status: "PENDING", isOneOff: false, isQuote: false, workDay: { areaId: workDay.area.id, status: { not: "COMPLETE" } } },
+    select: { customerId: true },
+  })).map((j) => j.customerId));
+  const newJobs = eligibleCustomers.filter((customer) => !targetCustomerIds.has(customer.id) && !waitingOnParts.includes(customer.id) && !stillToDo.has(customer.id));
   if (newJobs.length > 0) {
     await prisma.job.createMany({
       data: newJobs.map((customer) => ({
@@ -3194,7 +3201,7 @@ export async function moveCustomerToArea(
 ) {
   const actor = await requirePerm("customers");
   const tenantId = actor.tenantId;
-  const [customer] = await Promise.all([
+  const [customer, newArea] = await Promise.all([
     requireTenantCustomer(tenantId, customerId),
     requireTenantArea(tenantId, newAreaId),
     addToWorkDayId ? requireTenantWorkDay(tenantId, addToWorkDayId) : Promise.resolve(null),
@@ -3203,7 +3210,8 @@ export async function moveCustomerToArea(
   // Clear skip flag — moving to a new area is a clean slate. They go to the end of its walking order.
   await prisma.customer.updateMany({
     where: { tenantId, id: customerId },
-    data: { areaId: newAreaId, skipNextAreaRun: false, ...(oldAreaId !== newAreaId ? { sortOrder: await endOfArea(tenantId, newAreaId) } : {}) },
+    // They follow the new area's cycle (as when the area is changed on the customer's page).
+    data: { areaId: newAreaId, skipNextAreaRun: false, ...(newArea.isSystemArea ? {} : { frequencyWeeks: newArea.frequencyWeeks }), ...(oldAreaId !== newAreaId ? { sortOrder: await endOfArea(tenantId, newAreaId) } : {}) },
   });
   await removeCustomerFromPreviousAreaScheduledDays(tenantId, customerId, oldAreaId, newAreaId);
   revalidatePath("/customers");
@@ -3221,7 +3229,7 @@ export async function moveCustomerToArea(
 export async function bulkMoveCustomersToArea(customerIds: number[], newAreaId: number) {
   const actor = await requirePerm("customers");
   const tenantId = actor.tenantId;
-  await requireTenantArea(tenantId, newAreaId);
+  const newArea = await requireTenantArea(tenantId, newAreaId);
   const customers = await prisma.customer.findMany({ where: { tenantId, id: { in: customerIds } }, select: { id: true, areaId: true } });
   if (customers.length !== customerIds.length) throw new Error("One or more customers were not found");
   // Clear skip flag — moving to a new area is a clean slate. Newcomers go to the end of its
@@ -3235,7 +3243,7 @@ export async function bulkMoveCustomersToArea(customerIds: number[], newAreaId: 
   for (const m of movers) await prisma.customer.update({ where: { id: m.id }, data: { sortOrder: next++ } });
   await prisma.customer.updateMany({
     where: { tenantId, id: { in: customerIds } },
-    data: { areaId: newAreaId, skipNextAreaRun: false },
+    data: { areaId: newAreaId, skipNextAreaRun: false, ...(newArea.isSystemArea ? {} : { frequencyWeeks: newArea.frequencyWeeks }) },
   });
   for (const customer of customers) {
     await removeCustomerFromPreviousAreaScheduledDays(tenantId, customer.id, customer.areaId, newAreaId);
@@ -4185,6 +4193,8 @@ export async function voidPayment(paymentId: number, reason?: string) {
     where: { id: payment.id },
     data: { voidedAt: new Date(), voidReason: reason ?? null },
   });
+  // Cleans this payment covered now owe again: any credit the customer has pays them first.
+  await applyCredit(tenantId, [payment.customerId]);
   revalidatePath("/payments");
   revalidatePath(`/customers/${payment.customerId}`);
 }
