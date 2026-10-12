@@ -86,6 +86,10 @@ model TenantSettings {
   invoiceNumbersStarted Boolean @default(false)
   /// Trial feature: email an invoice to customers with an email when a day is finished.
   autoInvoiceEmail      Boolean @default(false)
+  /// Wait this long after a clean is done before emailing its invoice (in case of changes). 0 = straight away.
+  autoInvoiceDelayMinutes Int @default(0)
+  /// When auto invoices were switched on: cleans done before this are never emailed.
+  autoInvoiceSince      DateTime?
   /// Show VAT on invoices (needs a VAT number). Prices are treated as including VAT.
   invoiceVatEnabled Boolean @default(false)
   invoiceVatRate    Float   @default(20)

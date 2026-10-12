@@ -18,8 +18,7 @@ import { orderDays } from "@/lib/day-order";
 import { assertNotLocked } from "@/lib/mtd/data";
 import { goCardlessOn, hasTrialFeature } from "@/lib/trial-features";
 import { after } from "next/server";
-import { platformEmailConfigured } from "@/lib/platform-email";
-import { emailInvoice, EMAIL_RE } from "@/lib/invoice-email";
+import { scheduleInvoiceRun } from "@/lib/invoice-queue";
 import {
   getActor,
   requireMember,
@@ -3820,7 +3819,10 @@ export async function completeDay(
   }
 
   // Trial: email invoices for anything unpaid from this day. Runs after the reply so finishing a day stays quick.
-  after(() => emailDayInvoices(tenantId, workDayId).catch((issue) => console.error("[auto-invoice]", issue)));
+  after(async () => {
+    const s = await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { autoInvoiceEmail: true, autoInvoiceDelayMinutes: true } });
+    if (s?.autoInvoiceEmail) scheduleInvoiceRun(tenantId, s.autoInvoiceDelayMinutes * 60_000 + 5_000);
+  });
 
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/days");
@@ -3830,43 +3832,6 @@ export async function completeDay(
   return nextRunResult;
 }
 
-/**
- * Trial feature ("auto_invoice", turned on per business in Admin, then in Settings by the owner):
- * customers with an email get an invoice for this day's cleans that are still unpaid.
- * Each clean is only ever invoiced once (invoicedAt), so finishing a day again sends nothing new.
- */
-async function emailDayInvoices(tenantId: number, workDayId: number) {
-  if (!platformEmailConfigured()) return;
-  if (!(await hasTrialFeature(tenantId, "auto_invoice"))) return;
-  const settings = await loadBusinessSettings(tenantId);
-  if (!settings.autoInvoiceEmail) return;
-  // Only customers set to get invoices by email.
-  const jobs = await prisma.job.findMany({
-    where: { tenantId, workDayId, status: "COMPLETE", isQuote: false, invoicedAt: null, customer: { emailInvoices: true, email: { not: "" } } },
-    include: {
-      workDay: { select: { date: true } },
-      allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
-      customer: { select: { id: true, name: true, address: true, email: true } },
-    },
-    orderBy: { id: "asc" },
-  });
-  const byCustomer = new Map<number, typeof jobs>();
-  for (const job of jobs) {
-    const unpaid = job.price - job.allocations.reduce((s, a) => s + a.amount, 0) > 0.005;
-    if (!unpaid || !EMAIL_RE.test(job.customer.email?.trim() ?? "")) continue;
-    byCustomer.set(job.customerId, [...(byCustomer.get(job.customerId) ?? []), job]);
-  }
-  for (const list of byCustomer.values()) {
-    // Claim the number and mark the cleans first, so nothing is ever invoiced twice.
-    const row = await prisma.tenantSettings.update({ where: { tenantId }, data: { nextInvoiceNum: { increment: 1 }, invoiceNumbersStarted: true }, select: { nextInvoiceNum: true, invoicePrefix: true } });
-    const invoiceNumber = `${row.invoicePrefix}-${String(row.nextInvoiceNum - 1).padStart(4, "0")}`;
-    const marked = await prisma.job.updateMany({ where: { tenantId, id: { in: list.map((j) => j.id) }, invoicedAt: null }, data: { invoicedAt: new Date(), invoiceNumber } });
-    if (marked.count === 0) continue;
-    const res = await emailInvoice({ tenantId, settings, customer: list[0].customer, jobs: list, invoiceNumber, workDayId });
-    // Not sent: let it be invoiced again (by hand, or next time).
-    if (!res.ok) await prisma.job.updateMany({ where: { tenantId, id: { in: list.map((j) => j.id) }, invoiceNumber }, data: { invoicedAt: null } });
-  }
-}
 
 export async function reopenDay(workDayId: number) {
   const actor = await requirePerm("schedule");
@@ -5445,6 +5410,7 @@ export async function getBusinessSettingsForClient() {
     invoiceVatRate: settings.invoiceVatRate,
     invoicePaymentTerms: settings.invoicePaymentTerms,
     autoInvoiceEmail: settings.autoInvoiceEmail,
+    autoInvoiceDelayMinutes: settings.autoInvoiceDelayMinutes,
     autoInvoiceTrial: await hasTrialFeature(actor.tenantId, "auto_invoice"),
     goCardlessOn: await goCardlessOn(actor.tenantId),
     logoBase64: settings.logoBase64,
@@ -5488,7 +5454,7 @@ export async function getBusinessSettingsForClient() {
   };
 }
 
-const SETTINGS_FIELDS = ["businessName", "ownerName", "phone", "email", "address", "bankDetails", "vatNumber", "invoicePrefix", "nextInvoiceNum", "invoiceVatEnabled", "allowCustomerCredit", "keepWorkerOnNextRun", "invoiceVatRate", "invoicePaymentTerms", "autoInvoiceEmail", "logoBase64", "goCardlessAccessToken", "goCardlessEnvironment", "goCardlessReferencePrefix", "smtpProvider", "smtpHost", "smtpPort", "smtpUser", "smtpPass", "smtpFromName", "voodooApiKey", "voodooSender", "messagingProvider", "twilioAccountSid", "twilioAuthToken", "twilioFromNumber", "metaPhoneNumberId", "metaAccessToken", "metaWabaId", "tmplCleaningReminder", "tmplJobComplete", "tmplPaymentReminder1", "tmplPaymentReminder2", "tmplPaymentReminder3", "tmplPaymentReceived", "tmplJobAndPayment", "tmplInvoiceNote", "tmplCleanedBank", "textSendMethod", "textsTestMode", "textCleanedEnabled", "textSkipCleanedIfPaid", "textPaymentReminderDays", "textPaymentReminder2Days", "runDueWindowDays"] as const;
+const SETTINGS_FIELDS = ["businessName", "ownerName", "phone", "email", "address", "bankDetails", "vatNumber", "invoicePrefix", "nextInvoiceNum", "invoiceVatEnabled", "allowCustomerCredit", "keepWorkerOnNextRun", "invoiceVatRate", "invoicePaymentTerms", "autoInvoiceEmail", "autoInvoiceDelayMinutes", "logoBase64", "goCardlessAccessToken", "goCardlessEnvironment", "goCardlessReferencePrefix", "smtpProvider", "smtpHost", "smtpPort", "smtpUser", "smtpPass", "smtpFromName", "voodooApiKey", "voodooSender", "messagingProvider", "twilioAccountSid", "twilioAuthToken", "twilioFromNumber", "metaPhoneNumberId", "metaAccessToken", "metaWabaId", "tmplCleaningReminder", "tmplJobComplete", "tmplPaymentReminder1", "tmplPaymentReminder2", "tmplPaymentReminder3", "tmplPaymentReceived", "tmplJobAndPayment", "tmplInvoiceNote", "tmplCleanedBank", "textSendMethod", "textsTestMode", "textCleanedEnabled", "textSkipCleanedIfPaid", "textPaymentReminderDays", "textPaymentReminder2Days", "runDueWindowDays"] as const;
 
 export async function updateBusinessSettings(data: {
   businessName?: string;
@@ -5507,6 +5473,7 @@ export async function updateBusinessSettings(data: {
   invoiceVatRate?: number;
   invoicePaymentTerms?: string;
   autoInvoiceEmail?: boolean;
+  autoInvoiceDelayMinutes?: number;
   logoBase64?: string | null;
   goCardlessAccessToken?: string;
   goCardlessEnvironment?: string;
@@ -5556,6 +5523,12 @@ export async function updateBusinessSettings(data: {
   const updateData: Record<string, unknown> = pickPlain(data, SETTINGS_FIELDS);
   // Trial feature: only businesses it's turned on for (Admin) can switch it on.
   if (updateData.autoInvoiceEmail === true && !(await hasTrialFeature(tenantId, "auto_invoice"))) delete updateData.autoInvoiceEmail;
+  if (updateData.autoInvoiceDelayMinutes !== undefined) updateData.autoInvoiceDelayMinutes = Math.max(0, Math.min(30 * 24 * 60, Math.round(Number(updateData.autoInvoiceDelayMinutes) || 0)));
+  // Switching auto invoices on: only cleans done from now on are emailed (never old history).
+  if (updateData.autoInvoiceEmail === true) {
+    const was = await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { autoInvoiceEmail: true } });
+    if (!was?.autoInvoiceEmail) updateData.autoInvoiceSince = new Date();
+  }
   // Direct Debit settings only for businesses it's switched on for.
   if (!(await goCardlessOn(tenantId))) for (const k of Object.keys(updateData)) if (k.startsWith("goCardless")) delete updateData[k];
   if (typeof updateData.logoBase64 === "string" && !/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(updateData.logoBase64)) {

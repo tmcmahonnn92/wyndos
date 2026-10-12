@@ -242,3 +242,9 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - `Customer.emailInvoices` (migration `20261012090000_customer_email_invoices`): ticked on the customer's details; set automatically on import when "Usually pays" is Invoice and there's an email.
 - Customer page → Invoice → **Send email** (businesses with Admin trial "Invoice emails", key `auto_invoice`): `/api/invoice/email` → `lib/invoice-email.ts` (`emailInvoice`, shared with the day-end auto invoices, which now only go to customers with emailInvoices).
 - CleanerPlanner/Aworka import: credit brought across now pays the history's unpaid cleans at the end (`useCreditOnUnpaid`). Payments → Credit offers "Use their credit" for anyone with credit and unpaid cleans (fixes earlier imports, e.g. HQ Dental).
+
+## Complete Day choices + invoice email delay (new80)
+- Complete Day: each unfinished job has Carry over / Skip buttons, plus Carry over all / Skip all (was tick = carry, untick = skip).
+- Auto invoice emails now go through a queue (`lib/invoice-queue.ts`): a clean is emailed once its day is finished and `autoInvoiceDelayMinutes` has passed (Settings: wait N minutes/hours/days). Only cleans done since `autoInvoiceSince` (set when switched on), still unpaid, customer has Email invoices. Failed sends wait 6 hours before retrying. Timer after finishing a day + cron backstop:
+  `5,20,35,50 * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:3000/api/cron/invoices`
+  Migration `20261012110000_invoice_email_delay`.

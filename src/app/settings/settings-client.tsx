@@ -29,7 +29,7 @@ interface Settings {
   businessName: string; ownerName: string; phone: string; email: string;
   address: string; bankDetails: string; vatNumber: string;
   invoicePrefix: string; nextInvoiceNum: number; invoiceNumbersStarted: boolean;
-  invoiceVatEnabled: boolean; invoiceVatRate: number; allowCustomerCredit?: boolean; keepWorkerOnNextRun?: boolean; invoicePaymentTerms: string; autoInvoiceEmail?: boolean; autoInvoiceTrial?: boolean; goCardlessOn?: boolean; logoBase64: string | null;
+  invoiceVatEnabled: boolean; invoiceVatRate: number; allowCustomerCredit?: boolean; keepWorkerOnNextRun?: boolean; invoicePaymentTerms: string; autoInvoiceEmail?: boolean; autoInvoiceDelayMinutes?: number; autoInvoiceTrial?: boolean; goCardlessOn?: boolean; logoBase64: string | null;
   goCardlessEnvironment: string; goCardlessReferencePrefix: string;
   goCardlessAccessTokenConfigured: boolean; goCardlessLastSyncedAt: string | null;
   smtpProvider: string; smtpHost: string; smtpPort: number;
@@ -156,6 +156,15 @@ function PlaceholderChips({ onInsert }: { onInsert: (p: string) => void }) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
+type DelayUnit = "minutes" | "hours" | "days";
+const DELAY_UNITS: Record<DelayUnit, number> = { minutes: 1, hours: 60, days: 1440 };
+/** 1440 → 1 day, 120 → 2 hours, 45 → 45 minutes. */
+function delayParts(minutes: number): { autoInvoiceDelayValue: string; autoInvoiceDelayUnit: DelayUnit } {
+  if (minutes > 0 && minutes % 1440 === 0) return { autoInvoiceDelayValue: String(minutes / 1440), autoInvoiceDelayUnit: "days" };
+  if (minutes > 0 && minutes % 60 === 0) return { autoInvoiceDelayValue: String(minutes / 60), autoInvoiceDelayUnit: "hours" };
+  return { autoInvoiceDelayValue: String(minutes), autoInvoiceDelayUnit: "minutes" };
+}
+
 export function SettingsClient({
   settings,
   canManageProviderSettings,
@@ -191,6 +200,7 @@ export function SettingsClient({
     invoiceVatRate: String(settings.invoiceVatRate ?? 20),
     invoicePaymentTerms: settings.invoicePaymentTerms ?? "",
     autoInvoiceEmail: settings.autoInvoiceEmail ?? false,
+    ...delayParts(settings.autoInvoiceDelayMinutes ?? 0),
     runDueWindowDays: settings.runDueWindowDays == null ? "" : String(settings.runDueWindowDays),
   });
 
@@ -414,10 +424,11 @@ export function SettingsClient({
     setSaveError(null);
     startTransition(async () => {
       try {
-        const { runDueWindowDays: windowText, nextInvoiceNum: invoiceStartText, invoiceVatRate: vatRateText, ...formRest } = form;
+        const { runDueWindowDays: windowText, nextInvoiceNum: invoiceStartText, invoiceVatRate: vatRateText, autoInvoiceDelayValue, autoInvoiceDelayUnit, ...formRest } = form;
         const payload: Record<string, unknown> = {
           ...formRest,
           invoiceVatRate: Math.max(0, Math.min(100, Number(vatRateText) || 0)),
+          autoInvoiceDelayMinutes: Math.max(0, Math.round((Number(autoInvoiceDelayValue) || 0) * DELAY_UNITS[autoInvoiceDelayUnit])),
           ...(settings.invoiceNumbersStarted ? {} : { nextInvoiceNum: Math.max(1, Math.floor(Number(invoiceStartText) || 1)) }),
           logoBase64: logo,
           runDueWindowDays: windowText.trim() === "" ? null : Math.max(0, Math.min(90, Number(windowText) || 0)),
@@ -653,15 +664,28 @@ export function SettingsClient({
                 <textarea id="inv-terms" className={cn(inp, "resize-none")} rows={3} maxLength={1000} value={form.invoicePaymentTerms} onChange={(e) => setForm((f) => ({ ...f, invoicePaymentTerms: e.target.value }))} placeholder={"Payment due within 14 days.\nPlease use your invoice number as the reference."} />
                 <p className="text-xs text-slate-400 mt-1">Printed on every invoice, above the bank details.</p>
               </div>
-              {settings.autoInvoiceTrial && (
+              {settings.autoInvoiceTrial && (<>
                 <label className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
                   <input type="checkbox" className="mt-1" checked={form.autoInvoiceEmail} onChange={(e) => setForm((f) => ({ ...f, autoInvoiceEmail: e.target.checked }))} />
                   <span>
                     <span className="block text-sm font-semibold text-slate-800">Email invoices when a day is finished <span className="ml-1 rounded-full bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-900">Trial</span></span>
-                    <span className="block text-xs text-slate-500">Customers set to &quot;Email invoices&quot; get an invoice for anything still unpaid from that day, with the PDF attached. Replies come to your email ({settings.email || "set it above"}).</span>
+                    <span className="block text-xs text-slate-500">Customers set to &quot;Email invoices&quot; get an invoice for anything still unpaid from that day, with the PDF attached. Only cleans done after you switch this on. Replies come to your email ({settings.email || "set it above"}).</span>
                   </span>
                 </label>
-              )}
+                  {form.autoInvoiceEmail && (
+                    <div className="ml-7 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                      <span>Wait</span>
+                      <input type="number" min={0} max={720} value={form.autoInvoiceDelayValue}
+                        onChange={(e) => setForm((f) => ({ ...f, autoInvoiceDelayValue: e.target.value }))}
+                        className="w-20 rounded-lg border border-slate-200 px-2 py-1" aria-label="Delay before emailing" />
+                      <select value={form.autoInvoiceDelayUnit} onChange={(e) => setForm((f) => ({ ...f, autoInvoiceDelayUnit: e.target.value as DelayUnit }))}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1">
+                        <option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option>
+                      </select>
+                      <span>before sending, in case of changes. 0 = straight away. If it&apos;s been paid by then, nothing is sent.</span>
+                    </div>
+                  )}
+              </>)}
               <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-3">
                 <input type="checkbox" className="mt-1" checked={form.allowCustomerCredit} onChange={(e) => setForm((f) => ({ ...f, allowCustomerCredit: e.target.checked }))} />
                 <span>
