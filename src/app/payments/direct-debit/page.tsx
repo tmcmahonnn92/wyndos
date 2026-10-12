@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import prisma from "@/lib/db";
 import { requireOwner } from "@/lib/guards";
-import { GOCARDLESS_ENABLED } from "@/lib/features";
+import { goCardlessOn } from "@/lib/trial-features";
 import { getDirectDebitBoard, getGoCardlessOverview } from "@/lib/gocardless/actions";
 import { DirectDebitClient } from "./dd-client";
 
@@ -11,8 +11,8 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Direct Debit" };
 
 export default async function DirectDebitPage() {
-  if (!GOCARDLESS_ENABLED) redirect("/payments");
   const actor = await requireOwner().catch(() => redirect("/payments"));
+  if (!(await goCardlessOn(actor.tenantId))) redirect("/payments");
   const [overview, board, customers] = await Promise.all([
     getGoCardlessOverview(),
     getDirectDebitBoard(),

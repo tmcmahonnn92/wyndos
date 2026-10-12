@@ -54,7 +54,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
             customers={debtors}
             allCustomers={allCustomers}
             allowCredit={settings.allowCustomerCredit ?? true}
-            goCardlessConfigured={settings.goCardlessConfigured}
+            goCardlessConfigured={settings.goCardlessConfigured && settings.goCardlessOn}
             goCardlessLastSyncedAt={settings.goCardlessLastSyncedAt ? settings.goCardlessLastSyncedAt.toISOString() : null}
           />
         </div>

@@ -5,7 +5,6 @@ import { AddCreditForm } from "@/app/payments/add-credit-form";
 import { isInactiveArea } from "@/lib/system-areas";
 import { MapPinEditor } from "@/components/map-pin-editor";
 import { mapsHref } from "@/lib/maps-link";
-import { GOCARDLESS_ENABLED } from "@/lib/features";
 import { PAYMENT_PREFERENCES } from "@/lib/payment-preference";
 import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
@@ -54,6 +53,8 @@ interface Props {
   allTags: TagRow[];
   hidePrices?: boolean;
   goCardlessReferencePrefix?: string;
+  /** Direct Debit switched on for this business (Admin trial or server flag). */
+  goCardlessOn?: boolean;
   /** Texts sent to this customer, newest first. */
   texts?: Array<{ id: number; kind: string; status: string; body: string; createdAt: string; error: string }>;
 }
@@ -83,7 +84,7 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", texts = [] }: Props) {
+export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", goCardlessOn = false, texts = [] }: Props) {
   const [showAllTexts, setShowAllTexts] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [bookDate, setBookDate] = useState("");
@@ -575,7 +576,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                 {customer.active ? "Active" : "Inactive"}
               </Badge>
             </div>
-            {GOCARDLESS_ENABLED && (customer.goCardlessCustomerReference || customer.goCardlessMandateId || customer.goCardlessCustomerId) && (
+            {goCardlessOn && (customer.goCardlessCustomerReference || customer.goCardlessMandateId || customer.goCardlessCustomerId) && (
               <div className="pt-1 border-t border-slate-100 space-y-1">
                 <span className="text-xs text-slate-500 block">GoCardless matching</span>
                 {customer.goCardlessCustomerReference && <p className="text-xs text-slate-700">Reference: {customer.goCardlessCustomerReference}</p>}
@@ -863,7 +864,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               </label>
             </div>
           </div>
-          {GOCARDLESS_ENABLED && <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 space-y-3">
+          {goCardlessOn && <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 space-y-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">GoCardless customer reference</label>
               <input type="text" value={form.goCardlessCustomerReference} onChange={(e) => setForm(f => ({ ...f, goCardlessCustomerReference: e.target.value }))}

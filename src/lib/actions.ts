@@ -16,7 +16,7 @@ import { requireAuth } from "@/lib/tenant-context";
 import { stampNote } from "@/lib/text-format";
 import { orderDays } from "@/lib/day-order";
 import { assertNotLocked } from "@/lib/mtd/data";
-import { hasTrialFeature } from "@/lib/trial-features";
+import { goCardlessOn, hasTrialFeature } from "@/lib/trial-features";
 import { after } from "next/server";
 import { platformEmailConfigured, sendPlatformEmail } from "@/lib/platform-email";
 import { renderInvoicePdf } from "@/lib/invoice-build";
@@ -4070,6 +4070,8 @@ export async function recordPayment(data: {
 /** Payments page "Sync GoCardless" button: statuses, money received, auto-collect. */
 export async function syncGoCardlessPayments() {
   const actor = await requireOwner();
+  const { goCardlessOn } = await import("@/lib/trial-features");
+  if (!(await goCardlessOn(actor.tenantId))) throw new Error("Direct Debit isn't switched on for your account.");
   const { syncTenant } = await import("@/lib/gocardless/core");
   const res = await syncTenant(actor.tenantId);
   revalidatePath("/payments");
@@ -5339,6 +5341,7 @@ export async function getBusinessSettings() {
     metaAccessToken: "",
     goCardlessAccessToken: "",
     goCardlessConfigured: Boolean(settings.goCardlessAccessToken) || Boolean(process.env.NODE_ENV !== "production" && process.env.GOCARDLESS_DEV_TOKEN?.trim().startsWith("sandbox_")),
+    goCardlessOn: await goCardlessOn(actor.tenantId),
   };
 }
 
@@ -5448,6 +5451,7 @@ export async function getBusinessSettingsForClient() {
     invoicePaymentTerms: settings.invoicePaymentTerms,
     autoInvoiceEmail: settings.autoInvoiceEmail,
     autoInvoiceTrial: await hasTrialFeature(actor.tenantId, "auto_invoice"),
+    goCardlessOn: await goCardlessOn(actor.tenantId),
     logoBase64: settings.logoBase64,
     goCardlessEnvironment: settings.goCardlessEnvironment,
     goCardlessReferencePrefix: settings.goCardlessReferencePrefix,
@@ -5557,6 +5561,8 @@ export async function updateBusinessSettings(data: {
   const updateData: Record<string, unknown> = pickPlain(data, SETTINGS_FIELDS);
   // Trial feature: only businesses it's turned on for (Admin) can switch it on.
   if (updateData.autoInvoiceEmail === true && !(await hasTrialFeature(tenantId, "auto_invoice"))) delete updateData.autoInvoiceEmail;
+  // Direct Debit settings only for businesses it's switched on for.
+  if (!(await goCardlessOn(tenantId))) for (const k of Object.keys(updateData)) if (k.startsWith("goCardless")) delete updateData[k];
   if (typeof updateData.logoBase64 === "string" && !/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(updateData.logoBase64)) {
     throw new Error("The logo must be a PNG, JPG or WebP picture.");
   }

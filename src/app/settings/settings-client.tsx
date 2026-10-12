@@ -1,6 +1,5 @@
 "use client";
 
-import { GOCARDLESS_ENABLED } from "@/lib/features";
 import { useState, useTransition, useRef, useCallback, useEffect } from "react";
 import {
   Save, Upload, X, Building2, Mail, Eye, EyeOff,
@@ -30,7 +29,7 @@ interface Settings {
   businessName: string; ownerName: string; phone: string; email: string;
   address: string; bankDetails: string; vatNumber: string;
   invoicePrefix: string; nextInvoiceNum: number; invoiceNumbersStarted: boolean;
-  invoiceVatEnabled: boolean; invoiceVatRate: number; allowCustomerCredit?: boolean; keepWorkerOnNextRun?: boolean; invoicePaymentTerms: string; autoInvoiceEmail?: boolean; autoInvoiceTrial?: boolean; logoBase64: string | null;
+  invoiceVatEnabled: boolean; invoiceVatRate: number; allowCustomerCredit?: boolean; keepWorkerOnNextRun?: boolean; invoicePaymentTerms: string; autoInvoiceEmail?: boolean; autoInvoiceTrial?: boolean; goCardlessOn?: boolean; logoBase64: string | null;
   goCardlessEnvironment: string; goCardlessReferencePrefix: string;
   goCardlessAccessTokenConfigured: boolean; goCardlessLastSyncedAt: string | null;
   smtpProvider: string; smtpHost: string; smtpPort: number;
@@ -426,7 +425,7 @@ export function SettingsClient({
 
         if (canManageProviderSettings) {
           Object.assign(payload, {
-            ...(GOCARDLESS_ENABLED ? {
+            ...(settings.goCardlessOn ? {
               goCardlessEnvironment: goCardless.environment,
               goCardlessReferencePrefix: goCardless.referencePrefix.trim() || "WD",
             } : {}),
@@ -691,7 +690,7 @@ export function SettingsClient({
             </CardContent>
           </Card>
 
-          {GOCARDLESS_ENABLED && <Card>
+          {settings.goCardlessOn && <Card>
             <CardHeader><CardTitle><Link2 size={16} className="inline mr-2 text-blue-600" />GoCardless (Direct Debit)</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 space-y-1">
