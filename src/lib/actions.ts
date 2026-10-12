@@ -3299,7 +3299,16 @@ export async function completeJob(jobId: number) {
   revalidatePath(`/customers/${job.customerId}`);
 }
 
-export async function uncompleteJob(jobId: number) {
+/**
+ * Undo "Done". `payment` says what happens to money already logged on this clean:
+ *  - "cancel": it was logged by mistake. Payments taken at or after the tick are cancelled
+ *    whole (any other cleans they covered go back to owing). Direct Debit and credit paid
+ *    before the clean are real money and just go back to credit.
+ *  - "keep": all of it goes back to the customer as credit.
+ *  - "auto" (default): cancel only a payment taken with the same tap ("Done & Paid").
+ */
+export async function uncompleteJob(jobId: number, opts: { payment?: "auto" | "keep" | "cancel" } = {}) {
+  const mode = opts.payment === "keep" || opts.payment === "cancel" ? opts.payment : "auto";
   const actor = await requirePerm("schedule");
   const tenantId = actor.tenantId;
   const job = await prisma.job.findFirst({
@@ -3310,7 +3319,7 @@ export async function uncompleteJob(jobId: number) {
         select: {
           id: true,
           amount: true,
-          payment: { select: { id: true, amount: true, createdAt: true, allocations: { select: { id: true, jobId: true, amount: true } } } },
+          payment: { select: { id: true, amount: true, createdAt: true, goCardlessPaymentId: true, allocations: { select: { id: true, jobId: true, amount: true } } } },
         },
       },
     },
@@ -3333,7 +3342,10 @@ export async function uncompleteJob(jobId: number) {
       const sinceTick = tickedAt === null ? Infinity : payment.createdAt.getTime() - tickedAt;
       const onlyThisJob = payment.allocations.every((a) => a.jobId === job.id);
       const takenWhenTicked = sinceTick >= -5000 && sinceTick <= 120_000 && onlyThisJob;
-      if (!takenWhenTicked) {
+      const cancel = mode === "keep" ? false
+        : mode === "cancel" ? !payment.goCardlessPaymentId && sinceTick >= -5000
+        : takenWhenTicked;
+      if (!cancel) {
         await tx.paymentAllocation.delete({ where: { id: allocation.id } }); // earlier credit: released
         continue;
       }
@@ -3342,7 +3354,7 @@ export async function uncompleteJob(jobId: number) {
       await tx.paymentAllocation.deleteMany({ where: { paymentId: payment.id } });
       await tx.payment.update({
         where: { id: payment.id },
-        data: { voidedAt: new Date(), voidReason: "Undone: job marked as not done" },
+        data: { voidedAt: new Date(), voidReason: mode === "cancel" ? "Logged by mistake: cancelled when the clean was undone" : "Undone: job marked as not done" },
       });
     }
     await tx.job.update({

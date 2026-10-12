@@ -1654,11 +1654,11 @@ export function DayView({
             refreshIfOnline();
           });
         }}
-        onUndo={() => {
+        onUndo={(payment) => {
           if (!selectedJob) return;
           const job = selectedJob;
           safely(async () => {
-            await uncompleteJob(job.id);
+            await uncompleteJob(job.id, { payment });
             setSelectedJob(null); setOpenJobInPayMode(false);
             router.refresh();
           });
@@ -1775,7 +1775,8 @@ function JobActionModal({
   onMarkPaidJobs: (allocations: Array<{jobId: number; amount: number}>, method: "CASH" | "BACS" | "CARD", notes?: string, extra?: number) => void;
   /** Business setting: keep overpayments as credit. */
   allowCredit?: boolean;
-  onUndo: () => void;
+  /** payment: what to do with money already logged on the clean (see uncompleteJob). */
+  onUndo: (payment?: "keep" | "cancel") => void;
   onSkip: (price: number, note: string) => void;
   /** Change a finished job: null = leave as it is. */
   onSaveEdit: (price: number | null, note: string | null, cleanedBy: string | null) => void;
@@ -1786,6 +1787,7 @@ function JobActionModal({
   openInPayFormMode?: boolean;
 }) {
   const [showPayForm, setShowPayForm] = useState(false);
+  const [askUndo, setAskUndo] = useState(false);
   const [payMode, setPayMode] = useState<"amount" | "jobs">("amount");
   const [payJobIds, setPayJobIds] = useState<Set<number>>(new Set());
   const [payAmount, setPayAmount] = useState("");
@@ -1847,6 +1849,7 @@ function JobActionModal({
         setShowPayForm(false);
         setPayJobIds(new Set());
       }
+      setAskUndo(false);
     }
   }, [job?.id, openInPayFormMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2116,14 +2119,37 @@ function JobActionModal({
                 </div>
               )}
 
-              <button
-                disabled={isPending}
-                onClick={onUndo}
-                className="flex items-center gap-3 w-full p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 text-sm font-medium text-slate-700 transition-colors disabled:opacity-50"
-              >
-                <Undo2 size={18} className="text-slate-500" />
-                Undo - Mark as Pending
-              </button>
+              {askUndo ? (
+                <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-sm text-amber-900">{fmtCurrency(getPaidAfterCompletion(job))} has been paid on this clean. What should happen to it?</p>
+                  <button
+                    disabled={isPending}
+                    onClick={() => { setAskUndo(false); onUndo("cancel"); }}
+                    className="w-full p-3 rounded-lg border border-red-200 bg-white text-left text-sm font-medium text-red-700 hover:border-red-400 disabled:opacity-50"
+                  >
+                    Undo and cancel the payment
+                    <span className="block text-xs font-normal text-slate-500">It was logged by mistake. Direct Debit and money paid in advance stay as credit.</span>
+                  </button>
+                  <button
+                    disabled={isPending}
+                    onClick={() => { setAskUndo(false); onUndo("keep"); }}
+                    className="w-full p-3 rounded-lg border border-slate-200 bg-white text-left text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50"
+                  >
+                    Undo and keep it as credit
+                    <span className="block text-xs font-normal text-slate-500">They did pay. It goes on their other unpaid cleans, or their next one.</span>
+                  </button>
+                  <Button variant="outline" size="sm" onClick={() => setAskUndo(false)}>Back</Button>
+                </div>
+              ) : (
+                <button
+                  disabled={isPending}
+                  onClick={() => (getPaidAfterCompletion(job) > 0.005 ? setAskUndo(true) : onUndo())}
+                  className="flex items-center gap-3 w-full p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 text-sm font-medium text-slate-700 transition-colors disabled:opacity-50"
+                >
+                  <Undo2 size={18} className="text-slate-500" />
+                  Undo - Mark as Pending
+                </button>
+              )}
             </div>
           ) : job.status === "SKIPPED" || job.status === "OUTSTANDING" ? (
             /* ─── Skipped / Outstanding: offer re-open ─── */
@@ -2136,7 +2162,7 @@ function JobActionModal({
               </p>
               <button
                 disabled={isPending}
-                onClick={onUndo}
+                onClick={() => onUndo()}
                 className="flex items-center gap-3 w-full p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 text-sm font-medium text-slate-700 transition-colors disabled:opacity-50"
               >
                 <Undo2 size={18} className="text-slate-500" />

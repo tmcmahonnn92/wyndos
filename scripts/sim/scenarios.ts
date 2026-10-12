@@ -68,6 +68,35 @@ async function test(name: string, fn: () => Promise<string | true>) {
     return p?.voidedAt ? `the £25 bank payment from the next day was voided by undoing the clean` : true;
   });
 
+  await test("undo + cancel removes a payment logged by mistake; earlier credit stays", async () => {
+    const b = await fresh("undo-cancel");
+    const c = b.customers[0].id;
+    setToday(D, 8);
+    await act.recordPayment({ customerId: c, allocations: [], method: "CASH", extra: 5 }); // paid in advance
+    setToday(D, 9);
+    await act.startDay(b.run.id);
+    const j = await b.jobOf(c);
+    await act.completeJob(j.id);
+    setToday(D, 12);
+    await act.recordPayment({ customerId: c, allocations: [{ jobId: j.id, amount: 15 }], method: "CASH" }); // the mistake
+    await act.uncompleteJob(j.id, { payment: "cancel" });
+    const live = await prisma.payment.findMany({ where: { tenantId: b.tenantId, voidedAt: null } });
+    const credit = await act.getCustomerCredit(c);
+    return live.length === 1 && Math.abs(credit - 5) < 0.01 ? true : `${live.length} payments left, credit £${credit} (expected 1 and £5)`;
+  });
+
+  await test("undo + keep turns the payment into credit", async () => {
+    const b = await fresh("undo-keep");
+    const c = b.customers[0].id;
+    await act.startDay(b.run.id);
+    const j = await b.jobOf(c);
+    await act.completeJob(j.id);
+    await act.recordPayment({ customerId: c, allocations: [{ jobId: j.id, amount: 20 }], method: "CASH" });
+    await act.uncompleteJob(j.id, { payment: "keep" });
+    const credit = await act.getCustomerCredit(c);
+    return Math.abs(credit - 20) < 0.01 ? true : `credit £${credit} (expected £20)`;
+  });
+
   await test("changing area keeps a done-but-unpaid clean", async () => {
     const b = await fresh("area");
     await act.startDay(b.run.id);
