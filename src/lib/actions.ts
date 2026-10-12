@@ -2177,6 +2177,18 @@ export async function updateCustomer(
   if (areaChanged) {
     await removeCustomerFromPreviousAreaScheduledDays(tenantId, id, current.areaId, resolvedAreaId);
   }
+  // Marked inactive: off every visit still to do. Done cleans, payments and history all stay.
+  if (data.active === false && current.active) {
+    const toDo = await prisma.job.findMany({
+      where: { tenantId, customerId: id, status: "PENDING", isQuote: false, workDay: { status: { not: "COMPLETE" } } },
+      select: { id: true, workDayId: true },
+    });
+    if (toDo.length) {
+      await deleteUnpaidJobs(tenantId, toDo.map((j) => j.id));
+      for (const dayId of new Set(toDo.map((j) => j.workDayId))) revalidatePath(`/days/${dayId}`);
+      revalidatePath("/days");
+    }
+  }
   await syncCustomerOpenJobs(tenantId, id, {
     price: data.price !== undefined && data.price !== current.price ? updateData.price : undefined,
     jobName: data.jobName !== undefined && data.jobName !== current.jobName

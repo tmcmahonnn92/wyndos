@@ -97,6 +97,17 @@ async function test(name: string, fn: () => Promise<string | true>) {
     return Math.abs(credit - 20) < 0.01 ? true : `credit £${credit} (expected £20)`;
   });
 
+  await test("marking inactive takes them off upcoming runs, keeps done cleans", async () => {
+    const b = await fresh("inactive");
+    const c = b.customers[0].id;
+    await b.finishDay(b.run.id, D);
+    const next = (await b.openRuns())[0];
+    await act.updateCustomer(c, { active: false });
+    const done = await prisma.job.count({ where: { customerId: c, status: "COMPLETE" } });
+    const upcoming = await prisma.job.count({ where: { customerId: c, workDayId: next.id } });
+    return done === 1 && upcoming === 0 ? true : `done cleans ${done} (expected 1), still on next run: ${upcoming}`;
+  });
+
   await test("changing area keeps a done-but-unpaid clean", async () => {
     const b = await fresh("area");
     await act.startDay(b.run.id);

@@ -99,6 +99,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
     .sort((a, b) => new Date(a.workDay.date).getTime() - new Date(b.workDay.date).getTime())[0] ?? null;
   const JOB_HISTORY_PREVIEW_COUNT = 6;
   const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [changeAreaOpen, setChangeAreaOpen] = useState(false);
   const [reschedOpen, setReschedOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
@@ -912,10 +913,52 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
             <Button onClick={handleSaveEdit} disabled={isPending} className="flex-1">{isPending ? "Saving..." : "Save Changes"}</Button>
             <Button variant="outline" onClick={() => setEditOpen(false)} className="flex-1">Cancel</Button>
           </div>
+          <button
+            type="button"
+            onClick={() => { setEditOpen(false); setDeleteOpen(true); }}
+            className="flex w-full items-center justify-center gap-1.5 pt-2 text-sm text-red-600 hover:underline"
+          >
+            <Trash2 size={14} /> Delete customer
+          </button>
         </div>
       </Modal>
 
       {/* Change Area Modal */}
+      <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete customer">
+        <div className="space-y-3">
+          <p className="text-sm text-slate-700">
+            Customers can&apos;t be deleted, so their job history and accounting stay complete.
+          </p>
+          {customer.active ? (
+            <>
+              <p className="text-sm text-slate-700">
+                Mark {customer.name} as <strong>inactive</strong> instead. They come off all upcoming rounds and
+                out of your active list. Past cleans, payments and anything owed stay. You can switch them back on any time.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  disabled={isPending}
+                  className="flex-1"
+                  onClick={() => startTransition(async () => {
+                    await updateCustomer(customer.id, { active: false });
+                    setDeleteOpen(false);
+                    router.refresh();
+                  })}
+                >
+                  {isPending ? "Saving..." : "Mark as inactive"}
+                </Button>
+                <Button variant="outline" className="flex-1" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-slate-700">{customer.name} is already inactive.</p>
+              <Button variant="outline" className="w-full" onClick={() => setDeleteOpen(false)}>Close</Button>
+            </>
+          )}
+        </div>
+      </Modal>
+
       <Modal open={changeAreaOpen} onClose={() => setChangeAreaOpen(false)} title="Change Area">
         <div className="space-y-4">
           <p className="text-sm text-slate-600">
