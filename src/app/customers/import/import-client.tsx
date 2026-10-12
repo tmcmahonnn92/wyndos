@@ -803,6 +803,10 @@ export function ImportClient({ areas }: { areas: Area[] }) {
         <span><b>Moving from CleanerPlanner?</b> Upload your CleanerPlanner backup and bring customers, rounds, due dates and balances across.</span>
         <span className="flex-shrink-0 font-semibold text-blue-700">Start →</span>
       </Link>
+      <Link href="/customers/import/aworka" className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 hover:bg-slate-50">
+        <span><b>Moving from Aworka?</b> Upload your Aworka full export and bring customers, rounds, due dates, balances, history and expenses across.</span>
+        <span className="flex-shrink-0 font-semibold text-blue-700">Start →</span>
+      </Link>
 
       {/* Step indicator */}
       <div className="flex items-center gap-0">

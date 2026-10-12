@@ -11,7 +11,8 @@ import {
   type DroppedRow, type HistoryRow, type ImportPlan, type MatchCandidate, type PlanField, type SmartRow,
 } from "@/lib/smart-import/plan";
 import { aiImportPlan, type PlanRequest } from "@/lib/smart-import/actions";
-import { bookAreaRunsAfterImport, bulkImportCustomers, bulkImportJobHistory, createFormerCustomers, getCustomersForMatching, importQuotes, saveCustomerAliases } from "@/lib/actions";
+import { isAworkaExport } from "@/lib/aworka/parse";
+import { bookAreaRunsAfterImport, oneOffAreaIdForImport, bulkImportCustomers, bulkImportJobHistory, createFormerCustomers, getCustomersForMatching, importQuotes, saveCustomerAliases } from "@/lib/actions";
 import { cn, fmtCurrency } from "@/lib/utils";
 import { NotImportedList, type NotImportedRow } from "@/components/not-imported-list";
 
@@ -19,6 +20,8 @@ type AreaOption = { id: number; name: string; frequencyWeeks: number };
 type ExistingCustomer = { id: number; name: string; address: string; postcode: string; active?: boolean; aliases?: Array<{ kind: string; label: string }> };
 /** The owner's changes to a customer row in the preview. */
 type RowEdit = { name?: string; address?: string; area?: string; price?: number | null; frequencyWeeks?: number | null; nextDueDate?: string; phone?: string; email?: string; notes?: string; active?: boolean; skip?: boolean };
+type DupChoice = "oneoff" | "separate" | "same";
+const DUP_LABEL: Record<DupChoice, string> = { oneoff: "Extra one-off jobs", separate: "Separate customers", same: "Same customer twice" };
 type VisitEdit = { date?: string; price?: number | null; paid?: number | null; skip?: boolean };
 const normKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 /** Unmatched history rows that are clearly the same person go together, so they're sorted once. */
@@ -199,6 +202,14 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackPart, setFeedbackPart] = useState(-1);
   const [feedback, setFeedback] = useState("");
+  /** New areas: the owner can rename them and set colour and frequency (keyed by the name in the file). */
+  const [areaSettings, setAreaSettings] = useState<Record<string, { name?: string; color?: string; frequencyWeeks?: number }>>({});
+  /** The same address more than once: extra one-off jobs, separate customers, or the same customer twice. */
+  const [dupChoice, setDupChoice] = useState<Record<string, DupChoice>>({});
+  /** Customers already in Wyndos (same name and address): leave, fill in blanks, or overwrite. */
+  const [existingMode, setExistingMode] = useState<"skip" | "fill" | "overwrite">("skip");
+  /** Told to the AI before it reads the file (and on every "try again"). */
+  const [hints, setHints] = useState("");
   const [elsewhere, setElsewhere] = useState<{ title: string; text: string; href?: string; link?: string } | null>(null);
   const [problemsOnly, setProblemsOnly] = useState(false);
   const [unmatchedOnly, setUnmatchedOnly] = useState(false);
@@ -246,9 +257,39 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
   // round (or from the existing Wyndos area) go in their own area, e.g. "Waverley 8 weekly".
   const custRows = useMemo(() => withFrequencyAreas(rows.filter((r) => !r.quote), areas), [rows, areas]);
   const quoteRows = useMemo(() => rows.filter((r) => r.quote), [rows]);
+  // Same address more than once (first line + postcode). Often an extra job (gutters, a one-off)
+  // that isn't marked as one; sometimes flats or two people; sometimes the same customer twice.
+  const dupGroups = useMemo(() => {
+    const m = new Map<string, SmartRow[]>();
+    for (const r of custRows) {
+      // First line, plus the next part when it holds a number ("Marsh Road 1, No. 3" ≠ "Marsh Road 1, No. 7").
+      const parts = r.address.split(",").map((x) => x.trim());
+      const line = normKey([parts[0] ?? "", /\d/.test(parts[1] ?? "") && !/^[A-Z]{1,2}\d/i.test(parts[1] ?? "") ? parts[1] : ""].join(" "));
+      const pc = normKey(r.postcode || (r.address.match(/[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i)?.[0] ?? ""));
+      if (!line) continue;
+      const k = `${line}|${pc}`;
+      m.set(k, [...(m.get(k) ?? []), r]);
+    }
+    const extraHint = /extra|one.?off/i.test(hints) && /twice|same address|listed/i.test(hints);
+    return [...m.entries()].filter(([, list]) => list.length > 1).map(([key, list]) => {
+      const keeper = list.find((r) => r.active && r.price) ?? list[0];
+      const sameName = new Set(list.map((r) => normKey(r.name))).size === 1;
+      const identical = sameName && new Set(list.map((r) => `${r.price}|${r.jobName}|${r.frequencyWeeks}`)).size === 1;
+      const guess: DupChoice = extraHint ? "oneoff" : identical ? "same" : !sameName ? "separate" : "oneoff";
+      return { key, list, keeper, guess };
+    });
+  }, [custRows, hints]);
+  const dupOf = (key: string, guess: DupChoice) => dupChoice[key] ?? guess;
+  // Rows that stay on a round (extras become one-offs, copies are left out).
+  const roundRows = useMemo(() => {
+    const off = new Set<SmartRow>();
+    for (const g of dupGroups) if (dupOf(g.key, g.guess) !== "separate") for (const r of g.list) if (r !== g.keeper) off.add(r);
+    return custRows.filter((r) => !off.has(r));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [custRows, dupGroups, dupChoice]);
   const areaSummary = useMemo(() => {
     const map = new Map<string, { name: string; count: number; value: number; existing: AreaOption | undefined }>();
-    for (const r of custRows) {
+    for (const r of roundRows) {
       const key = r.area.toLowerCase();
       const e = map.get(key) ?? { name: r.area, count: 0, value: 0, existing: areas.find((a) => a.name.toLowerCase() === key) };
       e.count++;
@@ -256,7 +297,7 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
       map.set(key, e);
     }
     return [...map.values()].sort((a, b) => b.count - a.count);
-  }, [custRows, areas]);
+  }, [roundRows, areas]);
   const withProblems = rows.filter((r) => r.problems.length > 0);
   const noAddress = rows.filter((r) => !r.address).length;
   const inactive = custRows.filter((r) => !r.active).length;
@@ -351,14 +392,14 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
   const maxAttempt = Math.max(0, ...parts.map((p) => p.attempt));
 
   const reset = () => {
-    setRowEdits({}); setVisitEdits({}); setResolutions({}); setEditing(null); setMapperOpen(null);
+    setRowEdits({}); setVisitEdits({}); setResolutions({}); setEditing(null); setMapperOpen(null); setAreaSettings({}); setDupChoice({});
     setStage("upload"); setError(null); setFiles([]); setParts([]); setProgress("");
     setFeedbackOpen(false); setFeedback(""); setFeedbackPart(-1); setElsewhere(null); setResult(null);
     setHelpOpen(false); setHelpText(""); setHelpSent(false); setProblemsOnly(false); setUnmatchedOnly(false);
   };
 
   const readWithAi = async (label: string, grid: string[][], previous?: ImportPlan, said?: string, n = 1) => {
-    const res = await aiImportPlan({ ...sampleFor(label, grid), feedback: said || undefined, previousPlan: previous, attempt: n, previewRows: previous ? previewFor(grid, previous) : undefined })
+    const res = await aiImportPlan({ ...sampleFor(label, grid), hints: hints.trim() || undefined, feedback: said || undefined, previousPlan: previous, attempt: n, previewRows: previous ? previewFor(grid, previous) : undefined })
       .catch(() => ({ ok: false as const, error: "Couldn't reach Wyndos. Check your connection and try again." }));
     return res;
   };
@@ -377,6 +418,11 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
         if (lower.endsWith(".zip")) {
           const entries = unzipSync(new Uint8Array(data));
           const names = Object.keys(entries);
+          if (isAworkaExport(names)) {
+            setElsewhere({ title: "This is an Aworka export", text: "Aworka exports have their own importer, which brings across rounds, due dates, balances, history and expenses.", href: "/customers/import/aworka", link: "Use the Aworka import" });
+            setStage("elsewhere");
+            return;
+          }
           if (looksLikeCleanerPlanner(names)) {
             setElsewhere({ title: "This is a CleanerPlanner backup", text: "CleanerPlanner backups have their own importer, which brings across rounds, due dates, history and balances.", href: "/customers/import/cleanerplanner", link: "Use the CleanerPlanner import" });
             setStage("elsewhere");
@@ -450,38 +496,65 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
     setStage("importing");
     setError(null);
     const r: Result = { created: 0, skipped: 0, errors: 0, areas: [], quotes: 0, visits: 0, visitsSkipped: 0, unmatched: unmatched.length, notImported: droppedCustomers.map((d) => ({ row: d.where ?? d.sheetRow, name: d.name, reason: d.reason })), historyNotImported: droppedVisits.map((d) => ({ row: d.where ?? d.sheetRow, name: d.name, reason: d.reason })) };
+    const finalArea = (name: string) => areaSettings[name.toLowerCase()]?.name?.trim() || name;
     const freqOf = new Map<string, number>();
     for (const a of areaSummary) {
       const counts = new Map<number, number>();
       const named = frequencyInText(a.name);
       for (const c of custRows) { const f = c.frequencyWeeks ?? named ?? c.defaultFrequencyWeeks; if (c.area.toLowerCase() === a.name.toLowerCase() && f) counts.set(f, (counts.get(f) ?? 0) + 1); }
-      freqOf.set(a.name.toLowerCase(), [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? 4);
+      freqOf.set(a.name.toLowerCase(), areaSettings[a.name.toLowerCase()]?.frequencyWeeks ?? [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? 4);
     }
     const areasMade = new Set<string>();
     const datedAreas = new Set<number>();
     try {
-      // 1. Customers
-      for (let i = 0; i < custRows.length; i += 400) {
-        setProgress(`Adding customers… ${Math.min(i + 400, custRows.length)} of ${custRows.length}`);
-        const batch = custRows.slice(i, i + 400);
+      // 1. Customers. Repeated addresses as chosen: extras go in as one-off jobs, copies are left out.
+      const extraRows = new Set<SmartRow>();
+      const copyRows = new Set<SmartRow>();
+      for (const g of dupGroups) {
+        const choice = dupOf(g.key, g.guess);
+        if (choice === "separate") continue;
+        for (const r of g.list) if (r !== g.keeper) (choice === "same" ? copyRows : extraRows).add(r);
+      }
+      for (const c of copyRows) r.notImported.push({ row: c.where ?? c.sheetRow, name: c.name, reason: `Same customer listed twice (kept row ${dupGroups.find((g) => g.list.includes(c))?.keeper.where ?? dupGroups.find((g) => g.list.includes(c))?.keeper.sheetRow})` });
+      const oneOffAreaId = extraRows.size ? await oneOffAreaIdForImport() : null;
+      const toImport = custRows.filter((c) => !copyRows.has(c));
+      for (let i = 0; i < toImport.length; i += 400) {
+        setProgress(`Adding customers… ${Math.min(i + 400, toImport.length)} of ${toImport.length}`);
+        const batch = toImport.slice(i, i + 400);
         const res = await bulkImportCustomers(batch.map((c) => {
-          const existing = areas.find((a) => a.name.toLowerCase() === c.area.toLowerCase());
+          const target = finalArea(c.area);
+          const set = areaSettings[c.area.toLowerCase()];
+          const existing = areas.find((a) => a.name.toLowerCase() === target.toLowerCase());
           const newIndex = areaSummary.findIndex((a) => a.name.toLowerCase() === c.area.toLowerCase());
+          if (extraRows.has(c)) {
+            const main = dupGroups.find((g) => g.list.includes(c))?.keeper;
+            return {
+              name: c.name, address: c.address,
+              houseNameNumber: c.houseNameNumber || undefined, street: c.street || undefined, town: c.town || undefined, postcode: c.postcode || undefined,
+              price: c.price ?? 0, areaId: oneOffAreaId ?? undefined,
+              email: c.email || undefined, phone: c.phone || undefined,
+              notes: [c.notes, main ? `Extra job at the same address as ${main.name} (${main.area})` : ""].filter(Boolean).join("\n") || undefined,
+              jobName: c.jobName && c.jobName !== main?.jobName ? c.jobName : "Extra job",
+              preferredPaymentMethod: c.preferredPaymentMethod || undefined,
+              lastCompletedDate: c.lastCompletedDate || undefined,
+              active: c.active,
+            };
+          }
           return {
             name: c.name, address: c.address,
             houseNameNumber: c.houseNameNumber || undefined, street: c.street || undefined, town: c.town || undefined, postcode: c.postcode || undefined,
             price: c.price ?? 0,
             areaId: existing?.id,
-            areaName: existing ? undefined : c.area,
-            areaColor: existing ? undefined : COLOURS[(areas.length + newIndex) % COLOURS.length],
+            areaName: existing ? undefined : target,
+            areaColor: existing ? undefined : set?.color ?? COLOURS[(areas.length + newIndex) % COLOURS.length],
             areaFrequencyWeeks: existing ? undefined : freqOf.get(c.area.toLowerCase()),
             email: c.email || undefined, phone: c.phone || undefined, notes: c.notes || undefined, jobName: c.jobName || undefined,
             preferredPaymentMethod: c.preferredPaymentMethod || undefined,
             nextDueDate: c.nextDueDate || undefined, lastCompletedDate: c.lastCompletedDate || undefined,
-            frequencyWeeks: c.frequencyWeeks ?? undefined,
+            frequencyWeeks: (!existing && set?.frequencyWeeks) || c.frequencyWeeks || undefined,
             active: c.active,
           };
-        }), { createMissingAreas: true, existingMode: "skip", matchField: "nameAddress", bookRuns: false });
+        }), { createMissingAreas: true, existingMode, matchField: "nameAddress", matchJob: true, bookRuns: false });
         r.created += res.created;
         r.skipped += res.skipped;
         r.errors += res.errors.length;
@@ -624,6 +697,28 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
             onChange={(e) => { const list = Array.from(e.target.files ?? []); if (list.length) void onFiles(list); e.target.value = ""; }} />
         </label>
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {available && stage === "upload" && (
+          <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="text-sm font-semibold text-slate-800">Anything we should know about your file? <span className="font-normal text-slate-400">(optional)</span></p>
+            <textarea value={hints} onChange={(e) => setHints(e.target.value.slice(0, 600))} rows={3} maxLength={600}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              placeholder="e.g. The notes say how often (8 weekly). Everyone else is 4 weekly. Each sheet is a round." />
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                "The notes include the frequency.",
+                "Default frequency is 4 weekly.",
+                "Each sheet is a round.",
+                "The same address listed twice is an extra one-off job, not a new customer.",
+                "Dates are when they were last cleaned.",
+                "Dates are when they're next due.",
+              ].map((h) => (
+                <button key={h} type="button" onClick={() => setHints((t) => (t.includes(h) ? t : `${t.trim()} ${h}`.trim().slice(0, 600)))}
+                  className="rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:border-blue-300 hover:bg-blue-50">+ {h}</button>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-400">Used to read this file only. You can still change everything in the preview.</p>
+          </div>
+        )}
         <p className="text-xs text-slate-400">
           To work out the layout, the headings and a few sample rows of each file are read by AI (emails and phone numbers partly hidden).
           The whole file is never sent. History is matched to customers by reference, address or name.
@@ -763,20 +858,105 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
 
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Areas</p>
-            <div className="flex flex-wrap gap-1.5">
-              {areaSummary.slice(0, 40).map((a) => (
-                <span key={a.name} className={cn("rounded-full border px-2.5 py-1 text-xs", a.existing ? "border-slate-200 bg-slate-50 text-slate-700" : "border-blue-200 bg-blue-50 text-blue-800")}>
-                  {a.name} <b>{a.count}</b>{a.existing ? "" : " · new"}
-                </span>
-              ))}
-              {areaSummary.length > 40 && <span className="text-xs text-slate-500">+{areaSummary.length - 40} more</span>}
+            {areaSummary.some((a) => a.existing) && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {areaSummary.filter((a) => a.existing).map((a) => (
+                  <span key={a.name} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-700">{a.name} <b>{a.count}</b> · already in Wyndos</span>
+                ))}
+              </div>
+            )}
+            {areaSummary.some((a) => !a.existing) && (
+              <div className="space-y-1.5">
+                <p className="text-[11px] text-slate-500">New areas: rename them (or type the name of one you already have to join it), and set colour and how often.</p>
+                {areaSummary.filter((a) => !a.existing).map((a, i) => {
+                  const key = a.name.toLowerCase();
+                  const st = areaSettings[key] ?? {};
+                  const named = frequencyInText(a.name);
+                  const freqs = new Map<number, number>();
+                  for (const c of custRows) if (c.area.toLowerCase() === key) { const f = c.frequencyWeeks ?? named ?? c.defaultFrequencyWeeks; if (f) freqs.set(f, (freqs.get(f) ?? 0) + 1); }
+                  const freq = st.frequencyWeeks ?? [...freqs.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? 4;
+                  const colour = st.color ?? COLOURS[(areas.length + areaSummary.findIndex((x) => x.name === a.name)) % COLOURS.length];
+                  const joins = st.name && areas.find((x) => x.name.toLowerCase() === st.name!.trim().toLowerCase());
+                  const set = (patch: { name?: string; color?: string; frequencyWeeks?: number }) => setAreaSettings((all) => ({ ...all, [key]: { ...all[key], ...patch } }));
+                  return (
+                    <div key={a.name} className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/40 px-2 py-1.5 text-xs">
+                      <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: colour }} />
+                      <input value={st.name ?? a.name} onChange={(e) => set({ name: e.target.value })} className="w-48 rounded border border-slate-200 bg-white px-1.5 py-1 font-semibold text-slate-800" aria-label={`Name for ${a.name}`} />
+                      <span className="text-slate-500">{a.count} customer{a.count === 1 ? "" : "s"}</span>
+                      {joins ? <span className="font-semibold text-emerald-700">joins your existing area</span> : (
+                        <>
+                          <span className="flex gap-1">
+                            {COLOURS.slice(0, 8).map((c) => (
+                              <button key={c} type="button" onClick={() => set({ color: c })} aria-label="Colour" className={cn("h-4 w-4 rounded-full border-2", colour === c ? "border-slate-700" : "border-transparent")} style={{ backgroundColor: c }} />
+                            ))}
+                          </span>
+                          <label className="flex items-center gap-1 text-slate-600">every
+                            <input type="number" min={1} max={52} value={freq} onChange={(e) => { const v = Math.round(Number(e.target.value)); if (v >= 1 && v <= 52) set({ frequencyWeeks: v }); }} className="w-14 rounded border border-slate-200 bg-white px-1.5 py-1" /> weeks
+                          </label>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {dupGroups.length > 0 && (
+            <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50/50 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-amber-900">Same address more than once ({dupGroups.length})</p>
+                <div className="flex flex-wrap gap-1.5 text-xs">
+                  <span className="text-amber-800">Set all:</span>
+                  {(["oneoff", "separate", "same"] as const).map((v) => (
+                    <button key={v} type="button" onClick={() => setDupChoice(Object.fromEntries(dupGroups.map((g) => [g.key, v])))} className="rounded-full border border-amber-300 bg-white px-2 py-0.5 font-semibold text-amber-900 hover:bg-amber-100">{DUP_LABEL[v]}</button>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-amber-800">Often an extra job (gutters, a one-off clean) that isn&apos;t marked as one. The first row stays the customer on their round; choose what the others are.</p>
+              <div className="max-h-80 space-y-1.5 overflow-y-auto">
+                {dupGroups.slice(0, 100).map((g) => {
+                  const choice = dupOf(g.key, g.guess);
+                  return (
+                    <div key={g.key} className="rounded-lg border border-amber-100 bg-white px-2.5 py-2 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-800">{g.keeper.address.split(",").slice(0, 2).join(",")}</span>
+                        <span className="flex flex-wrap gap-1">
+                          {(["oneoff", "separate", "same"] as const).map((v) => (
+                            <label key={v} className={cn("flex cursor-pointer items-center gap-1 rounded-lg border px-1.5 py-0.5", choice === v ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200 text-slate-600")}>
+                              <input type="radio" name={`dup-${g.key}`} checked={choice === v} onChange={() => setDupChoice((all) => ({ ...all, [g.key]: v }))} className="accent-blue-600" /> {DUP_LABEL[v]}
+                            </label>
+                          ))}
+                        </span>
+                      </div>
+                      <ul className="mt-1 space-y-0.5 text-slate-600">
+                        {g.list.map((r) => (
+                          <li key={r.rowKey}>
+                            <span className="text-slate-400">{r.where ?? `row ${r.sheetRow}`}</span> · {r.name} · {r.price === null ? "no price" : fmtCurrency(r.price)}{r.frequencyWeeks ? ` · every ${r.frequencyWeeks}w` : ""}{r.jobName && !/^window clean/i.test(r.jobName) ? ` · ${r.jobName}` : ""}
+                            {r === g.keeper ? <b className="ml-1 text-emerald-700">customer</b> : choice === "oneoff" ? <b className="ml-1 text-blue-700">one-off job</b> : choice === "same" ? <b className="ml-1 text-slate-500">left out</b> : <b className="ml-1 text-emerald-700">customer</b>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+            <span className="font-semibold text-slate-700">Customers already in Wyndos</span> (same name and address):
+            {([["skip", "Leave as they are"], ["fill", "Fill in what's missing"], ["overwrite", "Overwrite with the file"]] as const).map(([v, label]) => (
+              <label key={v} className={cn("flex cursor-pointer items-center gap-1 rounded-lg border px-2 py-1", existingMode === v ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200")}>
+                <input type="radio" name="existing-mode" checked={existingMode === v} onChange={() => setExistingMode(v)} className="accent-blue-600" /> {label}
+              </label>
+            ))}
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white">
             <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Showing {shown.length} of {filtered.length}{problemsOnly ? " to check" : ""} · tap a row to change it
+                Showing {shown.length} of {filtered.length}{problemsOnly ? " to check" : ""} · tap a row or Edit to change it
               </p>
               <div className="flex flex-wrap items-center gap-3">
                 <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, address, area" className="w-48 rounded-lg border border-slate-200 px-2 py-1 text-xs" />
@@ -792,17 +972,18 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50 text-left text-slate-500">
-                    {["Row", "Name", "Address", "Area", "Price", "Every", "Next due", "Phone", "Pays", "Notes", ""].map((h) => <th key={h} className="px-2.5 py-2 font-semibold">{h}</th>)}
+                    {["", "Row", "Name", "Address", "Area", "Price", "Every", "Next due", "Phone", "Pays", "Notes", "Issues"].map((h, i) => <th key={i} className="px-2.5 py-2 font-semibold">{h}</th>)}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {shown.map((c, i) => (
                     <Fragment key={c.rowKey ?? `${c.sheetRow}-${i}`}>
                     <tr onClick={() => setEditing(editing === `c:${c.rowKey}` ? null : `c:${c.rowKey}`)} className={cn("cursor-pointer hover:bg-blue-50/50", c.problems.length ? "bg-amber-50/60" : "", !c.active && "text-slate-400", rowEdits[c.rowKey ?? ""] && "outline outline-1 -outline-offset-1 outline-blue-300")}>
+                      <td className="px-2.5 py-1.5"><button type="button" className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50">{editing === `c:${c.rowKey}` ? "Close" : "Edit"}</button></td>
                       <td className="whitespace-nowrap px-2.5 py-1.5 text-slate-400">{c.where ?? c.sheetRow}</td>
                       <td className="max-w-[180px] truncate px-2.5 py-1.5 font-medium text-slate-800">{c.name}</td>
                       <td className="max-w-[280px] truncate px-2.5 py-1.5">{c.address}</td>
-                      <td className="px-2.5 py-1.5">{c.area}</td>
+                      <td className="px-2.5 py-1.5">{areaSettings[c.area.toLowerCase()]?.name?.trim() || c.area}</td>
                       <td className="px-2.5 py-1.5 tabular-nums">{c.price === null ? "—" : fmtCurrency(c.price)}</td>
                       <td className="px-2.5 py-1.5">{c.frequencyWeeks ? `${c.frequencyWeeks}w` : "—"}</td>
                       <td className="whitespace-nowrap px-2.5 py-1.5">{fmtDate(c.nextDueDate)}</td>
@@ -812,7 +993,7 @@ export function SmartImport({ available, areas, customers, mode = "all" }: { ava
                       <td className="px-2.5 py-1.5 text-amber-700">{[...c.problems, c.quote ? "Quote" : c.active ? "" : "Inactive", rowEdits[c.rowKey ?? ""] ? "Changed" : ""].filter(Boolean).join(", ")}</td>
                     </tr>
                     {editing === `c:${c.rowKey}` && (
-                      <tr><td colSpan={11} className="bg-blue-50/60 px-3 py-2">
+                      <tr><td colSpan={12} className="bg-blue-50/60 px-3 py-2">
                         <CustomerEditor row={c} areas={[...new Set([...areas.map((a) => a.name), ...areaSummary.map((a) => a.name)])]}
                           onSave={(e) => { setRowEdits((all) => ({ ...all, [c.rowKey!]: { ...all[c.rowKey!], ...e } })); setEditing(null); }}
                           onReset={() => { setRowEdits((all) => { const n = { ...all }; delete n[c.rowKey!]; return n; }); setEditing(null); }}

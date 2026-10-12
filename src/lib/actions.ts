@@ -1342,6 +1342,8 @@ export async function bulkImportCustomers(
      */
     existingMode?: "skip" | "fill" | "overwrite";
     matchField?: "name" | "nameAddress";
+    /** Also match on the job name, so a gutter clean at the same house is its own record. */
+    matchJob?: boolean;
     /** Book each area's next run on the schedule from the customers' dates. */
     bookRuns?: boolean;
   } = {}
@@ -1489,7 +1491,7 @@ export async function bulkImportCustomers(
       const matchField = options.matchField ?? "name";
       const existing = await prisma.customer.findFirst({
         where: matchField === "nameAddress"
-          ? { tenantId, name: r.name.trim(), address: addressFields.address }
+          ? { tenantId, name: r.name.trim(), address: addressFields.address, ...(options.matchJob ? { jobName: String(customerData.jobName ?? "Window Cleaning") } : {}) }
           : { tenantId, name: r.name.trim() },
       });
       const datesGiven = Boolean(r.nextDueDate || r.lastCompletedDate);
