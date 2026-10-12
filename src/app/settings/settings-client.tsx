@@ -658,7 +658,7 @@ export function SettingsClient({
                   <input type="checkbox" className="mt-1" checked={form.autoInvoiceEmail} onChange={(e) => setForm((f) => ({ ...f, autoInvoiceEmail: e.target.checked }))} />
                   <span>
                     <span className="block text-sm font-semibold text-slate-800">Email invoices when a day is finished <span className="ml-1 rounded-full bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-900">Trial</span></span>
-                    <span className="block text-xs text-slate-500">Customers with an email address get an invoice for anything still unpaid from that day, with the PDF attached. Replies come to your email ({settings.email || "set it above"}).</span>
+                    <span className="block text-xs text-slate-500">Customers set to &quot;Email invoices&quot; get an invoice for anything still unpaid from that day, with the PDF attached. Replies come to your email ({settings.email || "set it above"}).</span>
                   </span>
                 </label>
               )}

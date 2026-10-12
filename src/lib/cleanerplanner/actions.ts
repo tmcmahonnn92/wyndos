@@ -10,7 +10,7 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
 import { requireOwner } from "@/lib/guards";
 import { composeAddress } from "@/lib/address";
-import { bookAreaRunsAfterImport, oneOffAreaIdForImport } from "@/lib/actions";
+import { bookAreaRunsAfterImport, oneOffAreaIdForImport, useCreditOnUnpaid } from "@/lib/actions";
 
 const AREA_COLOURS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#06B6D4", "#84CC16", "#A855F7", "#6366F1"];
 const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
@@ -270,8 +270,10 @@ export async function importCpHistory(items: CpHistoryItem[], source = "CleanerP
 }
 
 /** Step 3: book each imported area's next run from its customers' due dates. */
-export async function finishCpImport(areaIds: number[], bookRuns: boolean) {
+export async function finishCpImport(areaIds: number[], bookRuns: boolean, customerIds: number[] = []) {
   await requireOwner();
+  // Credit brought across (e.g. paid in advance) pays any cleans from the history it covers.
+  if (customerIds.length) await useCreditOnUnpaid(customerIds);
   const runs = bookRuns ? await bookAreaRunsAfterImport(areaIds) : [];
   revalidatePath("/customers");
   revalidatePath("/areas");

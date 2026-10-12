@@ -237,3 +237,8 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Switched on per business: Admin → Billing → "Trial: GoCardless" (`Tenant.trialFeatures` contains `gocardless`), or server-wide with the build flag. `goCardlessOn(tenantId)` in `lib/trial-features.ts` gates actions, the Direct Debit page, the cron, Settings (card and saving the token), Payments buttons and the customer page.
 - Customer page: Direct Debit panel (status, mandate, "Get sign-up link" with copy) for owners when switched on and a token is saved.
 - Testing steps: `deploy/GOCARDLESS-TESTING.md`.
+
+## Invoice emails per customer + import credit fix (new78)
+- `Customer.emailInvoices` (migration `20261012090000_customer_email_invoices`): ticked on the customer's details; set automatically on import when "Usually pays" is Invoice and there's an email.
+- Customer page → Invoice → **Send email** (businesses with Admin trial "Invoice emails", key `auto_invoice`): `/api/invoice/email` → `lib/invoice-email.ts` (`emailInvoice`, shared with the day-end auto invoices, which now only go to customers with emailInvoices).
+- CleanerPlanner/Aworka import: credit brought across now pays the history's unpaid cleans at the end (`useCreditOnUnpaid`). Payments → Credit offers "Use their credit" for anyone with credit and unpaid cleans (fixes earlier imports, e.g. HQ Dental).

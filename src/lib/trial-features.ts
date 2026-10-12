@@ -4,7 +4,7 @@ import { GOCARDLESS_ENABLED } from "@/lib/features";
 
 /** Features being tried out with a few businesses first. Turned on per business in Admin only. */
 export const TRIAL_FEATURES = [
-  { key: "auto_invoice", label: "Auto-email invoices", hint: "Settings → Invoices: email an invoice when a day is finished" },
+  { key: "auto_invoice", label: "Invoice emails", hint: "Customer page: Send email on invoices; Settings: email invoices automatically when a day is finished" },
   { key: "gocardless", label: "Direct Debit (GoCardless)", hint: "Settings → GoCardless, Payments → Direct Debit, nightly sync" },
 ] as const;
 export type TrialFeature = (typeof TRIAL_FEATURES)[number]["key"];

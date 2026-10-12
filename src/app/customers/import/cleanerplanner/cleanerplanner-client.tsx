@@ -188,7 +188,7 @@ export function MoveImport({ source }: { source: Source }) {
       }
 
       setBusy("Finishing…");
-      const fin = await finishCpImport([...areaIds], opts.bookRuns);
+      const fin = await finishCpImport([...areaIds], opts.bookRuns, Object.values(ids));
       res.runs = fin.runs.length;
       setProgress(100);
       setResult(res);

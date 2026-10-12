@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { extendTrial, setFreeForever, setTrialFeature } from "@/lib/admin-billing";
 
 /** Keep in step with TRIAL_FEATURES in lib/trial-features.ts. */
-const FEATURES = [{ key: "auto_invoice", label: "Trial: auto-email invoices" }, { key: "gocardless", label: "Trial: GoCardless" }];
+const FEATURES = [{ key: "auto_invoice", label: "Trial: invoice emails" }, { key: "gocardless", label: "Trial: GoCardless" }];
 
 type Row = {
   id: number;
