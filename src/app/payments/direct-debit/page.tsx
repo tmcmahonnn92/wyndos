@@ -23,7 +23,7 @@ export default async function DirectDebitPage() {
       <div>
         <Link href="/payments" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800"><ChevronLeft size={16} /> Payments</Link>
         <h1 className="mt-1 text-xl font-bold text-slate-800">Direct Debit</h1>
-        <p className="text-sm text-slate-500">Take payments for completed cleans through GoCardless. Money received is recorded against the clean automatically.</p>
+        <p className="text-sm text-slate-500">Take payments for completed cleans through GoCardless. Money received is recorded against the clean automatically. <Link href="/guide/direct-debit" className="text-blue-700 hover:underline">How it works</Link></p>
       </div>
       <DirectDebitClient overview={overview} board={board} customers={customers} />
     </div>

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { auth } from "@/auth";
+import { getActor } from "@/lib/guards";
+import { goCardlessOn } from "@/lib/trial-features";
 
 export const metadata = {
   title: "Getting started | Wyndos",
@@ -74,6 +76,9 @@ function Pair({ children }: { children: ReactNode }) {
 export default async function GuidePage() {
   const session = await auth().catch(() => null);
   const signedIn = Boolean(session?.user);
+  // Direct Debit help only for businesses that have it switched on.
+  const actor = signedIn ? await getActor().catch(() => null) : null;
+  const directDebit = actor ? await goCardlessOn(actor.tenantId) : false;
 
   return (
     <div className={signedIn ? "bg-slate-50 px-4 py-6" : "min-h-screen bg-slate-50 px-4 py-10"}>
@@ -284,6 +289,7 @@ export default async function GuidePage() {
           <ul>
             <li>Paid by bank transfer? Use <strong>Bank statement</strong> to match payments from your bank&apos;s download. The file is read on your device and never stored.</li>
             <li><strong>Accounting</strong> adds up income and expenses for the tax year, ready for your self-assessment.</li>
+            {directDebit && <li>Taking <strong>Direct Debit</strong> through GoCardless? See <Link href="/guide/direct-debit" className="font-semibold text-blue-700 underline">Direct Debit with GoCardless</Link>.</li>}
           </ul>
         </Step>
 

@@ -10,7 +10,7 @@ export function PlaceAfter({ customerId, afterName }: { customerId: number; afte
   const [busy, start] = useTransition();
   if (!afterName) return null;
   return (
-    <div className="px-4 pb-4 max-w-3xl mx-auto">
+    <div className="px-4 pb-4 max-w-lg mx-auto">
       <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm dark:border-slate-700 dark:bg-slate-900">
         <p className="flex-1 text-slate-700 dark:text-slate-200">
           On days with <b>{afterName}</b>, this customer always comes straight after them.

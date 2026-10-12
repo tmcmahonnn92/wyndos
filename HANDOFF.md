@@ -2,6 +2,9 @@
 
 Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to Tom short and plain.
 
+## Roadmap
+- Agreed-but-not-built work lives in `docs/ROADMAP.md` (refunds first). Check it when planning.
+
 ## Stack
 - Next.js 16 (app router, server actions), React, Tailwind 4, Prisma 7.
 - SQLite locally (`demo.db` / `dev.db`), Postgres in production.

@@ -24,7 +24,7 @@ export async function getGoCardlessOverview() {
   const [settings, connected, linked, waiting] = await Promise.all([
     prisma.tenantSettings.findFirst({ where: { tenantId }, select: { goCardlessCreditorName: true, goCardlessLastSyncedAt: true, goCardlessLastError: true, goCardlessAutoCollect: true, goCardlessEnvironment: true } }),
     gcConnection(tenantId),
-    prisma.customer.count({ where: { tenantId, goCardlessMandateId: { not: null } } }),
+    prisma.customer.count({ where: { tenantId, goCardlessMandateId: { not: null }, OR: [{ goCardlessMandateStatus: null }, { goCardlessMandateStatus: { in: [...GC_MANDATE_USABLE] } }] } }),
     prisma.customer.count({ where: { tenantId, goCardlessBillingRequestId: { not: null } } }),
   ]);
   return {
@@ -150,7 +150,7 @@ export async function getDirectDebitBoard() {
     }),
     prisma.job.findMany({
       where: { tenantId, goCardlessStatus: { in: ["failed", "cancelled", "customer_approval_denied", "charged_back"] }, status: "COMPLETE" },
-      select: { id: true, price: true, goCardlessStatus: true, workDay: { select: { date: true } }, customer: { select: { id: true, name: true } } },
+      select: { id: true, price: true, goCardlessStatus: true, workDay: { select: { date: true } }, customer: { select: { id: true, name: true } }, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
       orderBy: { id: "desc" }, take: 100,
     }),
     prisma.customer.findMany({
@@ -161,9 +161,11 @@ export async function getDirectDebitBoard() {
   ]);
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   return {
-    due: due.filter((j) => !j.goCardlessPaymentId).map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, date: iso(j.workDay.date), amount: j.due, mandateStatus: j.customer.goCardlessMandateStatus })),
+    // Customers whose Direct Debit was cancelled or failed aren't offered for collection.
+    due: due.filter((j) => !j.goCardlessPaymentId && (!j.customer.goCardlessMandateStatus || GC_MANDATE_USABLE.has(j.customer.goCardlessMandateStatus))).map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, date: iso(j.workDay.date), amount: j.due, mandateStatus: j.customer.goCardlessMandateStatus })),
     inProgress: inProgress.map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, date: iso(j.workDay.date), amount: j.price, status: j.goCardlessStatus ?? "" })),
-    failed: failed.map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, date: iso(j.workDay.date), amount: j.price, status: j.goCardlessStatus ?? "" })),
+    // A failed collection that's since been paid another way (cash, a later Direct Debit) is done with.
+    failed: failed.filter((j) => j.price - j.allocations.reduce((sum, a) => sum + a.amount, 0) > 0.005).map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, date: iso(j.workDay.date), amount: j.price, status: j.goCardlessStatus ?? "" })),
     people: people.map((c) => ({
       id: c.id, name: c.name, address: c.address, active: c.active,
       state: c.goCardlessMandateId ? (c.goCardlessMandateStatus ?? "linked") : c.goCardlessBillingRequestId ? "link_sent" : "not_set_up",

@@ -287,7 +287,8 @@ async function recordReceived(tenantId: number, customerId: number, p: GcPayment
   const paidAt = p.charge_date ? new Date(`${p.charge_date}T00:00:00.000Z`) : new Date();
   let onJob = 0;
   if (jobId) {
-    const job = await prisma.job.findFirst({ where: { id: jobId, tenantId }, select: { price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } } });
+    // Only a clean that's done can be paid (one un-ticked since keeps the money as credit).
+    const job = await prisma.job.findFirst({ where: { id: jobId, tenantId, status: "COMPLETE" }, select: { price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } } });
     if (job) onJob = Math.max(0, Math.min(amount, round2(job.price - job.allocations.reduce((s, a) => s + a.amount, 0))));
   }
   await prisma.$transaction(async (tx) => {
@@ -400,7 +401,8 @@ export async function syncTenant(tenantId: number) {
       if (!customerId) continue;
       // Pay the oldest unpaid clean it covers; anything left over stays as credit on the payment.
       const open = await prisma.job.findMany({
-        where: { tenantId, customerId, status: "COMPLETE", isQuote: false, goCardlessPaymentId: null },
+        // Cleans not being collected: never sent to GoCardless, or their collection failed.
+        where: { tenantId, customerId, status: "COMPLETE", isQuote: false, OR: [{ goCardlessPaymentId: null }, { goCardlessStatus: { in: [...GC_FAILED] } }] },
         select: { id: true, price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
         orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
         take: 200,
@@ -410,12 +412,21 @@ export async function syncTenant(tenantId: number) {
       summary.imported++;
     }
 
+    // 3c. A payment made outside Wyndos that was recorded and has since failed or been charged
+    // back: undo it, so the cleans it paid owe again.
+    for (const p of payments) {
+      const rec = recorded.get(p.id);
+      if (!rec || rec.voidedAt || collectingIds.has(p.id) || !GC_FAILED.has(p.status)) continue;
+      await prisma.payment.update({ where: { id: rec.id }, data: { voidedAt: new Date(), voidReason: `Direct Debit ${p.status.replace(/_/g, " ")}`, goCardlessStatus: p.status } });
+      summary.failed++;
+    }
+
     // 4. Auto-collect cleans completed since auto-collect was turned on.
     const settings = await prisma.tenantSettings.findFirst({ where: { tenantId }, select: { goCardlessAutoCollect: true, goCardlessAutoCollectFrom: true } });
     if (settings?.goCardlessAutoCollect && settings.goCardlessAutoCollectFrom) {
       const due = await cleansToCollect(tenantId, { since: settings.goCardlessAutoCollectFrom });
       // Never auto-retry a failed collection: the owner decides.
-      const fresh = due.filter((j) => !j.goCardlessPaymentId);
+      const fresh = due.filter((j) => !j.goCardlessPaymentId && (!j.customer.goCardlessMandateStatus || GC_MANDATE_USABLE.has(j.customer.goCardlessMandateStatus)));
       if (fresh.length) {
         const res = await collectForJobs(tenantId, fresh.map((j) => j.id));
         summary.autoCollected = res.collected.length;
@@ -428,5 +439,50 @@ export async function syncTenant(tenantId: number) {
     const message = issue instanceof Error ? issue.message : "GoCardless sync failed";
     await prisma.tenantSettings.update({ where: { tenantId }, data: { goCardlessLastError: message.slice(0, 300) } }).catch(() => undefined);
     throw issue;
+  }
+}
+
+/**
+ * "Collect automatically when a clean is done": called straight after cleans are ticked off.
+ * Only when the business has it on, only cleans owing for customers with a working Direct
+ * Debit, never one that already failed. Problems are left for the next sync to report.
+ */
+export async function autoCollectNow(tenantId: number, jobIds: number[]) {
+  if (!jobIds.length) return;
+  try {
+    const settings = await prisma.tenantSettings.findFirst({ where: { tenantId }, select: { goCardlessAutoCollect: true, goCardlessAutoCollectFrom: true } });
+    if (!settings?.goCardlessAutoCollect || !settings.goCardlessAutoCollectFrom) return;
+    const { goCardlessOn } = await import("@/lib/trial-features");
+    if (!(await goCardlessOn(tenantId))) return;
+    const due = await cleansToCollect(tenantId, { since: settings.goCardlessAutoCollectFrom });
+    const wanted = new Set(jobIds);
+    const ids = due.filter((j) => wanted.has(j.id) && !j.goCardlessPaymentId && (!j.customer.goCardlessMandateStatus || GC_MANDATE_USABLE.has(j.customer.goCardlessMandateStatus))).map((j) => j.id);
+    if (ids.length) await collectForJobs(tenantId, ids);
+  } catch (issue) {
+    console.error("[gocardless] auto-collect after clean failed", issue);
+  }
+}
+
+/**
+ * A clean un-ticked ("Undo") while its Direct Debit is being collected: cancel the collection if
+ * GoCardless still allows it (before it's sent to the bank). Returns what happened.
+ */
+export async function cancelCollectionForJob(tenantId: number, jobId: number): Promise<"none" | "cancelled" | "too_late" | "error"> {
+  const job = await prisma.job.findFirst({ where: { id: jobId, tenantId }, select: { goCardlessPaymentId: true, goCardlessStatus: true } });
+  if (!job?.goCardlessPaymentId || GC_FAILED.has(job.goCardlessStatus ?? "") || GC_RECEIVED.has(job.goCardlessStatus ?? "")) return "none";
+  try {
+    const conn = await requireConnection(tenantId);
+    const p = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${job.goCardlessPaymentId}`)).payments;
+    if (GC_RECEIVED.has(p.status)) return "none";
+    if (!["pending_customer_approval", "pending_submission"].includes(p.status)) {
+      await prisma.job.update({ where: { id: jobId }, data: { goCardlessStatus: p.status } });
+      return GC_FAILED.has(p.status) ? "none" : "too_late";
+    }
+    await gc(conn, "POST", `/payments/${job.goCardlessPaymentId}/actions/cancel`, { body: {} });
+    await prisma.job.update({ where: { id: jobId }, data: { goCardlessPaymentId: null, goCardlessStatus: null } });
+    return "cancelled";
+  } catch (issue) {
+    console.error("[gocardless] cancel on undo failed", issue);
+    return "error";
   }
 }

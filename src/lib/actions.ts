@@ -1264,12 +1264,14 @@ export async function createOneOffJob(data: {
 
   // Keep each one-off on its own standalone (area-less) work day so they always stay
   // separate in the scheduler instead of being grouped under the first job's name.
-  // Guard against booking the same customer twice as a one-off on the same date.
+  // Guard against booking the same job twice (a double tap) for the same customer on the
+  // same date. A different job that day (gutters as well as a conservatory) is its own job.
   const existing = await prisma.job.findFirst({
     where: {
       tenantId,
       customerId: data.customerId,
       isOneOff: true,
+      name: (data.name ?? "").trim() || "Window Cleaning",
       workDay: { date: d, areaId: null },
     },
     include: { workDay: true },
@@ -3312,6 +3314,8 @@ export async function completeJob(jobId: number) {
   });
   // Credit (paid in advance / paid extra) pays this clean straight away, in full or part.
   await applyCredit(tenantId, [job.customerId]);
+  // Direct Debit customers: collect now if the business has "collect automatically" on.
+  after(async () => { const { autoCollectNow } = await import("@/lib/gocardless/core"); await autoCollectNow(tenantId, [jobId]); });
 
   // Auto-start the work day if still PLANNED — removes the need to tap "Start Area" separately
   const autoStarted = await prisma.workDay.updateMany({
@@ -3378,6 +3382,13 @@ export async function uncompleteJob(jobId: number, opts: { payment?: "auto" | "k
   // Anything else (a bank payment next week, a payment covering several cleans, GoCardless)
   // is real money: it stays, and just goes back to credit for their other cleans.
   const tickedAt = job.completedAt ? job.completedAt.getTime() : null;
+  // A Direct Debit being collected for this clean: cancel it while GoCardless still lets us.
+  // Too late (already sent to the bank): it carries on and the money is kept as credit.
+  let directDebit: "none" | "cancelled" | "too_late" | "error" = "none";
+  if (job.goCardlessPaymentId) {
+    const { cancelCollectionForJob } = await import("@/lib/gocardless/core");
+    directDebit = await cancelCollectionForJob(tenantId, job.id);
+  }
   await prisma.$transaction(async (tx) => {
     const voided = new Set<number>();
     for (const allocation of job.allocations) {
@@ -3458,6 +3469,7 @@ export async function uncompleteJob(jobId: number, opts: { payment?: "auto" | "k
   revalidatePath(`/days/${job.workDayId}`);
   revalidatePath(`/customers/${job.customerId}`);
   revalidatePath("/payments");
+  return { directDebit };
 }
 
 export async function skipJob(jobId: number) {
@@ -3969,6 +3981,13 @@ export async function completeDay(
   } catch (issue) {
     console.error("[texts] cleaned texts failed", issue);
   }
+
+  // Direct Debit: collect anything from this day still owing (only if "collect automatically" is on).
+  after(async () => {
+    const owing = await prisma.job.findMany({ where: { tenantId, workDayId, status: "COMPLETE" }, select: { id: true } });
+    const { autoCollectNow } = await import("@/lib/gocardless/core");
+    await autoCollectNow(tenantId, owing.map((j) => j.id));
+  });
 
   // Trial: email invoices for anything unpaid from this day. Runs after the reply so finishing a day stays quick.
   after(async () => {
