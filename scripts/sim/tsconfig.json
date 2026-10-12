@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": {
+      "@/auth": ["scripts/sim/stubs/auth.ts"],
+      "next/cache": ["scripts/sim/stubs/next-cache.ts"],
+      "next/headers": ["scripts/sim/stubs/next-headers.ts"],
+      "next/server": ["scripts/sim/stubs/next-server.ts"],
+      "server-only": ["scripts/sim/stubs/empty.ts"],
+      "@/*": ["src/*"]
+    }
+  }
+}
