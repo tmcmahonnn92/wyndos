@@ -1755,12 +1755,20 @@ export async function bulkImportJobHistory(
   for (let i = 0; i < records.length; i++) {
     const r = records[i];
     try {
-      const matchField = options.matchField ?? "name";
-      const customer = r.customerId ? await prisma.customer.findFirst({ where: { tenantId, id: Number(r.customerId) } }) : await prisma.customer.findFirst({
-        where: matchField === "nameAddress" && r.address?.trim()
-          ? { tenantId, name: r.customerName.trim(), address: r.address.trim() }
-          : { tenantId, name: r.customerName.trim() },
-      });
+      // Name AND address: plenty of customers share a name. The address is compared on its
+      // first line, ignoring case, spaces and punctuation. Name alone is only used when just
+      // one customer has that name.
+      let customer = r.customerId ? await prisma.customer.findFirst({ where: { tenantId, id: Number(r.customerId) } }) : null;
+      if (!r.customerId) {
+        const key = (a: string | null | undefined) => (a ?? "").split(",")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+        const sameName = await prisma.customer.findMany({ where: { tenantId, name: r.customerName.trim() } });
+        const addr = key(r.address);
+        const byAddress = addr ? sameName.filter((c) => key(c.address) === addr) : [];
+        if (byAddress.length === 1) customer = byAddress[0];
+        else if (addr && sameName.length > 0 && byAddress.length === 0) throw new Error(`No customer "${r.customerName}" at ${r.address?.split(",")[0]}`);
+        else if (sameName.length === 1) customer = sameName[0];
+        else if (sameName.length > 1) throw new Error(`More than one customer called "${r.customerName}": add the address to match the right one`);
+      }
       if (!customer) throw new Error(`Customer "${r.customerName}" not found`);
 
       if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date)) throw new Error("No date");
