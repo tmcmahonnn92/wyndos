@@ -5302,6 +5302,8 @@ export async function getBusinessSettings() {
     goCardlessConfigured: Boolean(settings.goCardlessAccessToken) || Boolean(process.env.NODE_ENV !== "production" && process.env.GOCARDLESS_DEV_TOKEN?.trim().startsWith("sandbox_")),
     goCardlessOn: await goCardlessOn(actor.tenantId),
     invoiceEmailOn: await hasTrialFeature(actor.tenantId, "auto_invoice"),
+    // Invoices go from the business's own email (Settings → Email), never Wyndos's.
+    invoiceEmailReady: Boolean(settings.smtpUser?.trim() && settings.smtpPass),
   };
 }
 

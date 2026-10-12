@@ -248,3 +248,4 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Auto invoice emails now go through a queue (`lib/invoice-queue.ts`): a clean is emailed once its day is finished and `autoInvoiceDelayMinutes` has passed (Settings: wait N minutes/hours/days). Only cleans done since `autoInvoiceSince` (set when switched on), still unpaid, customer has Email invoices. Failed sends wait 6 hours before retrying. Timer after finishing a day + cron backstop:
   `5,20,35,50 * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:3000/api/cron/invoices`
   Migration `20261012110000_invoice_email_delay`.
+- Invoice emails are sent ONLY from the business's own email account (Settings → Email, `lib/tenant-email.ts`), never Brevo/platform SMTP. The Email settings tab is shown to businesses with the invoice-email trial. Without it set up: customer button says "Set up your email", queue skips the business.

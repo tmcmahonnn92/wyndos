@@ -1,7 +1,7 @@
 import "server-only";
 import prisma from "@/lib/db";
 import { renderInvoicePdf } from "@/lib/invoice-build";
-import { platformEmailConfigured, sendPlatformEmail } from "@/lib/platform-email";
+import { tenantMailer } from "@/lib/tenant-email";
 import { fmtCurrency } from "@/lib/utils";
 
 type Settings = Parameters<typeof renderInvoicePdf>[0] & { businessName: string };
@@ -11,8 +11,8 @@ const escHtml = (v: string) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<"
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Email one invoice (PDF attached) to a customer, from Wyndos's email account under the
- * business's name, with replies going to the business. Logged in the messages log.
+ * Email one invoice (PDF attached) to a customer from the business's own email account
+ * (Settings → Email), never from Wyndos's. Logged in the messages log.
  */
 export async function emailInvoice(input: {
   tenantId: number;
@@ -26,7 +26,8 @@ export async function emailInvoice(input: {
   const { tenantId, settings, customer, jobs, invoiceNumber } = input;
   const to = (customer.email ?? "").trim();
   if (!EMAIL_RE.test(to)) return { ok: false, error: "This customer hasn't got a valid email address." };
-  if (!platformEmailConfigured()) return { ok: false, error: "Email isn't set up on the server yet." };
+  const mailer = await tenantMailer(tenantId);
+  if (!mailer) return { ok: false, error: "Set up your own email in Settings → Email first, so invoices come from you." };
   const due = jobs.reduce((s, j) => s + Math.max(0, j.price - j.allocations.reduce((p, a) => p + a.amount, 0)), 0);
   const total = jobs.reduce((s, j) => s + j.price, 0);
   const business = settings.businessName || "Your window cleaner";
@@ -42,14 +43,13 @@ export async function emailInvoice(input: {
     `Thanks,\n${(settings.ownerName ?? "").trim() || business}`,
   ].filter((l, i, all) => l !== "" || all[i - 1] !== "");
   const text = lines.join("\n");
-  const fromEmail = (process.env.PLATFORM_SMTP_FROM_EMAIL ?? process.env.PLATFORM_SMTP_USER ?? "").trim();
   let status = "SENT", error = "";
   try {
     const pdf = await renderInvoicePdf(settings, customer, jobs, invoiceNumber);
-    await sendPlatformEmail({
+    const replyTo = (settings.email ?? "").trim();
+    await mailer.send({
       to,
-      from: fromEmail ? `"${business.replace(/["\r\n]/g, "")}" <${fromEmail}>` : undefined,
-      replyTo: (settings.email ?? "").trim() || undefined,
+      replyTo: replyTo && replyTo.toLowerCase() !== mailer.fromEmail.toLowerCase() ? replyTo : undefined,
       subject: `Invoice ${invoiceNumber} from ${business}`,
       text,
       html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#1e293b">${escHtml(text).replace(/\n/g, "<br>")}</div>`,

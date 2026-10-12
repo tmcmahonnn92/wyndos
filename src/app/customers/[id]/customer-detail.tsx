@@ -57,6 +57,8 @@ interface Props {
   goCardlessOn?: boolean;
   /** Invoice emails switched on for this business (Admin trial). */
   invoiceEmailOn?: boolean;
+  /** The business has its own email set up (invoices are sent from it). */
+  invoiceEmailReady?: boolean;
   /** Texts sent to this customer, newest first. */
   texts?: Array<{ id: number; kind: string; status: string; body: string; createdAt: string; error: string }>;
 }
@@ -86,7 +88,7 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", goCardlessOn = false, invoiceEmailOn = false, texts = [] }: Props) {
+export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", goCardlessOn = false, invoiceEmailOn = false, invoiceEmailReady = false, texts = [] }: Props) {
   const [showAllTexts, setShowAllTexts] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [bookDate, setBookDate] = useState("");
@@ -1351,12 +1353,12 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
             </Button>
             {(INVOICE_EMAIL_ENABLED || invoiceEmailOn) && <Button
               onClick={() => handleInvoiceAction("email")}
-              disabled={invoiceStatus === "loading" || selectedJobIds.size === 0 || !customer.email || !customer.emailInvoices}
+              disabled={invoiceStatus === "loading" || selectedJobIds.size === 0 || !customer.email || !customer.emailInvoices || !invoiceEmailReady}
               variant="outline"
               className="flex-1"
-              title={!customer.email ? "Add an email address to this customer first" : !customer.emailInvoices ? "Tick \"Email invoices to this customer\" in their details first" : `Send to ${customer.email}`}>
+              title={!invoiceEmailReady ? "Set up your own email in Settings → Email first" : !customer.email ? "Add an email address to this customer first" : !customer.emailInvoices ? "Tick \"Email invoices to this customer\" in their details first" : `Send to ${customer.email}`}>
               <Mail size={14} />
-              {!customer.email ? "No email" : !customer.emailInvoices ? "Email off for them" : "Send email"}
+              {!invoiceEmailReady ? "Set up your email" : !customer.email ? "No email" : !customer.emailInvoices ? "Email off for them" : "Send email"}
             </Button>}
           </div>
         </div>

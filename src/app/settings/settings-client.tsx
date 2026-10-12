@@ -184,7 +184,8 @@ export function SettingsClient({
 }) {
   const [tab, setTab] = useState<Tab>("general");
   const visibleTabs = TABS.filter(
-    (value) => !ROLLOUT_DISABLED_TABS.includes(value) && (canManageProviderSettings || !RESTRICTED_TABS.includes(value))
+    // Email: only for businesses trialling invoice emails (their invoices are sent from it).
+    (value) => (!ROLLOUT_DISABLED_TABS.includes(value) || (value === "email" && settings.autoInvoiceTrial)) && (canManageProviderSettings || !RESTRICTED_TABS.includes(value))
   );
 
   // ── Form state ────────────────────────────────────────────────────────────
@@ -669,6 +670,7 @@ export function SettingsClient({
                   <input type="checkbox" className="mt-1" checked={form.autoInvoiceEmail} onChange={(e) => setForm((f) => ({ ...f, autoInvoiceEmail: e.target.checked }))} />
                   <span>
                     <span className="block text-sm font-semibold text-slate-800">Email invoices when a day is finished <span className="ml-1 rounded-full bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-900">Trial</span></span>
+                    {!settings.smtpPassConfigured && <span className="block text-xs font-semibold text-amber-700">Set up your own email first (Settings → Email): invoices are sent from it.</span>}
                     <span className="block text-xs text-slate-500">Customers set to &quot;Email invoices&quot; get an invoice for anything still unpaid from that day, with the PDF attached. Only cleans done after you switch this on. Replies come to your email ({settings.email || "set it above"}).</span>
                   </span>
                 </label>
@@ -777,6 +779,10 @@ export function SettingsClient({
         <Card>
           <CardHeader><CardTitle><Mail size={16} className="inline mr-2 text-blue-600" />Email (for sending invoices)</CardTitle></CardHeader>
           <CardContent className="space-y-4">
+            <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900">
+              Invoices are emailed <b>from your own email account</b>, so customers see them come from you and can reply straight to you. Set it up here first.
+              {!settings.smtpPassConfigured && " Not set up yet: invoice emails won't send until it is."}
+            </p>
             <div>
               <label className={lbl}>Email provider</label>
               <select value={smtp.smtpProvider} onChange={setS("smtpProvider")} className={cn(inp, "bg-white")}>

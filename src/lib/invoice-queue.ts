@@ -1,7 +1,7 @@
 import "server-only";
 import prisma from "@/lib/db";
 import { emailInvoice, EMAIL_RE } from "@/lib/invoice-email";
-import { platformEmailConfigured } from "@/lib/platform-email";
+import { tenantEmailReady } from "@/lib/tenant-email";
 import { featureList } from "@/lib/trial-features";
 
 /**
@@ -12,7 +12,6 @@ import { featureList } from "@/lib/trial-features";
  * Runs on a timer after a day is finished, and from /api/cron/invoices as a backstop.
  */
 export async function processDueInvoiceEmails(onlyTenantId?: number) {
-  if (!platformEmailConfigured()) return { sent: 0, failed: 0 };
   const tenants = await prisma.tenantSettings.findMany({
     where: { autoInvoiceEmail: true, autoInvoiceSince: { not: null }, ...(onlyTenantId ? { tenantId: onlyTenantId } : {}) },
     include: { tenant: { select: { name: true, trialFeatures: true } } },
@@ -21,6 +20,8 @@ export async function processDueInvoiceEmails(onlyTenantId?: number) {
   const now = Date.now();
   for (const s of tenants) {
     if (!featureList(s.tenant.trialFeatures).includes("auto_invoice")) continue;
+    // Their own email must be set up: invoices never go from Wyndos's account.
+    if (!(await tenantEmailReady(s.tenantId))) continue;
     const tenantId = s.tenantId;
     const cutoff = new Date(now - Math.max(0, s.autoInvoiceDelayMinutes) * 60_000);
     const jobs = await prisma.job.findMany({
