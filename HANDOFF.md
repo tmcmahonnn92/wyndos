@@ -249,3 +249,10 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
   `5,20,35,50 * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:3000/api/cron/invoices`
   Migration `20261012110000_invoice_email_delay`.
 - Invoice emails are sent ONLY from the business's own email account (Settings → Email, `lib/tenant-email.ts`), never Brevo/platform SMTP. The Email settings tab is shown to businesses with the invoice-email trial. Without it set up: customer button says "Set up your email", queue skips the business.
+
+## Consistency tests (scripts/sim)
+- Dev tool, test database only (creates businesses). Runs the real server actions with a fake login and clock.
+- `DATABASE_URL=... AUTH_SECRET=x TZ=UTC npx tsx --tsconfig scripts/sim/tsconfig.json scripts/sim/scenarios.ts` → 18 targeted tests (all pass).
+- `SEED=1 DAYS=120 ... scripts/sim/run.ts` → random 120-day business; after every action checks the rules in `scripts/sim/lib.ts` (area has one run, nobody missed/twice, money in = paid cleans + credit, etc.) and reports the first action that broke each rule.
+- Rules to keep: a done clean is never deleted/repriced/moved; money only sits on done cleans; a part of a run (house moved to another date) never books or deletes the area's next run; re-dating or finishing an old day never winds back a customer cleaned since.
+- Known and accepted: moving a customer into an area with a different cycle means they wait for (or are early for) that area's next run; carrying every house off a day leaves the day empty until it's finished.

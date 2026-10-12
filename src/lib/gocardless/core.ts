@@ -297,6 +297,23 @@ async function recordReceived(tenantId: number, customerId: number, p: GcPayment
       goCardlessPaymentId: p.id, goCardlessStatus: p.status, goCardlessReference: p.reference ?? null,
     } });
     if (jobId && onJob > 0.005) await tx.paymentAllocation.create({ data: { tenantId, paymentId: payment.id, jobId, amount: round2(onJob) } });
+    // Anything left pays their other done-but-unpaid cleans, oldest first; the rest stays as credit.
+    let left = round2(amount - onJob);
+    if (left > 0.005) {
+      const unpaid = await tx.job.findMany({
+        where: { tenantId, customerId, status: "COMPLETE", isQuote: false, ...(jobId ? { id: { not: jobId } } : {}) },
+        orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
+        select: { id: true, price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
+      });
+      for (const j of unpaid) {
+        if (left <= 0.005) break;
+        const due = round2(j.price - j.allocations.reduce((s, a) => s + a.amount, 0));
+        if (due <= 0.005) continue;
+        const take = round2(Math.min(due, left));
+        await tx.paymentAllocation.create({ data: { tenantId, paymentId: payment.id, jobId: j.id, amount: take } });
+        left = round2(left - take);
+      }
+    }
   });
 }
 

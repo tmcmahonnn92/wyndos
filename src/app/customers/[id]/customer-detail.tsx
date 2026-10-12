@@ -71,7 +71,7 @@ type JobBalance = {
 
 function buildJobBalanceMap(jobs: Customer["jobs"]) {
   const applicableJobs = [...jobs]
-    .filter((job) => job.status === "COMPLETE" || job.status === "OUTSTANDING")
+    .filter((job) => job.status === "COMPLETE")
     .sort((left, right) => new Date(left.workDay.date).getTime() - new Date(right.workDay.date).getTime() || left.id - right.id);
 
   const balanceMap = new Map<number, JobBalance>();
@@ -165,7 +165,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
   // Invoice state
   const jobBalanceMap = buildJobBalanceMap(customer.jobs);
   const invoiceableJobs = customer.jobs.filter(
-    (j) => j.status === "COMPLETE" || j.status === "OUTSTANDING"
+    (j) => j.status === "COMPLETE"
   );
   const unpaidJobIds = new Set(
     invoiceableJobs
