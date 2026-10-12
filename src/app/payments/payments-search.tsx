@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCreditOnUnpaid } from "@/lib/actions";
 import { History, PiggyBank, Search, StickyNote, TrendingUp, X } from "lucide-react";
 import { cn, fmtCurrency, fmtDate } from "@/lib/utils";
 import { DebtorsPanel, matchesPaymentSearch, type Debtor } from "./payments-client";
@@ -53,6 +55,12 @@ export function PaymentsBody({
 }) {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>(startTab);
+  const router = useRouter();
+  const [usingCredit, startUsingCredit] = useTransition();
+  const [creditNote, setCreditNote] = useState("");
+  // In credit and owing at the same time (e.g. credit brought across in an import): the credit should pay those cleans.
+  const debtorIds = new Set(debtors.map((d) => d.id));
+  const both = credits.filter((c) => debtorIds.has(c.id));
   const [onlyLate, setOnlyLate] = useState(startLate);
   const searching = query.trim().length > 0;
 
@@ -211,6 +219,17 @@ export function PaymentsBody({
             <PiggyBank size={14} className="text-green-600" /> In credit
           </h2>
           <p className="px-4 pb-2 text-xs text-slate-500">Paid in advance or paid extra. It comes off their next cleans by itself.</p>
+          {both.length > 0 && (
+            <div className="mx-4 mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <span className="flex-1"><b>{both.length} customer{both.length === 1 ? " has" : "s have"} credit and unpaid cleans</b> ({both.slice(0, 3).map((c) => c.name).join(", ")}{both.length > 3 ? "…" : ""}). Use the credit to pay them?</span>
+              <button type="button" disabled={usingCredit} onClick={() => startUsingCredit(async () => {
+                const res = await useCreditOnUnpaid(both.map((c) => c.id));
+                setCreditNote(`${res.cleansPaid} clean${res.cleansPaid === 1 ? "" : "s"} paid from credit.`);
+                router.refresh();
+              })} className="rounded-lg bg-amber-600 px-3 py-1.5 font-semibold text-white disabled:opacity-60">{usingCredit ? "Working…" : "Use their credit"}</button>
+            </div>
+          )}
+          {creditNote && <p className="mx-4 mb-2 text-xs font-semibold text-emerald-700">{creditNote}</p>}
           {shownCredits.length === 0 ? (
             <p className="px-4 pb-4 text-sm text-slate-500">Nobody is in credit. Use “Add credit” when someone pays in advance.</p>
           ) : (

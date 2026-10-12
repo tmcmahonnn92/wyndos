@@ -188,7 +188,7 @@ export function MoveImport({ source }: { source: Source }) {
       }
 
       setBusy("Finishing…");
-      const fin = await finishCpImport([...areaIds], opts.bookRuns);
+      const fin = await finishCpImport([...areaIds], opts.bookRuns, Object.values(ids));
       res.runs = fin.runs.length;
       setProgress(100);
       setResult(res);
@@ -325,9 +325,12 @@ export function MoveImport({ source }: { source: Source }) {
                     <strong>{owedNow(biggest) > 0 ? `owing ${fmtCurrency(owedNow(biggest))}` : `${fmtCurrency(-owedNow(biggest))} in credit`}</strong>. Is that right?
                   </p>
                 )}
-                <button type="button" onClick={() => setOpts((o) => ({ ...o, flip: !o.flip }))} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 underline">
-                  <ArrowLeftRight size={12} /> {opts.flip ? "Put owed and credit back" : "No, swap owed and credit"}
-                </button>
+                {/* Only when we couldn't check the balances against the history. */}
+                {!backup.counts2 && backup.balanceSign === null && (
+                  <button type="button" onClick={() => setOpts((o) => ({ ...o, flip: !o.flip }))} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 underline">
+                    <ArrowLeftRight size={12} /> {opts.flip ? "Put owed and credit back" : "No, swap owed and credit"}
+                  </button>
+                )}
               </div>
             )}
           </section>

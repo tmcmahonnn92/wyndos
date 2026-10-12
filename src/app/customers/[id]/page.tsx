@@ -49,6 +49,7 @@ export default async function CustomerPage({ params }: Props) {
         hidePrices={hidePrices}
         goCardlessReferencePrefix={settings.goCardlessReferencePrefix || "WD"}
         goCardlessOn={settings.goCardlessOn}
+        invoiceEmailOn={settings.invoiceEmailOn}
         texts={texts.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() }))}
       />
       <PlaceAfter

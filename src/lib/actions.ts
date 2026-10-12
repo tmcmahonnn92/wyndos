@@ -18,8 +18,8 @@ import { orderDays } from "@/lib/day-order";
 import { assertNotLocked } from "@/lib/mtd/data";
 import { goCardlessOn, hasTrialFeature } from "@/lib/trial-features";
 import { after } from "next/server";
-import { platformEmailConfigured, sendPlatformEmail } from "@/lib/platform-email";
-import { renderInvoicePdf } from "@/lib/invoice-build";
+import { platformEmailConfigured } from "@/lib/platform-email";
+import { emailInvoice, EMAIL_RE } from "@/lib/invoice-email";
 import {
   getActor,
   requireMember,
@@ -452,6 +452,32 @@ async function applyCredit(tenantId: number, payerIds: Array<number | null | und
     }
     if (rows.length > 0) await prisma.paymentAllocation.createMany({ data: rows });
   }
+}
+
+/**
+ * Use spare credit to pay unpaid cleans (oldest first), for the given customers or everyone
+ * who has credit. Used after imports, and from Payments → Credit.
+ */
+export async function useCreditOnUnpaid(customerIds?: number[]) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  const ids = Array.isArray(customerIds) && customerIds.length
+    ? (await prisma.customer.findMany({ where: { tenantId, id: { in: customerIds.map(Number).filter(Number.isInteger).slice(0, 5000) } }, select: { id: true } })).map((c) => c.id)
+    : [...new Set((await sparePaymentsAll(tenantId)).map((p) => p.customerId))];
+  const before = await prisma.paymentAllocation.count({ where: { tenantId } });
+  await applyCredit(tenantId, ids);
+  const used = (await prisma.paymentAllocation.count({ where: { tenantId } })) - before;
+  revalidatePath("/payments");
+  revalidatePath("/customers");
+  return { cleansPaid: used };
+}
+
+async function sparePaymentsAll(tenantId: number) {
+  const payments = await prisma.payment.findMany({
+    where: { tenantId, voidedAt: null },
+    select: { customerId: true, amount: true, allocations: { select: { amount: true } } },
+  });
+  return payments.filter((p) => p.amount - p.allocations.reduce((s, a) => s + a.amount, 0) > 0.005);
 }
 
 /** A job's price went down below what's been paid on it: the extra goes back to credit. */
@@ -1472,6 +1498,8 @@ export async function bulkImportCustomers(
         jobName: r.jobName?.trim() || "Window Cleaning",
         advanceNotice: r.advanceNotice ?? false,
         preferredPaymentMethod: normalisePreference(r.preferredPaymentMethod),
+        // Pays on invoice and has an email: invoices go by email.
+        emailInvoices: normalisePreference(r.preferredPaymentMethod) === "INVOICE" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email?.trim() ?? ""),
         frequencyWeeks: area.frequencyWeeks, // frequency belongs to the area
         // Next due from the sheet, else one cycle after they were last cleaned.
         nextDueDate: r.nextDueDate
@@ -2056,6 +2084,7 @@ export async function updateCustomer(
     goCardlessCustomerId?: string;
     goCardlessMandateId?: string;
     slip?: boolean;
+    emailInvoices?: boolean;
     }
 ) {
   const actor = await requirePerm("customers");
@@ -2078,7 +2107,7 @@ export async function updateCustomer(
   const addressFields = resolveAddress(data);
   const updateData = {
     // Only these fields, as plain values (see safe-input.ts).
-    ...pickPlain(rest, ["name", "email", "phone", "price", "notes", "nextDueDate", "active", "jobName", "advanceNotice", "preferredPaymentMethod", "slip"] as const),
+    ...pickPlain(rest, ["name", "email", "phone", "price", "notes", "nextDueDate", "active", "jobName", "advanceNotice", "preferredPaymentMethod", "slip", "emailInvoices"] as const),
     ...(addressFields ?? {}),
     ...(data.goCardlessCustomerReference !== undefined && {
       goCardlessCustomerReference: data.goCardlessCustomerReference.trim(),
@@ -3801,8 +3830,6 @@ export async function completeDay(
   return nextRunResult;
 }
 
-const escHtml = (v: string) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-
 /**
  * Trial feature ("auto_invoice", turned on per business in Admin, then in Settings by the owner):
  * customers with an email get an invoice for this day's cleans that are still unpaid.
@@ -3813,8 +3840,9 @@ async function emailDayInvoices(tenantId: number, workDayId: number) {
   if (!(await hasTrialFeature(tenantId, "auto_invoice"))) return;
   const settings = await loadBusinessSettings(tenantId);
   if (!settings.autoInvoiceEmail) return;
+  // Only customers set to get invoices by email.
   const jobs = await prisma.job.findMany({
-    where: { tenantId, workDayId, status: "COMPLETE", isQuote: false, invoicedAt: null, customer: { email: { not: "" } } },
+    where: { tenantId, workDayId, status: "COMPLETE", isQuote: false, invoicedAt: null, customer: { emailInvoices: true, email: { not: "" } } },
     include: {
       workDay: { select: { date: true } },
       allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
@@ -3824,53 +3852,19 @@ async function emailDayInvoices(tenantId: number, workDayId: number) {
   });
   const byCustomer = new Map<number, typeof jobs>();
   for (const job of jobs) {
-    const email = job.customer.email?.trim() ?? "";
     const unpaid = job.price - job.allocations.reduce((s, a) => s + a.amount, 0) > 0.005;
-    if (!unpaid || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+    if (!unpaid || !EMAIL_RE.test(job.customer.email?.trim() ?? "")) continue;
     byCustomer.set(job.customerId, [...(byCustomer.get(job.customerId) ?? []), job]);
   }
-  const fromEmail = (process.env.PLATFORM_SMTP_FROM_EMAIL ?? process.env.PLATFORM_SMTP_USER ?? "").trim();
-  const business = settings.businessName || "Your window cleaner";
-  for (const [customerId, list] of byCustomer) {
-    const customer = list[0].customer;
-    const to = customer.email!.trim();
+  for (const list of byCustomer.values()) {
     // Claim the number and mark the cleans first, so nothing is ever invoiced twice.
     const row = await prisma.tenantSettings.update({ where: { tenantId }, data: { nextInvoiceNum: { increment: 1 }, invoiceNumbersStarted: true }, select: { nextInvoiceNum: true, invoicePrefix: true } });
     const invoiceNumber = `${row.invoicePrefix}-${String(row.nextInvoiceNum - 1).padStart(4, "0")}`;
     const marked = await prisma.job.updateMany({ where: { tenantId, id: { in: list.map((j) => j.id) }, invoicedAt: null }, data: { invoicedAt: new Date(), invoiceNumber } });
     if (marked.count === 0) continue;
-    const due = list.reduce((s, j) => s + Math.max(0, j.price - j.allocations.reduce((p, a) => p + a.amount, 0)), 0);
-    const first = (customer.name.trim().split(/\s+/)[0] || "there").replace(/^(mr|mrs|ms|miss|dr)\.?$/i, "") || "there";
-    const day = list[0].workDay.date.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
-    const lines = [
-      `Hi ${first},`,
-      "",
-      `Thanks, your windows were cleaned on ${day}. Invoice ${invoiceNumber} for ${fmtCurrency(due)} is attached.`,
-      settings.invoicePaymentTerms?.trim() ?? "",
-      settings.bankDetails?.trim() ? `\nHow to pay:\n${settings.bankDetails.trim()}` : "",
-      "",
-      `Thanks,\n${settings.ownerName?.trim() || business}`,
-    ].filter((l, i, all) => l !== "" || all[i - 1] !== "");
-    const text = lines.join("\n");
-    let status = "SENT", error = "";
-    try {
-      const pdf = await renderInvoicePdf(settings, customer, list, invoiceNumber);
-      await sendPlatformEmail({
-        to,
-        from: fromEmail ? `"${business.replace(/["\r\n]/g, "")}" <${fromEmail}>` : undefined,
-        replyTo: settings.email?.trim() || undefined,
-        subject: `Invoice ${invoiceNumber} from ${business}`,
-        text,
-        html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#1e293b">${escHtml(text).replace(/\n/g, "<br>")}</div>`,
-        attachments: [{ filename: `${invoiceNumber}.pdf`, content: pdf, contentType: "application/pdf" }],
-      });
-    } catch (issue) {
-      status = "FAILED";
-      error = issue instanceof Error ? issue.message.slice(0, 300) : "Couldn't send";
-      // Not sent: let it be invoiced again (by hand, or next time).
-      await prisma.job.updateMany({ where: { tenantId, id: { in: list.map((j) => j.id) }, invoiceNumber }, data: { invoicedAt: null } });
-    }
-    await prisma.messageLog.create({ data: { tenantId, customerId, workDayId, kind: "INVOICE_EMAIL", toNumber: to.slice(0, 120), body: `Invoice ${invoiceNumber} · ${fmtCurrency(due)}`, status, error } });
+    const res = await emailInvoice({ tenantId, settings, customer: list[0].customer, jobs: list, invoiceNumber, workDayId });
+    // Not sent: let it be invoiced again (by hand, or next time).
+    if (!res.ok) await prisma.job.updateMany({ where: { tenantId, id: { in: list.map((j) => j.id) }, invoiceNumber }, data: { invoicedAt: null } });
   }
 }
 
@@ -5342,6 +5336,7 @@ export async function getBusinessSettings() {
     goCardlessAccessToken: "",
     goCardlessConfigured: Boolean(settings.goCardlessAccessToken) || Boolean(process.env.NODE_ENV !== "production" && process.env.GOCARDLESS_DEV_TOKEN?.trim().startsWith("sandbox_")),
     goCardlessOn: await goCardlessOn(actor.tenantId),
+    invoiceEmailOn: await hasTrialFeature(actor.tenantId, "auto_invoice"),
   };
 }
 

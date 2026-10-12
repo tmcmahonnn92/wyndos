@@ -362,6 +362,8 @@ model Customer {
   jobName                String        @default("Window Cleaning")
   advanceNotice          Boolean       @default(false)
   preferredPaymentMethod String        @default("")
+  /// Send this customer their invoices by email (needs an email address).
+  emailInvoices           Boolean  @default(false)
   goCardlessCustomerReference String   @default("")
   goCardlessCustomerId    String?
   goCardlessMandateId     String?

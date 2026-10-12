@@ -55,6 +55,8 @@ interface Props {
   goCardlessReferencePrefix?: string;
   /** Direct Debit switched on for this business (Admin trial or server flag). */
   goCardlessOn?: boolean;
+  /** Invoice emails switched on for this business (Admin trial). */
+  invoiceEmailOn?: boolean;
   /** Texts sent to this customer, newest first. */
   texts?: Array<{ id: number; kind: string; status: string; body: string; createdAt: string; error: string }>;
 }
@@ -84,7 +86,7 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", goCardlessOn = false, texts = [] }: Props) {
+export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", goCardlessOn = false, invoiceEmailOn = false, texts = [] }: Props) {
   const [showAllTexts, setShowAllTexts] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [bookDate, setBookDate] = useState("");
@@ -149,6 +151,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
     jobName: customer.jobName ?? "Window Cleaning",
     advanceNotice: customer.advanceNotice ?? false,
     preferredPaymentMethod: customer.preferredPaymentMethod ?? "",
+    emailInvoices: customer.emailInvoices ?? false,
     frequencyWeeks: String(customer.frequencyWeeks),
     slip: customer.slip ?? true,
     goCardlessCustomerReference: customer.goCardlessCustomerReference ?? "",
@@ -285,6 +288,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
         jobName: form.jobName || undefined,
         advanceNotice: form.advanceNotice,
         preferredPaymentMethod: form.preferredPaymentMethod || undefined,
+        emailInvoices: form.emailInvoices,
         slip: form.slip,
         goCardlessCustomerReference: form.goCardlessCustomerReference || "",
         goCardlessCustomerId: form.goCardlessCustomerId || "",
@@ -828,6 +832,12 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               placeholder="Window Cleaning"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
+          <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2">
+            <input type="checkbox" checked={form.emailInvoices} onChange={(e) => setForm(f => ({ ...f, emailInvoices: e.target.checked }))} className="mt-0.5" />
+            <span className="text-sm text-slate-700">Email invoices to this customer
+              <span className="block text-xs text-slate-400">{form.email.trim() ? `Sent to ${form.email.trim()}` : "Add their email address above first."}</span>
+            </span>
+          </label>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Usually pays by</label>
@@ -1339,14 +1349,14 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               <Download size={14} />
               {invoiceStatus === "loading" ? "Generating…" : "Download PDF"}
             </Button>
-            {INVOICE_EMAIL_ENABLED && <Button
+            {(INVOICE_EMAIL_ENABLED || invoiceEmailOn) && <Button
               onClick={() => handleInvoiceAction("email")}
-              disabled={invoiceStatus === "loading" || selectedJobIds.size === 0 || !customer.email}
+              disabled={invoiceStatus === "loading" || selectedJobIds.size === 0 || !customer.email || !customer.emailInvoices}
               variant="outline"
               className="flex-1"
-              title={!customer.email ? "Add an email address to this customer first" : ""}>
+              title={!customer.email ? "Add an email address to this customer first" : !customer.emailInvoices ? "Tick \"Email invoices to this customer\" in their details first" : `Send to ${customer.email}`}>
               <Mail size={14} />
-              {!customer.email ? "No email" : "Send email"}
+              {!customer.email ? "No email" : !customer.emailInvoices ? "Email off for them" : "Send email"}
             </Button>}
           </div>
         </div>
