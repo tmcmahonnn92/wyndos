@@ -274,7 +274,7 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
         if (!conflict) throw issue;
         payment = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${conflict}`)).payments;
       }
-      await prisma.job.update({ where: { id: j.id }, data: { goCardlessPaymentId: payment.id, goCardlessStatus: payment.status } });
+      await prisma.job.update({ where: { id: j.id }, data: { goCardlessPaymentId: payment.id, goCardlessStatus: payment.status, goCardlessChargeDate: payment.charge_date ? new Date(`${payment.charge_date}T00:00:00Z`) : null } });
       collected.push({ jobId: j.id, amount: j.due, paymentId: payment.id });
     } catch (issue) {
       skipped.push({ jobId: j.id, reason: issue instanceof Error ? issue.message : "GoCardless said no" });
@@ -433,7 +433,7 @@ export async function syncTenant(tenantId: number) {
       if (!p) {
         try { p = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${job.goCardlessPaymentId}`)).payments; } catch { continue; }
       }
-      if (p.status !== job.goCardlessStatus) await prisma.job.update({ where: { id: job.id }, data: { goCardlessStatus: p.status } });
+      if (p.status !== job.goCardlessStatus || p.charge_date) await prisma.job.update({ where: { id: job.id }, data: { goCardlessStatus: p.status, ...(p.charge_date ? { goCardlessChargeDate: new Date(`${p.charge_date}T00:00:00Z`) } : {}) } });
       const existing = recorded.get(p.id);
       if (GC_RECEIVED.has(p.status) && !existing) {
         await recordReceived(tenantId, job.customerId, p, job.id);

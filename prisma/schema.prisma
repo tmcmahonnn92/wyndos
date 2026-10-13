@@ -468,6 +468,8 @@ model Job {
   /// What they owed in another program when moving to Wyndos: not a sale in Wyndos's accounts.
   broughtForward       Boolean   @default(false)
   goCardlessPaymentId  String?   @unique
+  /// When GoCardless will take this clean's Direct Debit (shown on its invoice).
+  goCardlessChargeDate DateTime?
   goCardlessStatus     String?
   /// TO_VISIT | QUOTED | WON | LOST
   quoteStatus          String?

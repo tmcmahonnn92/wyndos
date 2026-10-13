@@ -14,7 +14,7 @@ type Customer = { name: string; address: string | null; email: string | null; go
 
 /** What a Direct Debit customer is told instead of how to pay. */
 export const DD_INVOICE_TEXT = "Paid by Direct Debit: anything due will be collected from your account. You don't need to do anything.";
-type Job = { id: number; price: number; isOneOff: boolean; notes: string | null; workDay: { date: Date }; allocations: Array<{ amount: number }> };
+type Job = { id: number; price: number; isOneOff: boolean; notes: string | null; workDay: { date: Date }; allocations: Array<{ amount: number }>; goCardlessChargeDate?: Date | null };
 
 const fmtDate = (d: Date | string | null) => (d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
 
@@ -60,7 +60,15 @@ export async function renderInvoicePdf(settings: Settings, customer: Customer, j
     totalPaid: jobs.reduce((s, j) => s + paidOf(j), 0),
     amountDue: jobs.reduce((s, j) => s + Math.max(0, j.price - paidOf(j)), 0),
   };
-  // Only says "paid" once the money is in; before that it's being collected.
-  if (dd) data.stamp = data.amountDue <= 0.005 ? "PAID BY DIRECT DEBIT" : "DIRECT DEBIT";
+  // Direct Debit stamp: PAID once the money is in, PENDING while it's being collected.
+  if (dd) {
+    const charge = jobs.map((j) => j.goCardlessChargeDate).filter((x): x is Date => Boolean(x)).sort((a, b) => +b - +a)[0];
+    const day = (x: Date, year: boolean) => x.toLocaleDateString("en-GB", { day: "numeric", month: year ? "short" : "long", ...(year ? { year: "numeric" } : {}), timeZone: "UTC" });
+    const paid = data.amountDue <= 0.005;
+    const money = `£${(paid ? data.subtotal : data.amountDue).toFixed(2)}`;
+    data.stamp = { title: paid ? "PAID" : "PENDING", lines: ["Direct Debit", money, ...(charge ? [day(charge, true)] : [])] };
+    if (paid) data.paymentTerms = "Paid by Direct Debit. Thank you.";
+    else data.paymentTerms = `${money} will be collected by Direct Debit${charge ? ` on ${day(charge, false)}` : ""}. You don't need to do anything.`;
+  }
   return renderToBuffer(React.createElement(InvoicePDF, { data }) as React.ReactElement<DocumentProps>);
 }
