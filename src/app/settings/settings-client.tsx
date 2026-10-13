@@ -7,7 +7,7 @@ import {
   Loader2, CheckCircle2, AlertCircle, FileText,
   ExternalLink, ShieldCheck, ChevronDown, ChevronUp,
   Users, UserX, Link2, RefreshCw, KeyRound, Database } from "lucide-react";
-import { updateBusinessSettings, createTag, deleteTag } from "@/lib/actions";
+import { updateBusinessSettings, createTag, deleteTag, sendTestEmail } from "@/lib/actions";
 import { runPaymentRemindersNow } from "@/lib/text-actions";
 import Link from "next/link";
 import { testGoCardless } from "@/lib/gocardless/actions";
@@ -828,6 +828,7 @@ export function SettingsClient({
                 <div><label className={cn(lbl, "text-slate-400")}>SMTP host (auto)</label><input className={cn(inp, "bg-slate-50 text-slate-400")} value={smtp.smtpHost || smtpPreset?.host || ""} disabled readOnly /></div>
               )}
             </div>
+            <TestEmailButton configured={settings.smtpPassConfigured} />
           </CardContent>
         </Card>
       )}
@@ -1649,6 +1650,27 @@ function GoCardlessTest({ configured, lastSyncedAt }: { configured: boolean; las
       {state.ok && <p className="text-green-700">Connected to <b>{state.ok}</b>.</p>}
       {state.error && <p className="text-red-700">{state.error}</p>}
       <p>Last sync: {lastSyncedAt ? new Date(lastSyncedAt).toLocaleString("en-GB") : "Never"}</p>
+    </div>
+  );
+}
+
+/** Sends a test from the saved email settings to the business's own address. */
+function TestEmailButton({ configured }: { configured: boolean }) {
+  const [state, setState] = useState<{ busy?: boolean; ok?: string; error?: string }>({});
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+      <button type="button" disabled={!configured || state.busy}
+        onClick={async () => {
+          setState({ busy: true });
+          const r = await sendTestEmail().catch((e) => ({ ok: false as const, error: String(e) }));
+          setState(r.ok ? { ok: `Sent to ${r.to}. Check your inbox (and spam).` } : { error: r.error });
+        }}
+        className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+        {state.busy ? "Sending…" : "Send test email"}
+      </button>
+      <span className={cn("text-xs", state.error ? "text-red-600" : state.ok ? "text-green-700" : "text-slate-400")}>
+        {state.error ?? state.ok ?? (configured ? "Uses your saved settings. Save any changes first." : "Save your username and app password first.")}
+      </span>
     </div>
   );
 }

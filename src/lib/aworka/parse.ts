@@ -252,6 +252,7 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
   const unmatched = new Set<string>();
   // Payments already shown on a clean or invoice: a separate "payment" row for the same money is the same payment.
   const shown = new Map<string, number>();
+  const shownTx = new Map<string, CpTxn[]>();
   const payKey = (cid: string, a: CpRow) => `${cid}|${iso(a["Paid On"]) || iso(a.Date)}|${r2(num(a.Paid)).toFixed(2)}`;
   for (const a of activity) {
     const t = a["Aworka Type"];
@@ -275,7 +276,7 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
     const method = txnMethod(a["Paid By"] ?? "");
     const ref = [a["Paid By"], a["Pay Ref"]].filter(Boolean).join(" · ");
     // Paid by Direct Debit through GoCardless: keep its payment ID so Wyndos's sync recognises it.
-    const gcRef = /gocardless/i.test(a["Paid By"] ?? "") && /^PM[A-Z0-9]{6,}$/i.test((a["Pay Ref"] ?? "").trim()) ? (a["Pay Ref"] ?? "").trim().toUpperCase() : "";
+    const gcRef = (/gocardless|direct debit|^\s*dd\s*$/i.test(a["Paid By"] ?? "") || !(a["Paid By"] ?? "").trim()) && /^PM[A-Z0-9]{6,}$/i.test((a["Pay Ref"] ?? "").trim()) ? (a["Pay Ref"] ?? "").trim().toUpperCase() : "";
     const gc = gcRef ? { goCardlessPaymentId: gcRef, goCardlessStatus: gcStatus(a["Pay Status"] ?? "") } : {};
     if (t === "job") {
       if (a.Type !== "Done") { skippedTxns++; continue; }
@@ -284,16 +285,31 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
       const price = r2(num(a["Gross Price"]));
       if (price > 0) txns.push({ jobKey, kind: "charge", date, amount: price, method, note: a.Details && !/^window cleaning$/i.test(a.Details) ? a.Details : "" });
       const tip = tb < 0 && paid > 0 ? r2(-tb) : 0;
-      if (paid - tip > 0.004) txns.push({ jobKey, kind: "payment", date: paidOn, amount: r2(paid - tip), method, note: ref, ...gc });
+      if (paid - tip > 0.004) {
+        const tx: CpTxn = { jobKey, kind: "payment", date: paidOn, amount: r2(paid - tip), method, note: ref, ...gc };
+        txns.push(tx);
+        const k = payKey(cid, a);
+        shownTx.set(k, [...(shownTx.get(k) ?? []), tx]);
+      }
       if (tip > 0) { txns.push({ jobKey, kind: "tip", date: paidOn, amount: tip, method, note: "Tip" }); tips++; }
       if (tb > 0) { txns.push({ jobKey, kind: "writeoff", date, amount: r2(tb), method, note: "Bad debt written off in Aworka" }); writeoffs++; }
     } else if ((t === "payment" || t === "invoice") && paid > 0 && main) {
       if (t === "payment") {
         const k = payKey(cid, a);
         const left = shown.get(k) ?? 0;
-        if (left > 0) { shown.set(k, left - 1); continue; } // already counted on the clean or invoice
+        if (left > 0) {
+          // Already counted on the clean or invoice. The payment row often carries the reference
+          // (e.g. the GoCardless payment ID) that the clean's row doesn't: copy it across.
+          shown.set(k, left - 1);
+          const tx = (shownTx.get(k) ?? []).find((x) => !x.goCardlessPaymentId);
+          if (tx && gcRef) Object.assign(tx, gc);
+          if (tx && ref && !tx.note.includes(a["Pay Ref"] || ref)) tx.note = [tx.note, ref].filter(Boolean).join(" · ");
+          continue;
+        }
       }
-      txns.push({ jobKey: main, kind: "payment", date: paidOn, amount: paid, method, note: [t === "invoice" ? a.Description : "", ref].filter(Boolean).join(" · "), ...gc });
+      const tx: CpTxn = { jobKey: main, kind: "payment", date: paidOn, amount: paid, method, note: [t === "invoice" ? a.Description : "", ref].filter(Boolean).join(" · "), ...gc };
+      txns.push(tx);
+      if (t === "invoice") { const k = payKey(cid, a); shownTx.set(k, [...(shownTx.get(k) ?? []), tx]); }
     } else if (t === "adjustment" && main) {
       const amount = r2(-num(a["Gross Price"]));
       if (amount > 0) { txns.push({ jobKey: main, kind: "writeoff", date, amount, method, note: a.Description || "Adjustment in Aworka" }); writeoffs++; }

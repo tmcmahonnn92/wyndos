@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 /**
  * Email an invoice for some of a customer's cleans. Only for businesses trialling invoice
- * emails (Admin), and only to customers set to "Email invoices" with an email address.
+ * emails (Admin), to any customer with an email address ("Email invoices" is for the automatic ones).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -32,7 +32,6 @@ export async function POST(req: NextRequest) {
       }),
     ]);
     if (!customer) return NextResponse.json({ error: "Customer not found." }, { status: 404 });
-    if (!customer.emailInvoices) return NextResponse.json({ error: "Tick \"Email invoices to this customer\" on their details first." }, { status: 400 });
     if (!EMAIL_RE.test(customer.email?.trim() ?? "")) return NextResponse.json({ error: "Add an email address to this customer first." }, { status: 400 });
     if (jobs.length !== jobIds.length) return NextResponse.json({ error: "Some of those cleans weren't found." }, { status: 404 });
 

@@ -2873,7 +2873,8 @@ export async function importQuotes(records: Array<{ name: string; address: strin
     if (workDayId === null) workDayId = (await prisma.workDay.create({ data: { tenantId, date, status: "COMPLETE" } })).id;
     await prisma.job.create({ data: {
       tenantId, workDayId, customerId: customer.id, name: "Quote", price: 0,
-      isOneOff: true, isQuote: true, status: "COMPLETE", completedAt: now, completedByUserId: actor.userId,
+      // Nobody here quoted it: it came from the old program.
+      isOneOff: true, isQuote: true, status: "COMPLETE", completedAt: now, completedByUserId: null,
       quoteStatus: "QUOTED", quotedPrice: price, quotedFrequencyWeeks: frequencyWeeks, quotedAt: now,
       notes: "Imported quote",
     } });
@@ -6462,4 +6463,24 @@ export async function removeBankReference(referenceId: number) {
   const label = (await prisma.payerReference.findUnique({ where: { id: ref.id }, select: { label: true } }))?.label ?? "";
   await prisma.payerReference.deleteMany({ where: { tenantId: actor.tenantId, customerId: ref.customerId, label } });
   if (ref.customerId) revalidatePath(`/customers/${ref.customerId}`);
+}
+
+/** Settings → Email: send a test email from the business's own (saved) email account to itself. */
+export async function sendTestEmail(): Promise<{ ok: true; to: string } | { ok: false; error: string }> {
+  const actor = await requireOwner();
+  const { tenantMailer } = await import("@/lib/tenant-email");
+  const mailer = await tenantMailer(actor.tenantId);
+  if (!mailer) return { ok: false, error: "Save your email username and app password first." };
+  const s = await prisma.tenantSettings.findUnique({ where: { tenantId: actor.tenantId }, select: { email: true } });
+  const to = (s?.email ?? "").trim() || mailer.fromEmail;
+  try {
+    const text = `This is a test from Wyndos.\n\nIf you're reading this, invoices will be sent from ${mailer.fromEmail} as "${mailer.fromName}".`;
+    await mailer.send({ to, subject: "Wyndos test email", text, html: text.replace(/\n/g, "<br>") });
+    return { ok: true, to };
+  } catch (issue) {
+    const msg = issue instanceof Error ? issue.message : String(issue);
+    if (/535|auth|credentials|username and password/i.test(msg)) return { ok: false, error: "Your email provider refused the login. Check the username, and use an app password (not your normal password)." };
+    if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ESOCKET/i.test(msg)) return { ok: false, error: "Couldn't reach your email provider. Check the host and port." };
+    return { ok: false, error: `Couldn't send: ${msg.slice(0, 200)}` };
+  }
 }

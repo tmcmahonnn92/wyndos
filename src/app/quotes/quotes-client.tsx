@@ -109,7 +109,7 @@ export function QuotesClient({ quotes }: { quotes: Quote[] }) {
                     )}
                     {quote.customer.email && <a href={`mailto:${quote.customer.email}`} className="text-blue-600">{quote.customer.email}</a>}
                     {who && <span>Visit: {who.name ?? who.email}</span>}
-                    {quote.completedBy && quote.quoteStatus !== "TO_VISIT" && <span>Quoted by {quote.completedBy.name ?? quote.completedBy.email}</span>}
+                    {quote.notes === "Imported quote" ? <span>Imported</span> : quote.completedBy && quote.quoteStatus !== "TO_VISIT" && <span>Quoted by {quote.completedBy.name ?? quote.completedBy.email}</span>}
                   </div>
                 </div>
                 {quote.quoteStatus === "LOST" ? (
