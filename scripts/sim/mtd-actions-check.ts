@@ -1,12 +1,13 @@
 /** MTD and expenses checks through the real actions. Run like scenarios.ts. */
 import prisma from "@/lib/db";
 import { createBusiness, setToday } from "./lib";
+import { unwrapAll } from "./lib";
 
 let fails = 0;
 const check = (name: string, ok: boolean, detail = "") => { if (!ok) fails++; console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` (${detail})` : ""}`); };
 
 async function main() {
-  const act = await import("@/lib/actions");
+  const act = unwrapAll(await import("@/lib/actions"));
   const mtd = await import("@/lib/mtd/actions");
   setToday("2026-10-13");
   const { tenantId } = await createBusiness("mtd");

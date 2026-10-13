@@ -8,6 +8,7 @@
  */
 import prisma from "@/lib/db";
 import { addDaysIso, checkRules, createBusiness, isoOf, pick, rand, setSeed, setToday, settle, summarise, today, type Problem } from "./lib";
+import { unwrapAll } from "./lib";
 
 const DAYS = Number(process.env.DAYS ?? 120);
 const START = process.env.START ?? "2026-11-02";
@@ -82,7 +83,7 @@ async function workDay(day: { id: number; date: Date; areaId: number | null }, l
 (async () => {
   setToday(addDaysIso(START, -1));
   ({ tenantId } = await createBusiness(`run${process.env.SEED ?? 1}`));
-  act = await import("@/lib/actions");
+  act = unwrapAll(await import("@/lib/actions"));
 
   // Set up: three 4-weekly rounds, one 8-weekly, one monthly (15th).
   const monthly = await act.createArea({ name: "Monthly 15th", scheduleType: "MONTHLY", monthlyDay: 15, frequencyWeeks: 4 }).then(() => prisma.area.findFirst({ where: { tenantId, name: "Monthly 15th" } }));

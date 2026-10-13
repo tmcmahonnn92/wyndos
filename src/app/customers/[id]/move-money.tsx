@@ -6,6 +6,7 @@ import { ArrowLeftRight } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { listCustomersBrief, movePaymentToCustomer, useCreditForCustomer } from "@/lib/actions";
 import { fmtCurrency } from "@/lib/utils";
+import { unwrap } from "@/lib/outcome";
 
 type Brief = { id: number; name: string; address: string | null };
 
@@ -52,7 +53,7 @@ export function MovePaymentButton({ paymentId, customerId, amount }: { paymentId
           {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
           <button type="button" disabled={!to || busy} onClick={async () => {
             setBusy(true); setError("");
-            try { await movePaymentToCustomer(paymentId, to!.id); setOpen(false); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't move it."); }
+            try { await unwrap(movePaymentToCustomer(paymentId, to!.id)); setOpen(false); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't move it."); }
             setBusy(false);
           }} className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
             {busy ? "Moving…" : to ? `Move to ${to.name}` : "Choose a customer"}
@@ -86,7 +87,7 @@ export function UseCreditButton({ customerId, credit }: { customerId: number; cr
           {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
           <button type="button" disabled={!to || busy || !(Number(amount) > 0)} onClick={async () => {
             setBusy(true); setError("");
-            try { await useCreditForCustomer(customerId, to!.id, Number(amount)); setOpen(false); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't do that."); }
+            try { await unwrap(useCreditForCustomer(customerId, to!.id, Number(amount))); setOpen(false); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't do that."); }
             setBusy(false);
           }} className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
             {busy ? "Saving…" : to ? `Pay ${to.name}'s cleans` : "Choose a customer"}

@@ -4283,7 +4283,7 @@ async function assertPaymentNotLocked(tenantId: number, ...dates: Array<Date | n
   await assertNotLocked(tenantId, ...dates);
 }
 
-export async function voidPayment(paymentId: number, reason?: string) {
+async function voidPaymentImpl(paymentId: number, reason?: string) {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
   const payment = await requireTenantPayment(tenantId, paymentId);
@@ -5593,7 +5593,7 @@ export async function getBusinessSettingsForClient() {
 
 const SETTINGS_FIELDS = ["businessName", "ownerName", "phone", "email", "address", "bankDetails", "vatNumber", "invoicePrefix", "nextInvoiceNum", "invoiceVatEnabled", "allowCustomerCredit", "keepWorkerOnNextRun", "invoiceVatRate", "invoicePaymentTerms", "autoInvoiceEmail", "autoInvoiceDelayMinutes", "logoBase64", "goCardlessAccessToken", "goCardlessEnvironment", "goCardlessReferencePrefix", "smtpProvider", "smtpHost", "smtpPort", "smtpUser", "smtpPass", "smtpFromName", "voodooApiKey", "voodooSender", "messagingProvider", "twilioAccountSid", "twilioAuthToken", "twilioFromNumber", "metaPhoneNumberId", "metaAccessToken", "metaWabaId", "tmplCleaningReminder", "tmplJobComplete", "tmplPaymentReminder1", "tmplPaymentReminder2", "tmplPaymentReminder3", "tmplPaymentReceived", "tmplJobAndPayment", "tmplInvoiceNote", "tmplCleanedBank", "textSendMethod", "textsTestMode", "textCleanedEnabled", "textSkipCleanedIfPaid", "textPaymentReminderDays", "textPaymentReminder2Days", "runDueWindowDays"] as const;
 
-export async function updateBusinessSettings(data: {
+async function updateBusinessSettingsImpl(data: {
   businessName?: string;
   ownerName?: string;
   phone?: string;
@@ -6551,7 +6551,7 @@ export async function disconnectGoCardless() {
 // ─── Refunds ────────────────────────────────────────────────────────────────
 
 /** What the Refund window needs: how much is left to refund, and whether GoCardless can do it. */
-export async function getRefundInfo(paymentId: number) {
+async function getRefundInfoImpl(paymentId: number) {
   const actor = await requirePerm("payments");
   const { refundable } = await import("@/lib/refunds");
   const { payment, left, onJob } = await refundable(actor.tenantId, Number(paymentId));
@@ -6561,7 +6561,7 @@ export async function getRefundInfo(paymentId: number) {
 }
 
 /** Refund (some of) a payment: cash/bank/card already given back, or sent back through GoCardless. */
-export async function refundPayment(paymentId: number, data: { amount: number; outcome: "WRITE_OFF" | "OWING"; how: "GOCARDLESS" | "CASH" | "BACS" | "CARD"; reason?: string }) {
+async function refundPaymentImpl(paymentId: number, data: { amount: number; outcome: "WRITE_OFF" | "OWING"; how: "GOCARDLESS" | "CASH" | "BACS" | "CARD"; reason?: string }) {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
   const { refundable, recordRefund } = await import("@/lib/refunds");
@@ -6589,7 +6589,7 @@ export async function refundPayment(paymentId: number, data: { amount: number; o
 }
 
 /** Give a customer back their spare credit (paid in advance / paid too much / leaving). */
-export async function refundCustomerCredit(customerId: number, data: { amount: number; how: "CASH" | "BACS" | "CARD"; reason?: string }) {
+async function refundCustomerCreditImpl(customerId: number, data: { amount: number; how: "CASH" | "BACS" | "CARD"; reason?: string }) {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
   await requireTenantCustomer(tenantId, Number(customerId));
@@ -6610,7 +6610,7 @@ export async function listCustomersBrief() {
 }
 
 /** A payment put on the wrong customer: move it (it then pays the other customer's cleans, oldest first). */
-export async function movePaymentToCustomer(paymentId: number, toCustomerId: number) {
+async function movePaymentToCustomerImpl(paymentId: number, toCustomerId: number) {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
   const payment = await requireTenantPayment(tenantId, Number(paymentId));
@@ -6632,7 +6632,7 @@ export async function movePaymentToCustomer(paymentId: number, toCustomerId: num
 }
 
 /** One customer's spare credit pays another customer's unpaid cleans (e.g. one Direct Debit for two houses). */
-export async function useCreditForCustomer(fromCustomerId: number, toCustomerId: number, amount?: number) {
+async function useCreditForCustomerImpl(fromCustomerId: number, toCustomerId: number, amount?: number) {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
   await requireTenantCustomer(tenantId, Number(fromCustomerId));
@@ -6671,7 +6671,7 @@ export async function useCreditForCustomer(fromCustomerId: number, toCustomerId:
 // ─── Balance corrections ────────────────────────────────────────────────────
 
 /** Debt that shouldn't be owed (wrong import, goodwill, bad debt): taken off unpaid cleans' prices, newest first. */
-export async function writeOffDebt(customerId: number, amount: number | null, reason?: string) {
+async function writeOffDebtImpl(customerId: number, amount: number | null, reason?: string) {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
   await requireTenantCustomer(tenantId, Number(customerId));
@@ -6703,7 +6703,7 @@ export async function writeOffDebt(customerId: number, amount: number | null, re
  * import): the spare part of their payments is reduced, newest first. A payment left at £0 is undone.
  * Money you did receive and are giving back is a refund instead (Refund credit).
  */
-export async function removeCredit(customerId: number, amount: number, reason?: string) {
+async function removeCreditImpl(customerId: number, amount: number, reason?: string) {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
   await requireTenantCustomer(tenantId, Number(customerId));
@@ -6734,7 +6734,7 @@ export async function removeCredit(customerId: number, amount: number, reason?: 
 }
 
 /** Credit given that isn't money received (goodwill, a correction). Not counted as income. */
-export async function addCreditAdjustment(customerId: number, amount: number, reason?: string) {
+async function addCreditAdjustmentImpl(customerId: number, amount: number, reason?: string) {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
   await requireTenantCustomer(tenantId, Number(customerId));
@@ -6750,3 +6750,29 @@ export async function addCreditAdjustment(customerId: number, amount: number, re
   revalidatePath("/payments");
   revalidatePath(`/customers/${customerId}`);
 }
+
+
+// ─── Money actions with readable errors ─────────────────────────────────────
+// In production, an error thrown by a server action reaches the page as a coded React error
+// (e.g. "Minified React error #441") instead of its message. These return { ok, error } so the
+// person sees why (e.g. "That date is in a quarter you've marked as submitted").
+type Outcome<T> = { ok: true; value: T } | { ok: false; error: string };
+async function attempt<T>(fn: () => Promise<T>): Promise<Outcome<T>> {
+  try {
+    return { ok: true, value: await fn() };
+  } catch (issue) {
+    // Redirects and "not found" must still happen.
+    if (issue && typeof issue === "object" && "digest" in issue && String((issue as { digest?: unknown }).digest).startsWith("NEXT_")) throw issue;
+    return { ok: false, error: issue instanceof Error ? issue.message : "Something went wrong." };
+  }
+}
+export async function voidPayment(...args: Parameters<typeof voidPaymentImpl>) { return attempt(() => voidPaymentImpl(...args)); }
+export async function getRefundInfo(...args: Parameters<typeof getRefundInfoImpl>) { return attempt(() => getRefundInfoImpl(...args)); }
+export async function refundPayment(...args: Parameters<typeof refundPaymentImpl>) { return attempt(() => refundPaymentImpl(...args)); }
+export async function refundCustomerCredit(...args: Parameters<typeof refundCustomerCreditImpl>) { return attempt(() => refundCustomerCreditImpl(...args)); }
+export async function movePaymentToCustomer(...args: Parameters<typeof movePaymentToCustomerImpl>) { return attempt(() => movePaymentToCustomerImpl(...args)); }
+export async function useCreditForCustomer(...args: Parameters<typeof useCreditForCustomerImpl>) { return attempt(() => useCreditForCustomerImpl(...args)); }
+export async function writeOffDebt(...args: Parameters<typeof writeOffDebtImpl>) { return attempt(() => writeOffDebtImpl(...args)); }
+export async function removeCredit(...args: Parameters<typeof removeCreditImpl>) { return attempt(() => removeCreditImpl(...args)); }
+export async function addCreditAdjustment(...args: Parameters<typeof addCreditAdjustmentImpl>) { return attempt(() => addCreditAdjustmentImpl(...args)); }
+export async function updateBusinessSettings(...args: Parameters<typeof updateBusinessSettingsImpl>) { return attempt(() => updateBusinessSettingsImpl(...args)); }

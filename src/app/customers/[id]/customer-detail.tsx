@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { RefundCreditButton, RefundPaymentButton } from "./refunds";
+import { unwrap } from "@/lib/outcome";
 import { MovePaymentButton, UseCreditButton } from "./move-money";
 import { BalanceFixButton } from "./balance-fix";
 import { fmtDate, fmtCurrency, cn } from "@/lib/utils";
@@ -411,7 +412,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
     if (!confirm(isRefund < 0 ? "Undo this refund? Only if the money didn't actually go back." : "Void this payment? You can restore it later if needed.")) return;
     startTransition(async () => {
       try {
-        await voidPayment(paymentId, isRefund < 0 ? "Refund undone" : "Voided from customer detail");
+        await unwrap(voidPayment(paymentId, isRefund < 0 ? "Refund undone" : "Voided from customer detail"));
       } catch (e) { alert(e instanceof Error ? e.message : "Couldn't do that."); }
       router.refresh();
     });

@@ -467,7 +467,8 @@ export function SettingsClient({
           if (messaging.metaAccessToken.trim()) payload.metaAccessToken = messaging.metaAccessToken.trim();
         }
 
-        await updateBusinessSettings(payload);
+        const saved = await updateBusinessSettings(payload);
+        if (!saved.ok) throw new Error(saved.error);
         // Secrets are stored; clear the boxes so nothing (typed or filled in by the browser) is sent again.
         setSmtp((c) => ({ ...c, smtpPass: "" }));
         setGoCardless((c) => ({ ...c, accessToken: "" }));
@@ -475,7 +476,7 @@ export function SettingsClient({
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
       } catch (e) {
-        setSaveError(String(e));
+        setSaveError(e instanceof Error ? e.message : String(e));
       }
     });
   };

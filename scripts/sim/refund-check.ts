@@ -1,13 +1,14 @@
 /** Refund checks through the real actions. Run like scenarios.ts. */
 import prisma from "@/lib/db";
 import { createBusiness, setToday, settle } from "./lib";
+import { unwrapAll } from "./lib";
 
 let fails = 0;
 const check = (name: string, ok: boolean, detail = "") => { if (!ok) fails++; console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` (${detail})` : ""}`); };
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 async function main() {
-  const act = await import("@/lib/actions");
+  const act = unwrapAll(await import("@/lib/actions"));
   setToday("2026-11-02");
   const { tenantId } = await createBusiness("refund");
   await act.bulkImportCustomers([1, 2].map((i) => ({ name: `R${i}`, address: `${i} Test Rd, Testford, ZZ99 1AA`, price: 20, nextDueDate: "2026-11-02", frequencyWeeks: 4, areaName: "A", areaFrequencyWeeks: 4 })) as never, { createMissingAreas: true, bookRuns: true } as never);

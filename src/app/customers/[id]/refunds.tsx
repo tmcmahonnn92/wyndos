@@ -6,6 +6,7 @@ import { RotateCcw } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { getRefundInfo, refundCustomerCredit, refundPayment } from "@/lib/actions";
 import { fmtCurrency } from "@/lib/utils";
+import { unwrap } from "@/lib/outcome";
 
 type How = "GOCARDLESS" | "CASH" | "BACS" | "CARD";
 const HOW_LABEL: Record<How, string> = { GOCARDLESS: "Back through GoCardless", CASH: "Cash", BACS: "Bank transfer", CARD: "Card" };
@@ -14,7 +15,7 @@ const HOW_LABEL: Record<How, string> = { GOCARDLESS: "Back through GoCardless", 
 export function RefundPaymentButton({ paymentId }: { paymentId: number }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [info, setInfo] = useState<Awaited<ReturnType<typeof getRefundInfo>> | null>(null);
+  const [info, setInfo] = useState<Extract<Awaited<ReturnType<typeof getRefundInfo>>, { ok: true }>["value"] | null>(null);
   const [amount, setAmount] = useState("");
   const [how, setHow] = useState<How>("BACS");
   const [outcome, setOutcome] = useState<"WRITE_OFF" | "OWING">("WRITE_OFF");
@@ -25,14 +26,14 @@ export function RefundPaymentButton({ paymentId }: { paymentId: number }) {
   const start = async () => {
     setOpen(true); setError(""); setInfo(null); setReason("");
     try {
-      const i = await getRefundInfo(paymentId);
+      const i = await unwrap(getRefundInfo(paymentId));
       setInfo(i); setAmount(i.left.toFixed(2)); setHow(i.viaGc ? "GOCARDLESS" : i.method === "CASH" ? "CASH" : i.method === "CARD" ? "CARD" : "BACS");
     } catch (e) { setError(e instanceof Error ? e.message : "Couldn't load this payment."); }
   };
   const save = async () => {
     setBusy(true); setError("");
     try {
-      await refundPayment(paymentId, { amount: Number(amount), outcome, how, reason });
+      await unwrap(refundPayment(paymentId, { amount: Number(amount), outcome, how, reason }));
       setOpen(false); router.refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Couldn't refund."); }
     setBusy(false);
@@ -101,7 +102,7 @@ export function RefundCreditButton({ customerId, credit }: { customerId: number;
   const [error, setError] = useState("");
   const save = async () => {
     setBusy(true); setError("");
-    try { await refundCustomerCredit(customerId, { amount: Number(amount), how, reason }); setOpen(false); router.refresh(); }
+    try { await unwrap(refundCustomerCredit(customerId, { amount: Number(amount), how, reason })); setOpen(false); router.refresh(); }
     catch (e) { setError(e instanceof Error ? e.message : "Couldn't refund."); }
     setBusy(false);
   };
