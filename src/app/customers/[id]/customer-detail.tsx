@@ -782,7 +782,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                       <p className="text-xs text-slate-500">{p.amount < 0 ? "Refund" : p.method}{p.notes ? ` · ${p.notes}` : ""}</p>
                     </div>
                     <span className={`text-sm font-semibold flex-shrink-0 ${p.amount < 0 ? "text-amber-700" : "text-green-700"}`}>{hidePrices ? null : p.amount < 0 ? `−${fmtCurrency(-p.amount)}` : `+${fmtCurrency(p.amount)}`}</span>
-                    {canPay && p.amount > 0 && <RefundPaymentButton paymentId={p.id} />}
+                    {canPay && p.amount > 0 && !(p as { broughtForward?: boolean }).broughtForward && <RefundPaymentButton paymentId={p.id} />}
                     {canPay && p.amount > 0 && <MovePaymentButton paymentId={p.id} customerId={customer.id} amount={p.amount} />}
                     {p.amount > 0 && <button
                       onClick={() => openEditPayment(p)}

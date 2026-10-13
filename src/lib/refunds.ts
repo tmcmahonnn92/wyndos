@@ -17,9 +17,11 @@ export type RefundOutcome = "WRITE_OFF" | "OWING";
 export async function refundable(tenantId: number, paymentId: number) {
   const payment = await prisma.payment.findFirst({
     where: { id: paymentId, tenantId, voidedAt: null, amount: { gt: 0 } },
-    select: { id: true, customerId: true, amount: true, paidAt: true, method: true, goCardlessPaymentId: true, goCardlessStatus: true, allocations: { select: { jobId: true, amount: true } } },
+    select: { id: true, customerId: true, amount: true, paidAt: true, method: true, broughtForward: true, goCardlessPaymentId: true, goCardlessStatus: true, allocations: { select: { jobId: true, amount: true } } },
   });
   if (!payment) throw new Error("Payment not found.");
+  // Credit added by hand (or carried over from another program) was never money in: nothing to refund.
+  if (payment.broughtForward) throw new Error("This credit wasn't money you received, so there's nothing to refund. Use Remove credit instead.");
   const refunds = await prisma.payment.findMany({
     where: { tenantId, refundOfId: payment.id, voidedAt: null },
     select: { amount: true, goCardlessRefundId: true, allocations: { select: { jobId: true, amount: true } } },
