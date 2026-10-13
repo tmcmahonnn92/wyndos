@@ -187,7 +187,7 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Needs `ANTHROPIC_API_KEY` in appEnv. Optional `ANTHROPIC_IMPORT_MODEL` (default `claude-opus-5-5`). Flag: `SMART_IMPORT_ENABLED` in `src/lib/features.ts`.
 
 ## GoCardless (Direct Debit)
-- Pasted read-write access token (Settings → Business), no webhooks: sync every 15 min via `/api/cron/gocardless` (CRON_SECRET) or "Sync now".
+- Pasted read-write access token (Settings → Business), no webhooks: sync via "Sync now", or every 15 min if the server crontab has `/api/cron/gocardless` (CRON_SECRET; line in deploy/GOCARDLESS-TESTING.md). The deploy script doesn't install it; Tom is keeping it manual for now. Same `syncTenant` either way.
 - `src/lib/gocardless/core.ts` (server only, takes tenantId), `actions.ts` (owner-only wrappers). Page: `/payments/direct-debit`.
 - One GoCardless payment per completed clean (Job.goCardlessPaymentId/Status), Idempotency-Key `wyndos-t{tenant}-job{id}-{previous id|first}`.
 - Received → Payment (BACS, "Direct Debit (GoCardless)") allocated to the clean. Failed/cancelled → clean owes again. Charged back → payment voided.

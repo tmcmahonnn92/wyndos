@@ -81,6 +81,12 @@ export default async function DirectDebitGuidePage() {
             <li>In Wyndos, open <strong>Settings → GoCardless (Direct Debit)</strong>. Pick <strong>Live</strong> (or <strong>Sandbox</strong> for a practice account), paste the token and press <strong>Save Changes</strong>.</li>
             <li>Press <strong>Test connection</strong>. You should see &quot;Connected to&quot; and your business name in GoCardless.</li>
           </ol>
+          <p>
+            <strong>Syncing:</strong> Wyndos doesn&apos;t hear from GoCardless the moment something happens. It catches up when it
+            <strong> syncs</strong>: new sign-ups, money that&apos;s arrived, failed payments and cancelled Direct Debits all show after a sync.
+            Press <strong>Sync now</strong> on <strong>Payments → Direct Debit</strong> whenever you want to check. Syncing only reads from
+            GoCardless: it never takes money.
+          </p>
           <p>The <strong>reference prefix</strong> (WD unless you change it) is put in front of each customer&apos;s reference, so you can spot Wyndos customers in GoCardless.</p>
           <Tip>The token is stored encrypted. Never send it to anyone, Wyndos support included.</Tip>
         </Section>
@@ -89,7 +95,7 @@ export default async function DirectDebitGuidePage() {
           <ol>
             <li>Open the customer and find <strong>Direct Debit</strong> at the bottom of their page. Press <strong>Get sign-up link</strong>.</li>
             <li>Copy the link and send it to them by text or email. They fill in their own bank details on GoCardless&apos;s secure page. You never see or type their bank details.</li>
-            <li>Once they&apos;ve finished, Wyndos picks it up at the next sync (every night, or press <strong>Sync now</strong> on <strong>Payments → Direct Debit</strong>). Their Direct Debit shows <strong>Being set up</strong>, then <strong>Active</strong>.</li>
+            <li>Once they&apos;ve finished, Wyndos picks it up the next time it syncs with GoCardless. To check straight away, press <strong>Sync now</strong> on <strong>Payments → Direct Debit</strong>. Their Direct Debit shows <strong>Being set up</strong>, then <strong>Active</strong>.</li>
           </ol>
           <p>You can also do it from <strong>Payments → Direct Debit</strong>: pick the customer under <strong>Set up Direct Debit for</strong> and press <strong>Get sign-up link</strong>.</p>
           <p>
