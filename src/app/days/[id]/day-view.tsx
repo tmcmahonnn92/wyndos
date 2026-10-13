@@ -83,6 +83,7 @@ import { fmtDate, fmtShortDate, fmtCurrency, cn } from "@/lib/utils";
 import { addressPartsOf, collectKnownTowns, compareByStreet, composeAddress, withTownFallback } from "@/lib/address";
 import { MapsRouteModal, type RouteStop } from "@/components/maps-route-modal";
 import { isLinked, orderDays, orderJobs } from "@/lib/day-order";
+import { coveredByPlan, paysByDirectDebit } from "@/lib/gocardless/status";
 import { placeCustomerInArea, placeJobAfter, placeJobInArea, resetDayOrder, setCustomerPlaceAfter, setDateAreaOrder } from "@/lib/day-order-actions";
 
 type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
@@ -869,7 +870,7 @@ export function DayView({
 
         {/* Cash still to pick up today: customers who pay cash (or haven't said), less any credit */}
         {!hidePrices && (() => {
-          const cashJobs = pendingJobs.filter((j) => !j.isQuote && ["", "CASH"].includes(normalisePreference(j.customer.preferredPaymentMethod)));
+          const cashJobs = pendingJobs.filter((j) => !j.isQuote && !paysByDirectDebit(j.customer) && ["", "CASH"].includes(normalisePreference(j.customer.preferredPaymentMethod)));
           const toCollect = cashJobs.reduce((sum, j) => sum + Math.max(0, j.price - creditOf(j)), 0);
           return toCollect > 0.005 ? (
             <div className="flex items-center justify-between gap-3 border-b border-amber-100 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
@@ -2626,6 +2627,10 @@ function JobCard({
   const [quickMethod, setQuickMethod] = useState<"CASH" | "BACS" | "CARD">(quickPayMethod);
   const [quickPrice, setQuickPrice] = useState("");
   const [quickPaid, setQuickPaid] = useState("");
+  // Direct Debit customers: "Done" is the normal tap; paying another way asks first.
+  const directDebit = !isQuote && paysByDirectDebit(job.customer);
+  const onPlan = directDebit && coveredByPlan({ isOneOff: Boolean(job.isOneOff), name: getJobTitle(job) }, job.customer);
+  const [ddConfirm, setDdConfirm] = useState(false);
   const previousDebt = job.customer.jobs.filter(j => j.id !== job.id).reduce((sum, j) => {
     const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
     return sum + Math.max(0, j.price - paid);
@@ -2832,12 +2837,12 @@ function JobCard({
           <div className="flex border-t border-slate-100">
             {onQuickComplete && (
               <button
-                onClick={(e) => { e.stopPropagation(); setShowQuickPayChoices(false); onQuickComplete(); }}
+                onClick={(e) => { e.stopPropagation(); setShowQuickPayChoices(false); setDdConfirm(false); onQuickComplete(); }}
                 disabled={isPending}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-green-700 bg-green-50 hover:bg-green-100 active:bg-green-200 transition-colors disabled:opacity-50 touch-manipulation"
               >
                 <Check size={15} />
-                {creditOf(job) >= job.price - 0.005 ? "Done · paid from credit" : "Done"}
+                {creditOf(job) >= job.price - 0.005 ? "Done · paid from credit" : onPlan ? "Done · on their plan" : directDebit ? "Done · Direct Debit" : "Done"}
               </button>
             )}
             {onQuickPay && onQuickComplete && creditOf(job) < job.price - 0.005 && (
@@ -2847,6 +2852,7 @@ function JobCard({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (directDebit && !showQuickPayChoices) { setDdConfirm((v) => !v); return; }
                   setIncludeDebt(previousDebt > 0.005);
                   setQuickMethod(quickPayMethod);
                   setQuickPrice("");
@@ -2857,10 +2863,37 @@ function JobCard({
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 transition-colors disabled:opacity-50 touch-manipulation"
               >
                 <Banknote size={15} className="text-blue-600" />
-                Done &amp; Paid{!hidePrices && ` ${fmtCurrency(Math.max(0, job.price - creditOf(job)))}`}
+                {directDebit ? "Paid another way" : <>Done &amp; Paid{!hidePrices && ` ${fmtCurrency(Math.max(0, job.price - creditOf(job)))}`}</>}
               </button>
             )}
           </div>
+          {directDebit && ddConfirm && !showQuickPayChoices && (
+            <div className="border-t border-amber-200 bg-amber-50 p-3 space-y-2 text-sm text-amber-900" onClick={(e) => e.stopPropagation()}>
+              <p className="font-semibold">Are you sure? {job.customer.name} pays by Direct Debit.</p>
+              <p className="text-xs">
+                {onPlan
+                  ? "Their plan still comes out as normal. Money you log here is extra and stays on their account as credit."
+                  : "If you log cash, card or a bank transfer, Wyndos won't collect this clean by Direct Debit. Only do this if they've actually paid you."}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDdConfirm(false);
+                    setIncludeDebt(false);
+                    setQuickMethod(quickPayMethod);
+                    setQuickPrice("");
+                    setQuickPaid("");
+                    setShowQuickPayChoices(true);
+                  }}
+                  className="flex-1 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+                >
+                  Yes, they paid me
+                </button>
+                <button type="button" onClick={() => setDdConfirm(false)} className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900">Cancel</button>
+              </div>
+            </div>
+          )}
           {onQuickPay && showQuickPayChoices && (() => {
             const credit = creditOf(job);
             const price = quickPrice.trim() === "" ? job.price : Math.max(0, Number(quickPrice) || 0);

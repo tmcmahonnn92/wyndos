@@ -1,4 +1,5 @@
 import "server-only";
+import { coveredByPlan } from "@/lib/gocardless/status";
 import prisma from "@/lib/db";
 import { emailInvoice, EMAIL_RE } from "@/lib/invoice-email";
 import { tenantEmailReady } from "@/lib/tenant-email";
@@ -30,11 +31,13 @@ export async function processDueInvoiceEmails(onlyTenantId?: number) {
         completedAt: { gte: s.autoInvoiceSince!, lte: cutoff },
         workDay: { status: "COMPLETE" },
         customer: { emailInvoices: true, email: { not: "" } },
+        // Regular cleans on a Direct Debit plan are paid by the plan: no invoice for each one.
+        NOT: { isOneOff: false, customer: { goCardlessPlan: { not: null } } },
       },
       include: {
         workDay: { select: { date: true, id: true } },
         allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
-        customer: { select: { id: true, name: true, address: true, email: true } },
+        customer: { select: { id: true, name: true, address: true, email: true, goCardlessMandateId: true, goCardlessMandateStatus: true, goCardlessPlan: true, jobName: true } },
       },
       orderBy: { id: "asc" },
       take: 1000,
@@ -47,7 +50,7 @@ export async function processDueInvoiceEmails(onlyTenantId?: number) {
     const byCustomer = new Map<number, typeof jobs>();
     for (const job of jobs) {
       const unpaid = job.price - job.allocations.reduce((sum, a) => sum + a.amount, 0) > 0.005;
-      if (!unpaid || recentFails.has(job.customerId) || !EMAIL_RE.test(job.customer.email?.trim() ?? "")) continue;
+      if (!unpaid || coveredByPlan(job, job.customer) || recentFails.has(job.customerId) || !EMAIL_RE.test(job.customer.email?.trim() ?? "")) continue;
       byCustomer.set(job.customerId, [...(byCustomer.get(job.customerId) ?? []), job]);
     }
     const settings = { ...s, businessName: s.businessName?.trim() || s.tenant.name || "Your window cleaner" };

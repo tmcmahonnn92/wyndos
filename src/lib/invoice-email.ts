@@ -1,6 +1,7 @@
 import "server-only";
 import prisma from "@/lib/db";
-import { renderInvoicePdf } from "@/lib/invoice-build";
+import { DD_INVOICE_TEXT, renderInvoicePdf } from "@/lib/invoice-build";
+import { paysByDirectDebit } from "@/lib/gocardless/status";
 import { tenantMailer } from "@/lib/tenant-email";
 import { fmtCurrency } from "@/lib/utils";
 
@@ -17,7 +18,7 @@ export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export async function emailInvoice(input: {
   tenantId: number;
   settings: Settings;
-  customer: { id: number; name: string; address: string | null; email: string | null };
+  customer: { id: number; name: string; address: string | null; email: string | null; goCardlessMandateId?: string | null; goCardlessMandateStatus?: string | null };
   jobs: Job[];
   invoiceNumber: string;
   workDayId?: number | null;
@@ -33,12 +34,13 @@ export async function emailInvoice(input: {
   const business = settings.businessName || "Your window cleaner";
   const first = (customer.name.trim().split(/\s+/)[0] || "").replace(/^(mr|mrs|ms|miss|dr)\.?$/i, "") || "there";
   const dates = [...new Set(jobs.map((j) => j.workDay.date.toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" })))];
+  const dd = paysByDirectDebit(customer);
   const lines = [
     `Hi ${first},`,
     "",
-    `Thanks for having your windows cleaned${dates.length === 1 ? ` on ${dates[0]}` : ""}. Invoice ${invoiceNumber} is attached${due > 0.005 ? `: ${fmtCurrency(due)} to pay` : `, already paid (${fmtCurrency(total)})`}.`,
-    (settings.invoicePaymentTerms ?? "").trim(),
-    due > 0.005 && (settings.bankDetails ?? "").trim() ? `\nHow to pay:\n${(settings.bankDetails ?? "").trim()}` : "",
+    `Thanks for having your windows cleaned${dates.length === 1 ? ` on ${dates[0]}` : ""}. Invoice ${invoiceNumber} is attached${due > 0.005 ? (dd ? ` (${fmtCurrency(due)})` : `: ${fmtCurrency(due)} to pay`) : `, already paid (${fmtCurrency(total)})`}.`,
+    dd ? (due > 0.005 ? DD_INVOICE_TEXT : "") : (settings.invoicePaymentTerms ?? "").trim(),
+    !dd && due > 0.005 && (settings.bankDetails ?? "").trim() ? `\nHow to pay:\n${(settings.bankDetails ?? "").trim()}` : "",
     "",
     `Thanks,\n${(settings.ownerName ?? "").trim() || business}`,
   ].filter((l, i, all) => l !== "" || all[i - 1] !== "");

@@ -3,13 +3,17 @@ import React from "react";
 import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
 import { InvoicePDF, type InvoiceData } from "@/lib/invoice-pdf";
 import { flattenLogo } from "@/lib/logo-image";
+import { paysByDirectDebit } from "@/lib/gocardless/status";
 
 type Settings = {
   businessName: string; ownerName?: string | null; phone?: string | null; email?: string | null; address?: string | null;
   bankDetails?: string | null; vatNumber?: string | null; invoiceVatEnabled?: boolean | null; invoiceVatRate?: number | null;
   invoicePaymentTerms?: string | null; tmplInvoiceNote?: string | null; logoBase64?: string | null;
 };
-type Customer = { name: string; address: string | null; email: string | null };
+type Customer = { name: string; address: string | null; email: string | null; goCardlessMandateId?: string | null; goCardlessMandateStatus?: string | null };
+
+/** What a Direct Debit customer is told instead of how to pay. */
+export const DD_INVOICE_TEXT = "Paid by Direct Debit: anything due will be collected from your account. You don't need to do anything.";
 type Job = { id: number; price: number; isOneOff: boolean; notes: string | null; workDay: { date: Date }; allocations: Array<{ amount: number }> };
 
 const fmtDate = (d: Date | string | null) => (d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
@@ -20,6 +24,8 @@ export async function renderInvoicePdf(settings: Settings, customer: Customer, j
   const vatRate = settings.invoiceVatEnabled && settings.vatNumber?.trim() ? Number(settings.invoiceVatRate) || 0 : null;
   const vatOf = (gross: number) => (vatRate == null ? 0 : Math.round((gross - gross / (1 + vatRate / 100)) * 100) / 100);
   const paidOf = (j: Job) => j.allocations.reduce((s, a) => s + a.amount, 0);
+  // Direct Debit customers aren't asked to pay: no bank details, so nobody pays twice.
+  const dd = paysByDirectDebit(customer);
 
   const data: InvoiceData = {
     vat: vatRate == null ? null : {
@@ -27,7 +33,7 @@ export async function renderInvoicePdf(settings: Settings, customer: Customer, j
       net: Math.round(jobs.reduce((s, j) => s + j.price - vatOf(j.price), 0) * 100) / 100,
       vat: Math.round(jobs.reduce((s, j) => s + vatOf(j.price), 0) * 100) / 100,
     },
-    paymentTerms: settings.invoicePaymentTerms?.trim() || "",
+    paymentTerms: dd ? DD_INVOICE_TEXT : settings.invoicePaymentTerms?.trim() || "",
     note: settings.tmplInvoiceNote?.trim() || "",
     invoiceNumber,
     invoiceDate: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
@@ -37,7 +43,7 @@ export async function renderInvoicePdf(settings: Settings, customer: Customer, j
       phone: settings.phone ?? "",
       email: settings.email ?? "",
       address: settings.address ?? "",
-      bankDetails: settings.bankDetails ?? "",
+      bankDetails: dd ? "" : settings.bankDetails ?? "",
       vatNumber: settings.vatNumber ?? "",
       logoBase64: await flattenLogo(settings.logoBase64),
     },

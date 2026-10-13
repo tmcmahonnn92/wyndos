@@ -5614,6 +5614,18 @@ export async function updateBusinessSettings(data: {
   }
   // Direct Debit settings only for businesses it's switched on for.
   if (!(await goCardlessOn(tenantId))) for (const k of Object.keys(updateData)) if (k.startsWith("goCardless")) delete updateData[k];
+  // A password manager can fill a saved password into the token box without you noticing, and
+  // saving would then replace a working token. GoCardless tokens always start live_ or sandbox_.
+  if (typeof updateData.goCardlessAccessToken === "string") {
+    const token = updateData.goCardlessAccessToken.trim();
+    if (!token) delete updateData.goCardlessAccessToken;
+    else if (!/^(live|sandbox)_[A-Za-z0-9_-]{20,}$/.test(token)) {
+      throw new Error("That isn't a GoCardless access token (they start live_ or sandbox_). Your browser may have filled in a saved password: clear the Direct Debit token box and save again. Your current token hasn't changed.");
+    } else updateData.goCardlessAccessToken = token;
+  }
+  if (typeof updateData.twilioAuthToken === "string" && updateData.twilioAuthToken.trim() && !/^[0-9a-f]{32}$/i.test(updateData.twilioAuthToken.trim())) {
+    throw new Error("That isn't a Twilio auth token (32 letters and numbers). Your browser may have filled in a saved password: clear that box and save again.");
+  }
   if (typeof updateData.logoBase64 === "string" && !/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(updateData.logoBase64)) {
     throw new Error("The logo must be a PNG, JPG or WebP picture.");
   }
