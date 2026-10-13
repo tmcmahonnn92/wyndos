@@ -6,6 +6,7 @@ import { Eraser } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { addCreditAdjustment, removeCredit, writeOffDebt } from "@/lib/actions";
 import { fmtCurrency } from "@/lib/utils";
+import { unwrap } from "@/lib/outcome";
 
 /** Write off debt, or remove credit that shouldn't be there. */
 export function BalanceFixButton({ customerId, kind, max }: { customerId: number; kind: "debt" | "credit" | "add"; max: number }) {
@@ -39,7 +40,7 @@ export function BalanceFixButton({ customerId, kind, max }: { customerId: number
           {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
           <button type="button" disabled={busy || !(Number(amount) > 0)} onClick={async () => {
             setBusy(true); setError("");
-            try { if (add) await addCreditAdjustment(customerId, Number(amount), reason); else if (debt) await writeOffDebt(customerId, Number(amount), reason); else await removeCredit(customerId, Number(amount), reason); setOpen(false); router.refresh(); }
+            try { if (add) await unwrap(addCreditAdjustment(customerId, Number(amount), reason)); else if (debt) await unwrap(writeOffDebt(customerId, Number(amount), reason)); else await unwrap(removeCredit(customerId, Number(amount), reason)); setOpen(false); router.refresh(); }
             catch (e) { setError(e instanceof Error ? e.message : "Couldn't do that."); }
             setBusy(false);
           }} className="w-full rounded-lg bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">

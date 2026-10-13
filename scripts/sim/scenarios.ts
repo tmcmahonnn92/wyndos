@@ -6,6 +6,7 @@
  */
 import prisma from "@/lib/db";
 import { addDaysIso, checkRules, createBusiness, isoOf, setToday, settle, summarise } from "./lib";
+import { unwrapAll } from "./lib";
 
 type A = typeof import("@/lib/actions");
 let act: A;
@@ -53,7 +54,7 @@ async function test(name: string, fn: () => Promise<string | true>) {
 
 (async () => {
   setToday(D);
-  act = await import("@/lib/actions");
+  act = unwrapAll(await import("@/lib/actions"));
 
   await test("undo a clean doesn't void a payment taken later", async () => {
     const b = await fresh("undo");

@@ -166,3 +166,22 @@ export function summarise(problems: Problem[]) {
   for (const p of problems) by.set(p.rule, (by.get(p.rule) ?? 0) + 1);
   return [...by.entries()].map(([k, v]) => `${k}=${v}`).join(" ");
 }
+
+/** Actions that return { ok, value | error }: make them throw / return the value, like before. */
+export function unwrapAll<T extends Record<string, unknown>>(mod: T): T {
+  return new Proxy(mod, {
+    get(target, key) {
+      const fn = target[key as keyof T];
+      if (typeof fn !== "function") return fn;
+      return async (...args: unknown[]) => {
+        const r = await (fn as (...a: unknown[]) => Promise<unknown>)(...args);
+        if (r && typeof r === "object" && "ok" in r && ("value" in r || "error" in r)) {
+          const o = r as { ok: boolean; value?: unknown; error?: string };
+          if (!o.ok) throw new Error(o.error);
+          return o.value;
+        }
+        return r;
+      };
+    },
+  });
+}

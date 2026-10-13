@@ -1,6 +1,7 @@
 /** Edge cases for refunds, moving money, adding/removing credit and write-offs, through the real actions. */
 import prisma from "@/lib/db";
 import { createBusiness, setToday, settle } from "./lib";
+import { unwrapAll } from "./lib";
 
 let fails = 0;
 const check = (n: string, ok: boolean, d = "") => { if (!ok) fails++; console.log(`${ok ? "PASS" : "FAIL"}  ${n}${d ? ` (${d})` : ""}`); };
@@ -8,7 +9,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 const err = async (f: () => Promise<unknown>) => { try { await f(); return ""; } catch (e) { return (e as Error).message; } };
 
 async function main() {
-  const act = await import("@/lib/actions");
+  const act = unwrapAll(await import("@/lib/actions"));
   const mtd = await import("@/lib/mtd/actions");
   setToday("2026-11-02");
   const { tenantId } = await createBusiness("balance");
