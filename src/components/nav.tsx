@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
-import { clearOfflinePages } from "@/lib/offline-queue";
+import { clearOfflinePages, readyToSignOut } from "@/lib/offline-queue";
 import {
   UserCircle,
   LifeBuoy,
@@ -194,6 +194,7 @@ export function Nav({
   }, [pathname]);
 
   const handleSignOut = async () => {
+    if (!(await readyToSignOut())) return;
     clearOfflinePages();
     await signOut({ callbackUrl: "/auth/signin" });
   };

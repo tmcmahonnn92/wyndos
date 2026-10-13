@@ -145,30 +145,40 @@ export async function getDirectDebitBoard() {
     cleansToCollect(tenantId),
     prisma.job.findMany({
       where: { tenantId, goCardlessPaymentId: { not: null }, goCardlessStatus: { in: ["pending_customer_approval", "pending_submission", "submitted", "confirmed"] } },
-      select: { id: true, price: true, goCardlessStatus: true, workDay: { select: { date: true } }, customer: { select: { id: true, name: true } } },
+      select: { id: true, price: true, goCardlessStatus: true, workDay: { select: { date: true } }, customer: { select: { id: true, name: true, address: true } } },
       orderBy: { id: "desc" }, take: 300,
     }),
     prisma.job.findMany({
       where: { tenantId, goCardlessStatus: { in: ["failed", "cancelled", "customer_approval_denied", "charged_back"] }, status: "COMPLETE" },
-      select: { id: true, price: true, goCardlessStatus: true, workDay: { select: { date: true } }, customer: { select: { id: true, name: true } }, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
+      select: { id: true, price: true, goCardlessStatus: true, workDay: { select: { date: true } }, customer: { select: { id: true, name: true, address: true } }, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
       orderBy: { id: "desc" }, take: 100,
     }),
     prisma.customer.findMany({
       where: { tenantId, OR: [{ goCardlessMandateId: { not: null } }, { goCardlessBillingRequestId: { not: null } }, { preferredPaymentMethod: "DD" }] },
-      select: { id: true, name: true, address: true, goCardlessMandateId: true, goCardlessMandateStatus: true, goCardlessBillingRequestId: true, goCardlessPlan: true, active: true },
+      select: { id: true, name: true, address: true, goCardlessMandateId: true, goCardlessMandateStatus: true, goCardlessBillingRequestId: true, goCardlessPlan: true, active: true, goCardlessLinkedAt: true },
       orderBy: { name: "asc" },
     }),
   ]);
+  // Customers sharing one Direct Debit: the first linked is the one paying.
+  const byMandate = new Map<string, typeof people>();
+  for (const c of people) if (c.goCardlessMandateId) byMandate.set(c.goCardlessMandateId, [...(byMandate.get(c.goCardlessMandateId) ?? []), c]);
+  const payerOf = (group: typeof people) => [...group].sort((a, b) => (a.goCardlessLinkedAt?.getTime() ?? 0) - (b.goCardlessLinkedAt?.getTime() ?? 0) || a.id - b.id)[0];
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   return {
     // Customers whose Direct Debit was cancelled or failed aren't offered for collection.
-    due: due.filter((j) => !j.goCardlessPaymentId && (!j.customer.goCardlessMandateStatus || GC_MANDATE_USABLE.has(j.customer.goCardlessMandateStatus))).map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, date: iso(j.workDay.date), amount: j.due, mandateStatus: j.customer.goCardlessMandateStatus })),
-    inProgress: inProgress.map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, date: iso(j.workDay.date), amount: j.price, status: j.goCardlessStatus ?? "" })),
+    due: due.filter((j) => !j.goCardlessPaymentId && (!j.customer.goCardlessMandateStatus || GC_MANDATE_USABLE.has(j.customer.goCardlessMandateStatus))).map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, date: iso(j.workDay.date), amount: j.due, mandateStatus: j.customer.goCardlessMandateStatus, address: j.customer.address ?? "" })),
+    inProgress: inProgress.map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, address: j.customer.address ?? "", date: iso(j.workDay.date), amount: j.price, status: j.goCardlessStatus ?? "" })),
     // A failed collection that's since been paid another way (cash, a later Direct Debit) is done with.
-    failed: failed.filter((j) => j.price - j.allocations.reduce((sum, a) => sum + a.amount, 0) > 0.005).map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, date: iso(j.workDay.date), amount: j.price, status: j.goCardlessStatus ?? "" })),
+    failed: failed.filter((j) => j.price - j.allocations.reduce((sum, a) => sum + a.amount, 0) > 0.005).map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, address: j.customer.address ?? "", date: iso(j.workDay.date), amount: j.price, status: j.goCardlessStatus ?? "" })),
     people: people.map((c) => ({
       id: c.id, name: c.name, address: c.address, active: c.active, plan: c.goCardlessPlan ?? null,
       state: c.goCardlessMandateId ? (c.goCardlessMandateStatus ?? "linked") : c.goCardlessBillingRequestId ? "link_sent" : "not_set_up",
+      ...(() => {
+        const group = c.goCardlessMandateId ? byMandate.get(c.goCardlessMandateId) ?? [] : [];
+        if (group.length < 2) return { sharedWith: [] as Array<{ id: number; name: string }>, pays: false };
+        const payer = payerOf(group);
+        return { sharedWith: group.filter((o) => o.id !== c.id).map((o) => ({ id: o.id, name: o.name + (o.id === payer.id ? " (pays)" : "") })), pays: payer.id === c.id };
+      })(),
     })),
   };
 }

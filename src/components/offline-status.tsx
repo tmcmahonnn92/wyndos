@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CloudOff, RefreshCw, Wifi } from "lucide-react";
-import { completeJob, recordPayment, skipJob, updateJobNotes, updateJobPrice } from "@/lib/actions";
-import { flushQueue, getQueue, isOutOfDate, onQueueChange, reloadForUpdate } from "@/lib/offline-queue";
+import { dismissProblem, flushQueue, getProblems, getQueue, isOutOfDate, onQueueChange, reloadForUpdate, retryProblem, type OfflineProblem } from "@/lib/offline-queue";
 
 type OfflineSnapshotMeta = {
   syncedAt: number;
@@ -56,10 +55,13 @@ export function OfflineStatus() {
   const [syncRecovered, setSyncRecovered] = useState(false);
   const [snapshotMeta, setSnapshotMeta] = useState<OfflineSnapshotMeta | null>(null);
   const [queued, setQueued] = useState(0);
-  const [queueErrors, setQueueErrors] = useState<string[]>([]);
+  const [problems, setProblems] = useState<OfflineProblem[]>([]);
+  const [problemsOpen, setProblemsOpen] = useState(false);
+  /** Online but the last try didn't get everything through (signed out, server busy). */
+  const [stuck, setStuck] = useState<"" | "signedOut" | "waiting">("");
 
   useEffect(() => {
-    const update = () => setQueued(getQueue().length);
+    const update = () => { setQueued(getQueue().length); setProblems([...getProblems()]); };
     update();
     return onQueueChange(update);
   }, []);
@@ -104,23 +106,10 @@ export function OfflineStatus() {
     };
 
     const sendQueued = async () => {
-      if (!navigator.onLine || getQueue().length === 0) return;
-      const result = await flushQueue({
-        complete: (jobId) => completeJob(jobId),
-        skip: (jobId) => skipJob(jobId),
-        note: (jobId, notes) => updateJobNotes(jobId, notes),
-        price: (jobId, price) => updateJobPrice(jobId, price),
-        pay: (entry) => recordPayment({
-          customerId: entry.customerId,
-          allocations: entry.allocations,
-          method: entry.method,
-          clientRequestId: entry.id,
-          extra: entry.extra,
-          paidAt: new Date(entry.createdAt),
-        }),
-      });
-      if (result.failed.length > 0) setQueueErrors(result.failed);
-      if (result.sent > 0) router.refresh();
+      if (!navigator.onLine) return;
+      const result = await flushQueue();
+      setStuck(!result.waiting ? "" : result.signedOut ? "signedOut" : "waiting");
+      if (result.sent > 0 || result.rejected > 0) router.refresh();
     };
 
     const handleOnline = async () => {
@@ -163,39 +152,68 @@ export function OfflineStatus() {
     };
   }, [router]);
 
-  if (queueErrors.length > 0) {
-    return (
-      <div className="border-b border-red-200 bg-red-50 px-4 py-2">
-        <p className="text-sm font-semibold text-red-900">Some offline changes couldn&apos;t be saved</p>
-        <ul className="mt-1 list-disc pl-4 text-xs text-red-800">
-          {queueErrors.slice(0, 3).map((message, index) => <li key={index}>{message}</li>)}
+  const kindName: Record<string, string> = { complete: "Done", skip: "Skipped", note: "Note", price: "Price change", pay: "Payment" };
+  const problemsBar = problems.length > 0 && (
+    <div className="border-b border-red-200 bg-red-50 px-4 py-2">
+      <button type="button" onClick={() => setProblemsOpen((o) => !o)} className="w-full text-left text-sm font-semibold text-red-900">
+        {problems.length} offline change{problems.length === 1 ? "" : "s"} need{problems.length === 1 ? "s" : ""} checking {problemsOpen ? "▲" : "▼"}
+      </button>
+      {problemsOpen && (
+        <ul className="mt-2 space-y-2">
+          {problems.map((p) => (
+            <li key={p.id} className="rounded-lg border border-red-200 bg-white px-3 py-2 text-xs text-slate-700">
+              <p className="font-semibold text-slate-900">
+                {kindName[p.action.kind] ?? "Change"}{p.action.kind === "pay" ? ` £${(p.action.allocations.reduce((t, a) => t + a.amount, 0) + (p.action.extra ?? 0)).toFixed(2)} ${p.action.method === "BACS" ? "transfer" : p.action.method.toLowerCase()}` : ""}
+                {p.action.label ? `: ${p.action.label}` : ""}
+              </p>
+              <p className="text-slate-500">{new Date(p.action.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · Not saved: {p.error}</p>
+              <div className="mt-1.5 flex gap-3">
+                <button type="button" onClick={() => void retryProblem(p.id)} className="font-semibold text-blue-700 underline">Try again</button>
+                <button type="button" onClick={() => { if (window.confirm("Remove this from the list? It won't be saved.")) void dismissProblem(p.id); }} className="font-semibold text-slate-500 underline">Remove</button>
+              </div>
+            </li>
+          ))}
         </ul>
-        <button type="button" onClick={() => setQueueErrors([])} className="mt-2 text-xs font-semibold text-red-900 underline">Dismiss</button>
-      </div>
+      )}
+    </div>
+  );
+
+  // Online, nothing waiting, no problems: nothing to show.
+  if (isOnline && queued === 0 && !syncRecovered) return problemsBar || null;
+
+  if (isOnline && queued > 0 && stuck) {
+    return (
+      <>
+        {problemsBar}
+        <div className="sticky top-14 md:top-0 z-30 flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
+          <CloudOff size={14} className="flex-shrink-0" />
+          <span className="font-semibold">{queued} change{queued === 1 ? "" : "s"} not sent yet</span>
+          <span className="text-amber-800/90">{stuck === "signedOut" ? "Sign in again to send them." : "Kept on this phone."}</span>
+          {stuck === "signedOut"
+            ? <a href="/auth/signin" className="font-semibold underline">Sign in</a>
+            : <button type="button" onClick={() => { setStuck(""); void flushQueue().then((r) => setStuck(!r.waiting ? "" : r.signedOut ? "signedOut" : "waiting")); }} className="font-semibold underline">Send now</button>}
+        </div>
+      </>
     );
   }
-
-  // Background refreshes are silent; only show a banner when offline, when changes
-  // are waiting to send, or just after reconnecting.
-  if (isOnline && queued === 0 && !syncRecovered) return null;
 
   // A slim bar under the top menu (never covering it), stuck to the top while scrolling.
   if (!isOnline) {
     return (
-      <div className="sticky top-14 md:top-0 z-30 flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
+      <>{problemsBar}<div className="sticky top-14 md:top-0 z-30 flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
         <CloudOff size={14} className="flex-shrink-0" />
         <span className="font-semibold">No signal</span>
         <span className="truncate text-amber-800/90">
           {queued > 0 ? `${queued} change${queued === 1 ? "" : "s"} saved on this phone` : "keep working, taps are saved on this phone"}
         </span>
-      </div>
+      </div></>
     );
   }
 
   return (
-    <div className="sticky top-14 md:top-0 z-30 flex items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-4 py-1.5 text-xs text-emerald-900">
+    <>{problemsBar}<div className="sticky top-14 md:top-0 z-30 flex items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-4 py-1.5 text-xs text-emerald-900">
       {isSyncing || queued > 0 ? <RefreshCw size={14} className="flex-shrink-0 animate-spin" /> : <Wifi size={14} className="flex-shrink-0" />}
       <span className="font-semibold">{queued > 0 ? `Sending ${queued} saved change${queued === 1 ? "" : "s"}…` : "Back online, everything is saved"}</span>
-    </div>
+    </div></>
   );
 }

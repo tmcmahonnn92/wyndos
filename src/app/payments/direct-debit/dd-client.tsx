@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Copy, Link2, Loader2, Mail, MessageSquare, RefreshCw, Unlink } from "lucide-react";
@@ -9,6 +9,7 @@ import {
   syncGoCardlessNow, unlinkGoCardless, type getDirectDebitBoard, type getGoCardlessOverview,
 } from "@/lib/gocardless/actions";
 import { cn, fmtCurrency } from "@/lib/utils";
+import { ShareDirectDebitPicker } from "@/app/customers/[id]/direct-debit-panel";
 
 type Overview = Awaited<ReturnType<typeof getGoCardlessOverview>>;
 type Board = Awaited<ReturnType<typeof getDirectDebitBoard>>;
@@ -27,6 +28,7 @@ const good = (s: string) => ["active", "pending_submission", "submitted", "pendi
 
 export function DirectDebitClient({ overview, board, customers }: { overview: Overview; board: Board; customers: Array<{ id: number; name: string; address: string }> }) {
   const router = useRouter();
+  const [sharingFor, setSharingFor] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>(board.due.length ? "collect" : board.people.length ? "customers" : "link");
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<{ ok: boolean; text: string; list?: string[] } | null>(null);
@@ -180,7 +182,7 @@ export function DirectDebitClient({ overview, board, customers }: { overview: Ov
                     <tr key={d.jobId}>
                       <td className="w-8 px-3 py-2"><input type="checkbox" className="accent-blue-600" checked={picked.has(d.jobId)}
                         onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(d.jobId); else n.delete(d.jobId); return n; })} /></td>
-                      <td className="px-2 py-2"><Link href={`/customers/${d.customerId}`} className="font-medium text-slate-800 hover:underline">{d.customer}</Link></td>
+                      <td className="px-2 py-2"><Link href={`/customers/${d.customerId}`} className="font-medium text-slate-800 hover:underline">{d.customer}</Link>{d.address && <p className="truncate text-xs text-slate-400">{d.address}</p>}</td>
                       <td className="px-2 py-2 text-slate-500">{fmtDate(d.date)}</td>
                       <td className="px-2 py-2 text-xs">{d.mandateStatus && !good(d.mandateStatus) ? <span className="text-amber-700">Direct Debit {label(d.mandateStatus).toLowerCase()}</span> : ""}</td>
                       <td className="px-3 py-2 text-right font-semibold tabular-nums">{fmtCurrency(d.amount)}</td>
@@ -202,7 +204,7 @@ export function DirectDebitClient({ overview, board, customers }: { overview: Ov
               <tbody className="divide-y divide-slate-100">
                 {(tab === "progress" ? board.inProgress : board.failed).map((d) => (
                   <tr key={d.jobId}>
-                    <td className="px-3 py-2"><Link href={`/customers/${d.customerId}`} className="font-medium text-slate-800 hover:underline">{d.customer}</Link></td>
+                    <td className="px-3 py-2"><Link href={`/customers/${d.customerId}`} className="font-medium text-slate-800 hover:underline">{d.customer}</Link>{d.address && <p className="truncate text-xs text-slate-400">{d.address}</p>}</td>
                     <td className="px-2 py-2 text-slate-500">{fmtDate(d.date)}</td>
                     <td className={cn("px-2 py-2 text-xs", tab === "failed" ? "text-red-700" : "text-slate-600")}>{label(d.status)}</td>
                     <td className="px-2 py-2 text-right font-semibold tabular-nums">{fmtCurrency(d.amount)}</td>
@@ -252,11 +254,17 @@ export function DirectDebitClient({ overview, board, customers }: { overview: Ov
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-slate-100">
                   {board.people.map((p) => (
-                    <tr key={p.id} className={cn(!p.active && "text-slate-400")}>
+                  <Fragment key={p.id}>
+                    <tr className={cn(!p.active && "text-slate-400")}>
                       <td className="px-3 py-2"><Link href={`/customers/${p.id}`} className="font-medium hover:underline">{p.name}</Link><p className="text-xs text-slate-400">{p.address}</p></td>
-                      <td className={cn("px-2 py-2 text-xs", good(p.state) ? "text-green-700" : p.state === "link_sent" ? "text-blue-700" : "text-amber-700")}>{label(p.state)}{p.plan && <span className="block text-[11px] text-slate-500">GoCardless plan {p.plan}: regular cleans paid by the plan; extra jobs collected here</span>}</td>
+                      <td className={cn("px-2 py-2 text-xs", good(p.state) ? "text-green-700" : p.state === "link_sent" ? "text-blue-700" : "text-amber-700")}>{label(p.state)}{p.plan && <span className="block text-[11px] text-slate-500">GoCardless plan {p.plan}: regular cleans paid by the plan; extra jobs collected here</span>}
+                        {p.sharedWith.length > 0 && <span className="block text-[11px] text-blue-800">{p.pays ? "Also pays for" : "Shared with"} {p.sharedWith.map((o, i) => <span key={o.id}>{i > 0 ? ", " : ""}<Link href={`/customers/${o.id}`} className="underline">{o.name}</Link></span>)}</span>}</td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex justify-end gap-1.5">
+                          {!good(p.state) && board.people.some((o) => o.id !== p.id && good(o.state)) && (
+                            <button type="button" onClick={() => setSharingFor(sharingFor === p.id ? null : p.id)} title="Someone else pays: use another customer's Direct Debit"
+                              className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Use another&apos;s</button>
+                          )}
                           {!good(p.state) && (
                             <button type="button" disabled={busy === `link-${p.id}`} onClick={() => getLink(p.id)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                               {p.state === "link_sent" ? "New link" : "Sign-up link"}
@@ -270,6 +278,14 @@ export function DirectDebitClient({ overview, board, customers }: { overview: Ov
                         </div>
                       </td>
                     </tr>
+                    {sharingFor === p.id && (
+                      <tr><td colSpan={3} className="px-3 pb-3">
+                        <ShareDirectDebitPicker customerId={p.id}
+                          options={board.people.filter((o) => o.id !== p.id && good(o.state)).map((o) => ({ id: o.id, name: o.name, address: o.address }))}
+                          onDone={() => { setSharingFor(null); router.refresh(); }} onCancel={() => setSharingFor(null)} />
+                      </td></tr>
+                    )}
+                  </Fragment>
                   ))}
                 </tbody>
               </table>

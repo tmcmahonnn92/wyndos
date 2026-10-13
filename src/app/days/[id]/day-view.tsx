@@ -90,6 +90,11 @@ type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
 type FutureDay = Awaited<ReturnType<typeof getWorkDays>>[0];
 type Job = Day["jobs"][0];
 
+/** How a saved change is named if it needs checking later. */
+function labelOf(job: Job) {
+  return [job.customer.name, job.customer.address].filter(Boolean).join(", ").slice(0, 160);
+}
+
 function tomorrowISO() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -435,16 +440,16 @@ export function DayView({
     if (typeof navigator === "undefined" || navigator.onLine) router.refresh();
   };
   const doComplete = async (job: Job) => {
-    const result = await runOrQueue({ kind: "complete", jobId: job.id, workDayId: job.workDayId }, () => completeJob(job.id));
+    const result = await runOrQueue({ kind: "complete", jobId: job.id, workDayId: job.workDayId, label: labelOf(job) }, () => completeJob(job.id));
     if (result === "queued") setLocalStatus((prev) => ({ ...prev, [job.id]: "COMPLETE" }));
   };
   const doSkip = async (job: Job) => {
-    const result = await runOrQueue({ kind: "skip", jobId: job.id, workDayId: job.workDayId }, () => skipJob(job.id));
+    const result = await runOrQueue({ kind: "skip", jobId: job.id, workDayId: job.workDayId, label: labelOf(job) }, () => skipJob(job.id));
     if (result === "queued") setLocalStatus((prev) => ({ ...prev, [job.id]: "SKIPPED" }));
   };
   /** Note / price changes made at the door: saved on the phone if there's no signal. */
   const doNote = (job: Job, notes: string) =>
-    runOrQueue({ kind: "note", jobId: job.id, workDayId: job.workDayId, notes }, () => updateJobNotes(job.id, notes));
+    runOrQueue({ kind: "note", jobId: job.id, workDayId: job.workDayId, notes, label: labelOf(job) }, () => updateJobNotes(job.id, notes));
   /** Add a note as its own line (bullet) under any notes already on the job. */
   const addNote = (job: Job, ...lines: Array<string | null | undefined>) => {
     const added = lines.map((l) => (l ?? "").trim()).filter(Boolean);
@@ -452,7 +457,7 @@ export function DayView({
     return doNote(job, [job.notes?.trim(), ...added].filter(Boolean).join("\n"));
   };
   const doPrice = (job: Job, price: number) =>
-    runOrQueue({ kind: "price", jobId: job.id, workDayId: job.workDayId, price }, () => updateJobPrice(job.id, price));
+    runOrQueue({ kind: "price", jobId: job.id, workDayId: job.workDayId, price, label: labelOf(job) }, () => updateJobPrice(job.id, price));
   const doPay = async (
     job: Job,
     allocations: Array<{ jobId: number; amount: number }>,
@@ -463,7 +468,7 @@ export function DayView({
     // Nothing left to take (their credit covered it).
     if (allocations.every((a) => a.amount <= 0.005) && extra <= 0.005) return;
     await runOrQueue(
-      { kind: "pay", jobId: job.id, workDayId: job.workDayId, customerId: job.customerId, allocations, method, extra },
+      { kind: "pay", jobId: job.id, workDayId: job.workDayId, customerId: job.customerId, allocations, method, notes, extra, label: labelOf(job) },
       (clientRequestId) => recordPayment({ customerId: job.customerId, allocations, method, notes, clientRequestId, extra }),
     );
   };
