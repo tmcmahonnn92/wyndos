@@ -98,9 +98,11 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
     const scheduled = weeks !== null && status !== "done";
     if (!scheduled) unscheduled++;
     const method = j["Payment Method"] ?? "";
-    // GoCardless IDs: Aworka's column names vary between exports, so look in every column
-    // for GoCardless-shaped IDs (MD… = Direct Debit mandate, CU… = GoCardless customer).
-    const gcCells = Object.entries(j).map(([k, v]) => [k, String(v ?? "").trim()] as const);
+    // GoCardless IDs (MD… = Direct Debit mandate, CU… = GoCardless customer). Only from columns
+    // whose name says GoCardless / mandate / Direct Debit, so a customer ref like "CUST0012" is never taken.
+    const gcCells = Object.entries(j)
+      .filter(([k]) => /gocardless|go cardless|\bgc\b|mandate|direct debit|\bdd\b/i.test(k))
+      .map(([k, v]) => [k, String(v ?? "").trim()] as const);
     const mandate = (gcCells.find(([, v]) => /^MD[A-Z0-9]{6,}$/i.test(v))?.[1] ?? "").toUpperCase();
     const gcCustomer = (gcCells.find(([, v]) => /^CU[A-Z0-9]{6,}$/i.test(v))?.[1] ?? "").toUpperCase();
     const mandateStatus = j["GoCardless Status"] ?? gcCells.find(([k]) => /gocardless|mandate|direct debit|\bdd\b/i.test(k) && /status/i.test(k))?.[1] ?? "";
