@@ -113,7 +113,7 @@ export function DirectDebitGuide({ publicView = false }: { publicView?: boolean 
               To switch someone to paying per clean, cancel the plan in GoCardless (their Direct Debit stays) and sync.
             </li>
             <li>Turn on <strong>Collect automatically</strong> only once everyone&apos;s linked and you&apos;ve checked who&apos;s on a plan.</li>
-            <li><strong>Moving from Aworka?</strong> The Aworka import brings each customer&apos;s Direct Debit across with them, so there&apos;s nothing to link: connect GoCardless and sync. Past GoCardless payments in the Aworka history are recognised, so nothing is counted twice.</li>
+            <li><strong>Moving from Aworka?</strong> The Aworka import brings each customer&apos;s Direct Debit across with them, so there&apos;s nothing to link: connect GoCardless and sync. Past GoCardless payments in the Aworka history are recognised, so nothing is counted twice. Houses Aworka had linked to one payer come in already sharing that Direct Debit.</li>
             <li>If your old program used <strong>its own</strong> GoCardless account rather than yours, the Direct Debits can&apos;t simply be linked. Ask GoCardless support about moving them to your account (they can usually do this without customers signing again), or send each customer a sign-up link.</li>
           </ul>
         </Section>
@@ -174,11 +174,15 @@ export function DirectDebitGuide({ publicView = false }: { publicView?: boolean 
           <p>A landlord, or someone paying for a relative&apos;s house, can pay for several customers from one Direct Debit. Keep each house as its own customer, then:</p>
           <ol>
             <li>Make sure the person paying has an active Direct Debit on one of the houses.</li>
-            <li>Open each other house. Under <strong>Direct Debit</strong>, press <strong>Someone else pays? Use another customer&apos;s Direct Debit</strong> and pick the house that has it.</li>
+            <li>Open each other house. Under <strong>Direct Debit</strong> (or in <strong>Edit customer</strong>), press <strong>Someone else pays? Use another customer&apos;s Direct Debit</strong>, search, and pick the house that has it.</li>
           </ol>
+          <p>
+            Or do it from <strong>Payments → Direct Debit → Customers</strong>: press <strong>Use another&apos;s</strong> next to the house.
+            That list shows who shares: the paying house says <strong>Also pays for …</strong>, the others <strong>Shared with … (pays)</strong>.
+          </p>
           <ul>
             <li>Each house shows <strong>Shared Direct Debit: also used by …</strong>.</li>
-            <li>Each clean is still collected on its own, with the house&apos;s address on the payment, so the payer can see what each one was for. A failed or charged-back payment only affects that one clean.</li>
+            <li>Each clean is still collected on its own, with the house&apos;s address on the payment, so the payer can see what each one was for. <strong>To collect</strong>, <strong>In progress</strong> and <strong>Failed</strong> show the address under each name. A failed or charged-back payment only affects that one clean.</li>
             <li>A payment the payer makes in GoCardless itself pays the oldest unpaid cleans across all the houses, oldest first. Anything left over is kept as credit on the house that set up the Direct Debit.</li>
             <li>If the Direct Debit is cancelled or replaced, every house sharing it updates together.</li>
             <li>To stop, open the house and press <strong>Stop using this Direct Debit</strong>. The other houses keep it.</li>

@@ -78,6 +78,7 @@ const FAQ = [
   { q: "How long does it take to set up?", a: "If your customers are in a spreadsheet, most of it is done in an evening. Upload it, check the columns match up, and your areas are made for you." },
   { q: "I only want a diary for my round. Is it overkill?", a: "No. Payments, invoices, texts, workers and accounts are all optional. Plenty of people just use the planner and day sheets." },
   { q: "Does it work on my phone?", a: "Yes, it's made for the phone first. Add it to your home screen and it opens like any other app." },
+  { q: "What if there's no signal on my round?", a: "Keep working. Done, Done & Paid, skips and notes are saved on the phone and sent when you're back online. Planning and adding customers need signal." },
   { q: "Do my workers cost extra?", a: "No. Each worker gets their own login and only sees what you let them. It's covered by your one subscription." },
   { q: "What if I get stuck?", a: "Use Help & support in the app or email support@wyndos.io. You'll get a reply from the person who builds it, usually within a working day." },
   { q: "Can I cancel?", a: "Any time, from the Billing page. Download a backup of your data first if you want to keep a copy." },
