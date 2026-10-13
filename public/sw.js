@@ -145,3 +145,101 @@ self.addEventListener("message", (event) => {
     event.waitUntil(caches.delete(PAGES));
   }
 });
+
+/* ── Saved offline changes: background sending ─────────────────────────────
+ * The same sending as src/lib/offline-queue.ts (keep the two in step). Android sends here
+ * when signal comes back, even with Wyndos closed ("sync" event). The page can also ask.
+ */
+const OFFLINE_DB = "wyndos-offline";
+const OFFLINE_LOCK = "wyndos-offline-sync";
+
+function offlineDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(OFFLINE_DB, 1);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains("queue")) d.createObjectStore("queue", { keyPath: "id" });
+      if (!d.objectStoreNames.contains("problems")) d.createObjectStore("problems", { keyPath: "id" });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function offlineTx(db, store, mode, run) {
+  return new Promise((resolve, reject) => {
+    const t = db.transaction(store, mode);
+    let result;
+    const req = run(t.objectStore(store));
+    if (req) req.onsuccess = () => { result = req.result; };
+    t.oncomplete = () => resolve(result);
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
+}
+
+async function tellPages() {
+  try { new BroadcastChannel("wyndos-offline").postMessage("changed"); } catch {}
+  const list = await self.clients.matchAll({ includeUncontrolled: true });
+  for (const c of list) c.postMessage({ type: "offline-queue-changed" });
+}
+
+/** Returns true when everything is sent (or nothing to send); false to try again later. */
+async function sendOffline() {
+  const db = await offlineDb();
+  try {
+    for (let round = 0; round < 20; round++) {
+      const all = (await offlineTx(db, "queue", "readonly", (s) => s.getAll())) || [];
+      all.sort((a, b) => (a.order ?? a.createdAt) - (b.order ?? b.createdAt) || a.createdAt - b.createdAt);
+      const batch = all.slice(0, 50);
+      if (batch.length === 0) return true;
+      let res;
+      try {
+        res = await fetch("/api/offline/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ v: 1, items: batch }),
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+      } catch {
+        return false;
+      }
+      const isJson = (res.headers.get("Content-Type") || "").includes("application/json");
+      const json = isJson ? await res.json().catch(() => null) : null;
+      if (!res.ok || res.redirected || !json || !Array.isArray(json.results)) return false;
+      const byId = new Map(json.results.map((r) => [r.id, r]));
+      let stop = false;
+      for (const item of batch) {
+        const r = byId.get(item.id);
+        if (!r || r.status === "retry") { stop = true; break; }
+        if (r.status === "rejected") {
+          await offlineTx(db, "problems", "readwrite", (s) => s.put({ id: item.id, action: item, error: r.error || "Couldn't be saved.", at: Date.now() }));
+        }
+        await offlineTx(db, "queue", "readwrite", (s) => s.delete(item.id));
+      }
+      await tellPages();
+      if (stop) return false;
+    }
+    return false;
+  } finally {
+    db.close();
+  }
+}
+
+function sendOfflineLocked() {
+  const locks = self.navigator && self.navigator.locks;
+  if (!locks) return sendOffline();
+  // A page is sending right now: it'll finish the job.
+  return locks.request(OFFLINE_LOCK, { ifAvailable: true }, (lock) => (lock ? sendOffline() : true));
+}
+
+self.addEventListener("sync", (event) => {
+  if (event.tag !== "wyndos-offline") return;
+  // Not everything sent: rejecting asks the phone to try again later.
+  event.waitUntil(sendOfflineLocked().then((done) => { if (!done) throw new Error("Will try again"); }));
+});
+
+self.addEventListener("message", (event) => {
+  if ((event.data || {}).type === "send-offline") event.waitUntil(sendOfflineLocked().catch(() => false));
+});

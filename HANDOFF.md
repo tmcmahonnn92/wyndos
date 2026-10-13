@@ -67,6 +67,12 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Own service worker `public/sw.js` (next-pwa removed). Pages network-first then cached; `/_next/static` cache-first; RSC/API/POST never cached. `public/offline.html` fallback.
 - `OfflineStatus` registers it and pre-saves today's and the next few days' day pages. Sign-out clears saved pages.
 - Taps (done, skip, pay, note, price) queue in `src/lib/offline-queue.ts`; calls give up after 12s on weak signal and queue.
+- Queue lives in IndexedDB (`wyndos-offline`: stores `queue`, `problems`), with `navigator.storage.persist()`; falls back to localStorage. Old localStorage queues are moved across on load.
+- Sent to the fixed route `POST /api/offline/sync` (not server actions, whose names change every deploy). Per item: ok / rejected (→ "Needs checking" list with Try again / Remove) / retry (signed out, database busy). Payments use the item id as clientRequestId, paidAt = when tapped.
+- Senders: the page (on load, focus, online, every 10s while waiting) and the service worker (`sync` event on Android, or `{type:"send-offline"}` message). One at a time via Web Locks. `public/sw.js` duplicates the sending code: keep it in step with `offline-queue.ts`.
+- A tap online on a page from before a deploy (server action not found) is queued and sent through the route. While older taps are waiting, new taps go behind them.
+- Sign-out with unsent changes asks first; going ahead deletes them (so they can't be sent as the next person).
+- Browser test: `scripts/sim/offline-browser-check.cjs` (local demo data: sam@example.com, work day 177).
 
 ## Billing (Stripe)
 - £9.99/month, everything included, no VAT (Tom isn't VAT registered). 15-day trial kept by Wyndos (from `Tenant.createdAt`, or `trialEndsAt`), no card.
