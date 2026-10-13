@@ -5614,6 +5614,35 @@ export async function updateBusinessSettings(data: {
   }
   // Direct Debit settings only for businesses it's switched on for.
   if (!(await goCardlessOn(tenantId))) for (const k of Object.keys(updateData)) if (k.startsWith("goCardless")) delete updateData[k];
+  // A password manager can fill a saved password into the token box without you noticing, and
+  // saving would then replace a working token. GoCardless tokens always start live_ or sandbox_.
+  if (typeof updateData.goCardlessAccessToken === "string") {
+    const token = updateData.goCardlessAccessToken.trim();
+    if (!token) delete updateData.goCardlessAccessToken;
+    else if (!/^(live|sandbox)_[A-Za-z0-9_-]{20,}$/.test(token)) {
+      throw new Error("That isn't a GoCardless access token (they start live_ or sandbox_). Your browser may have filled in a saved password: clear the Direct Debit token box and save again. Your current token hasn't changed.");
+    } else updateData.goCardlessAccessToken = token;
+  }
+  // Email app password: catch a browser filling in your Wyndos login, and the wrong shape for Gmail/iCloud.
+  if (typeof updateData.smtpPass === "string" && updateData.smtpPass.trim()) {
+    const provider = String(updateData.smtpProvider ?? (await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { smtpProvider: true } }))?.smtpProvider ?? "gmail");
+    let pass = updateData.smtpPass.trim();
+    const login = await prisma.user.findUnique({ where: { id: user.id }, select: { passwordHash: true } });
+    if (login?.passwordHash && (await import("bcryptjs")).compareSync(pass, login.passwordHash)) {
+      throw new Error("That's your Wyndos login password, not your email app password. Your browser probably filled it in: clear the app password box and save again.");
+    }
+    if (provider === "gmail") {
+      pass = pass.replace(/\s+/g, "");
+      if (!/^[a-z]{16}$/i.test(pass)) throw new Error("A Gmail app password is 16 letters (Google shows it in 4 groups). Your normal Gmail password won't work, and your browser may have filled one in.");
+    }
+    if (provider === "icloud" && !/^[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}$/i.test(pass)) {
+      throw new Error("An iCloud app-specific password looks like abcd-efgh-ijkl-mnop. Your normal Apple ID password won't work, and your browser may have filled one in.");
+    }
+    updateData.smtpPass = pass;
+  }
+  if (typeof updateData.twilioAuthToken === "string" && updateData.twilioAuthToken.trim() && !/^[0-9a-f]{32}$/i.test(updateData.twilioAuthToken.trim())) {
+    throw new Error("That isn't a Twilio auth token (32 letters and numbers). Your browser may have filled in a saved password: clear that box and save again.");
+  }
   if (typeof updateData.logoBase64 === "string" && !/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(updateData.logoBase64)) {
     throw new Error("The logo must be a PNG, JPG or WebP picture.");
   }

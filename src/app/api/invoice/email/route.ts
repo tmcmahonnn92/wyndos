@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     if (!Number.isInteger(customerId) || customerId <= 0 || jobIds.length === 0) return NextResponse.json({ error: "Choose at least one clean." }, { status: 400 });
 
     const [customer, settings, jobs] = await Promise.all([
-      prisma.customer.findFirst({ where: { id: customerId, tenantId }, select: { id: true, name: true, address: true, email: true, emailInvoices: true } }),
+      prisma.customer.findFirst({ where: { id: customerId, tenantId }, select: { id: true, name: true, address: true, email: true, emailInvoices: true, goCardlessMandateId: true, goCardlessMandateStatus: true } }),
       getBusinessSettings(),
       prisma.job.findMany({
         where: { id: { in: jobIds }, customerId, tenantId },

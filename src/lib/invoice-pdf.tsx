@@ -141,6 +141,8 @@ export interface InvoiceData {
   vat?: { rate: number; net: number; vat: number } | null;
   paymentTerms?: string;
   note?: string;
+  /** A stamp by the totals, e.g. "PAID BY DIRECT DEBIT". */
+  stamp?: string;
 }
 
 function fmt(n: number) {
@@ -263,6 +265,14 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
             <Text style={styles.grandTotalValue}>{fmt(data.amountDue)}</Text>
           </View>
         </View>
+
+        {data.stamp ? (
+          <View style={{ alignItems: "flex-end", marginTop: -6, marginBottom: 16 }}>
+            <Text style={{ borderWidth: 2.5, borderColor: "#16a34a", borderRadius: 6, color: "#16a34a", fontFamily: "Helvetica-Bold", fontSize: 14, letterSpacing: 1.5, paddingVertical: 6, paddingHorizontal: 12, transform: "rotate(-6deg)" }}>
+              {data.stamp}
+            </Text>
+          </View>
+        ) : null}
 
         {/* Payment terms */}
         {data.paymentTerms ? (

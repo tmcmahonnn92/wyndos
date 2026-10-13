@@ -15,8 +15,8 @@ import { decryptSettingsSecrets } from "@/lib/secrets";
 
 export const GC_RECEIVED = new Set(["confirmed", "paid_out"]);
 export const GC_FAILED = new Set(["failed", "cancelled", "customer_approval_denied", "charged_back"]);
-/** Mandate statuses a payment can be taken against. */
-export const GC_MANDATE_USABLE = new Set(["pending_customer_approval", "pending_submission", "submitted", "active"]);
+import { GC_MANDATE_USABLE, isExtraJob } from "@/lib/gocardless/status";
+export { GC_MANDATE_USABLE, isExtraJob };
 
 const round2 = (n: number) => Number(n.toFixed(2));
 
@@ -235,10 +235,6 @@ export async function cleansToCollect(tenantId: number, opts: { since?: Date | n
     .filter((j) => !j.customer.goCardlessPlan || isExtraJob(j, j.customer));
 }
 
-/** An extra job (gutters, a conservatory…): a one-off that isn't their regular service. */
-export function isExtraJob(job: { isOneOff: boolean; name: string }, customer: { jobName?: string | null }) {
-  return job.isOneOff && job.name !== (customer.jobName || "Window Cleaning");
-}
 
 /** Take a Direct Debit for each of these cleans (what's still owed on it). */
 export async function collectForJobs(tenantId: number, jobIds: number[]) {

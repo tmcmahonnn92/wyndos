@@ -464,6 +464,10 @@ export function SettingsClient({
         }
 
         await updateBusinessSettings(payload);
+        // Secrets are stored; clear the boxes so nothing (typed or filled in by the browser) is sent again.
+        setSmtp((c) => ({ ...c, smtpPass: "" }));
+        setGoCardless((c) => ({ ...c, accessToken: "" }));
+        setMessaging((c) => ({ ...c, voodooApiKey: "", twilioAuthToken: "", metaAccessToken: "" }));
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
       } catch (e) {
@@ -757,7 +761,7 @@ export function SettingsClient({
                 <label className={lbl}>Access token</label>
                 <div className="relative">
                   <input
-                    type={showGoCardlessToken ? "text" : "password"}
+                    type={showGoCardlessToken ? "text" : "password"} autoComplete="new-password" data-1p-ignore data-lpignore="true" data-form-type="other"
                     className={cn(inp, "pr-9")}
                     value={goCardless.accessToken}
                     onChange={(e) => setGoCardless((current) => ({ ...current, accessToken: e.target.value }))}
@@ -801,7 +805,7 @@ export function SettingsClient({
               <div>
                 <label className={lbl}>{smtp.smtpProvider === "custom" ? "Password" : "App password"}</label>
                 <div className="relative">
-                  <input type={showSmtpPass ? "text" : "password"} className={cn(inp, "pr-9")} value={smtp.smtpPass} onChange={setS("smtpPass")} placeholder={settings.smtpPassConfigured ? "Configured - enter a new password to replace it" : "Enter app password"} />
+                  <input type={showSmtpPass ? "text" : "password"} autoComplete="new-password" data-1p-ignore data-lpignore="true" data-form-type="other" className={cn(inp, "pr-9")} value={smtp.smtpPass} onChange={setS("smtpPass")} placeholder={settings.smtpPassConfigured ? "Configured - enter a new password to replace it" : "Enter app password"} />
                   <button type="button" onClick={() => setShowSmtpPass((v) => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">{showSmtpPass ? <EyeOff size={14} /> : <Eye size={14} />}</button>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">{settings.smtpPassConfigured ? "A password is already stored. Leave this blank to keep the current value." : "Stored passwords are never shown after saving."}</p>
@@ -948,7 +952,7 @@ export function SettingsClient({
                   <div className="col-span-2">
                     <label className={lbl}>API Key</label>
                     <div className="relative">
-                      <input type={showVoodooKey ? "text" : "password"} className={cn(inp, "pr-9")} value={messaging.voodooApiKey}
+                      <input type={showVoodooKey ? "text" : "password"} autoComplete="new-password" data-1p-ignore data-lpignore="true" data-form-type="other" className={cn(inp, "pr-9")} value={messaging.voodooApiKey}
                         onChange={(e) => setMessaging((m) => ({ ...m, voodooApiKey: e.target.value }))} placeholder={settings.voodooApiKeyConfigured ? "Configured - enter a new API key to replace it" : "Paste your VoodooSMS API key"} />
                       <button type="button" onClick={() => setShowVoodooKey((v) => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">{showVoodooKey ? <EyeOff size={14} /> : <Eye size={14} />}</button>
                     </div>
@@ -1086,7 +1090,7 @@ export function SettingsClient({
                   <div className="col-span-2">
                     <label className={lbl}>Permanent Access Token</label>
                     <div className="relative">
-                      <input type={showMetaToken ? "text" : "password"} className={cn(inp, "pr-9")}
+                      <input type={showMetaToken ? "text" : "password"} autoComplete="new-password" data-1p-ignore data-lpignore="true" data-form-type="other" className={cn(inp, "pr-9")}
                         value={messaging.metaAccessToken}
                         onChange={(e) => { setMessaging((m) => ({ ...m, metaAccessToken: e.target.value })); setMetaVerify({ status: "idle" }); }}
                         placeholder={settings.metaAccessTokenConfigured ? "Configured - enter a new token to replace it" : "EAAxxxxxxxx…"} />
@@ -1162,7 +1166,7 @@ export function SettingsClient({
                   <div className="col-span-2">
                     <label className={lbl}>Auth Token</label>
                     <div className="relative">
-                      <input type={showTwilioAuth ? "text" : "password"} className={cn(inp, "pr-9")} value={messaging.twilioAuthToken}
+                      <input type={showTwilioAuth ? "text" : "password"} autoComplete="new-password" data-1p-ignore data-lpignore="true" data-form-type="other" className={cn(inp, "pr-9")} value={messaging.twilioAuthToken}
                         onChange={(e) => setMessaging((m) => ({ ...m, twilioAuthToken: e.target.value }))} placeholder={settings.twilioAuthTokenConfigured ? "Configured - enter a new token to replace it" : "Your Twilio Auth Token"} />
                       <button type="button" onClick={() => setShowTwilioAuth((v) => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">{showTwilioAuth ? <EyeOff size={14} /> : <Eye size={14} />}</button>
                     </div>

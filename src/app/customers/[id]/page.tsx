@@ -51,6 +51,7 @@ export default async function CustomerPage({ params }: Props) {
         goCardlessOn={settings.goCardlessOn}
         invoiceEmailOn={settings.invoiceEmailOn}
         invoiceEmailReady={settings.invoiceEmailReady}
+        autoInvoiceOn={Boolean(settings.autoInvoiceEmail)}
         texts={texts.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() }))}
       />
       <PlaceAfter
