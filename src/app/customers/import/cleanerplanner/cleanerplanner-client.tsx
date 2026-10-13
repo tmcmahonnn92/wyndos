@@ -136,6 +136,7 @@ export function MoveImport({ source }: { source: Source }) {
           preferredPaymentMethod: c.preferredPaymentMethod, notes: c.notes, nextDueDate: c.nextDueDate,
           lastCompletedDate: c.lastCompletedDate, sortOrder: c.sortOrder, active: c.active, scheduled: repeats(c),
           openingBalance: Math.round(opening * 100) / 100, openingDate: openingDate || "",
+          goCardlessMandateId: c.goCardlessMandateId, goCardlessMandateStatus: c.goCardlessMandateStatus,
         };
       });
       const ids: Record<string, number> = {};
@@ -144,6 +145,7 @@ export function MoveImport({ source }: { source: Source }) {
       const chosenKeys = new Set(chosen.map((c) => c.key));
       const historyItems: CpHistoryItem[] = useHistory ? backup.txns.filter((t) => chosenKeys.has(t.jobKey)).map((t) => ({
         customerId: 0, kind: t.kind, date: t.date, amount: t.amount, method: t.method, note: t.note, key: t.jobKey,
+        goCardlessPaymentId: t.goCardlessPaymentId, goCardlessStatus: t.goCardlessStatus,
       })) as Array<CpHistoryItem & { key: string }> : [];
       const steps = Math.ceil(rows.length / 250) + Math.ceil(historyItems.length / 1500) + 1;
       let done = 0;

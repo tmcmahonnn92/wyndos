@@ -114,6 +114,7 @@ export default async function DirectDebitGuidePage() {
               To switch someone to paying per clean, cancel the plan in GoCardless (their Direct Debit stays) and sync.
             </li>
             <li>Turn on <strong>Collect automatically</strong> only once everyone&apos;s linked and you&apos;ve checked who&apos;s on a plan.</li>
+            <li><strong>Moving from Aworka?</strong> The Aworka import brings each customer&apos;s Direct Debit across with them, so there&apos;s nothing to link: connect GoCardless and sync. Past GoCardless payments in the Aworka history are recognised, so nothing is counted twice.</li>
             <li>If your old program used <strong>its own</strong> GoCardless account rather than yours, the Direct Debits can&apos;t simply be linked. Ask GoCardless support about moving them to your account (they can usually do this without customers signing again), or send each customer a sign-up link.</li>
           </ul>
         </Section>

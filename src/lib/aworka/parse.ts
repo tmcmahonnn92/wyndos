@@ -128,7 +128,10 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
       scheduled,
       price: num(j.Price),
       jobName: (j.Task ?? "").trim() || "Window Cleaning",
-      preferredPaymentMethod: /gocardless|direct debit/i.test(method) ? "DD" : mapPaymentMethod(method),
+      preferredPaymentMethod: /gocardless|direct debit/i.test(method) || /^MD[A-Z0-9]{6,}$/i.test((j["GoCardless Mandate"] ?? "").trim()) ? "DD" : mapPaymentMethod(method),
+      // The Direct Debit itself (it's in the business's own GoCardless account), linked straight away.
+      goCardlessMandateId: /^MD[A-Z0-9]{6,}$/i.test((j["GoCardless Mandate"] ?? "").trim()) ? (j["GoCardless Mandate"] ?? "").trim().toUpperCase() : undefined,
+      goCardlessMandateStatus: /^MD[A-Z0-9]{6,}$/i.test((j["GoCardless Mandate"] ?? "").trim()) ? gcStatus(j["GoCardless Status"] ?? "") : undefined,
       notes: [...new Set(notes)].join("\n"),
       nextDueDate: scheduled ? iso(j["Next Due"]) : "",
       lastCompletedDate: iso(j["Last Done/Skipped"]),
@@ -271,6 +274,9 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
     const tb = num(a["Tip/Bad Debt"]);
     const method = txnMethod(a["Paid By"] ?? "");
     const ref = [a["Paid By"], a["Pay Ref"]].filter(Boolean).join(" · ");
+    // Paid by Direct Debit through GoCardless: keep its payment ID so Wyndos's sync recognises it.
+    const gcRef = /gocardless/i.test(a["Paid By"] ?? "") && /^PM[A-Z0-9]{6,}$/i.test((a["Pay Ref"] ?? "").trim()) ? (a["Pay Ref"] ?? "").trim().toUpperCase() : "";
+    const gc = gcRef ? { goCardlessPaymentId: gcRef, goCardlessStatus: gcStatus(a["Pay Status"] ?? "") } : {};
     if (t === "job") {
       if (a.Type !== "Done") { skippedTxns++; continue; }
       const jobKey = jobFor(cid, a);
@@ -278,7 +284,7 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
       const price = r2(num(a["Gross Price"]));
       if (price > 0) txns.push({ jobKey, kind: "charge", date, amount: price, method, note: a.Details && !/^window cleaning$/i.test(a.Details) ? a.Details : "" });
       const tip = tb < 0 && paid > 0 ? r2(-tb) : 0;
-      if (paid - tip > 0.004) txns.push({ jobKey, kind: "payment", date: paidOn, amount: r2(paid - tip), method, note: ref });
+      if (paid - tip > 0.004) txns.push({ jobKey, kind: "payment", date: paidOn, amount: r2(paid - tip), method, note: ref, ...gc });
       if (tip > 0) { txns.push({ jobKey, kind: "tip", date: paidOn, amount: tip, method, note: "Tip" }); tips++; }
       if (tb > 0) { txns.push({ jobKey, kind: "writeoff", date, amount: r2(tb), method, note: "Bad debt written off in Aworka" }); writeoffs++; }
     } else if ((t === "payment" || t === "invoice") && paid > 0 && main) {
@@ -287,13 +293,15 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
         const left = shown.get(k) ?? 0;
         if (left > 0) { shown.set(k, left - 1); continue; } // already counted on the clean or invoice
       }
-      txns.push({ jobKey: main, kind: "payment", date: paidOn, amount: paid, method, note: [t === "invoice" ? a.Description : "", ref].filter(Boolean).join(" · ") });
+      txns.push({ jobKey: main, kind: "payment", date: paidOn, amount: paid, method, note: [t === "invoice" ? a.Description : "", ref].filter(Boolean).join(" · "), ...gc });
     } else if (t === "adjustment" && main) {
       const amount = r2(-num(a["Gross Price"]));
       if (amount > 0) { txns.push({ jobKey: main, kind: "writeoff", date, amount, method, note: a.Description || "Adjustment in Aworka" }); writeoffs++; }
       else if (amount < 0) txns.push({ jobKey: main, kind: "charge", date, amount: -amount, method, note: a.Description || "Adjustment in Aworka" });
     }
   }
+  const onDd = out.filter((c) => c.goCardlessMandateId).length;
+  if (onDd) warnings.push(`${onDd} customer${onDd === 1 ? " pays" : "s pay"} by Direct Debit through GoCardless. Their Direct Debits come across too: connect your GoCardless account in Settings and they're ready to collect, with no sign-up needed. Past GoCardless payments in the history won't be counted twice.`);
   if (unmatched.size) warnings.push(`${unmatched.size} customer${unmatched.size === 1 ? "" : "s"} in the history aren't in jobs.csv, so their ${skippedTxns} past entr${skippedTxns === 1 ? "y" : "ies"} can't be linked.`);
   const order = { charge: 0, writeoff: 1, payment: 2, tip: 3 } as const;
   txns.sort((a, b) => a.date.localeCompare(b.date) || order[a.kind] - order[b.kind]);
@@ -347,4 +355,10 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
     expenses,
     quotes,
   };
+}
+
+/** Aworka's GoCardless status words ("Active", "Paid Out", "Pending Submission") as GoCardless's own. */
+function gcStatus(text: string) {
+  const t = text.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return t || "active";
 }

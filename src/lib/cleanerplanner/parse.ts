@@ -112,10 +112,17 @@ export type CpCustomer = {
   balance: number;
   startingBalance: number;
   startingBalanceDate: string;
+  /** Their Direct Debit in the business's own GoCardless account (Aworka export), e.g. MD01… */
+  goCardlessMandateId?: string;
+  goCardlessMandateStatus?: string;
 };
 
 /** charge = a clean; payment; tip = extra paid on top (other income); writeoff = bad debt cleared off what they owe. */
-export type CpTxn = { jobKey: string; kind: "charge" | "payment" | "tip" | "writeoff"; date: string; amount: number; method: "CASH" | "BACS" | "CARD"; note: string };
+export type CpTxn = {
+  jobKey: string; kind: "charge" | "payment" | "tip" | "writeoff"; date: string; amount: number; method: "CASH" | "BACS" | "CARD"; note: string;
+  /** Direct Debit taken through GoCardless (Aworka): its payment ID (PM…) and status, so Wyndos's sync never adds it twice. */
+  goCardlessPaymentId?: string; goCardlessStatus?: string;
+};
 
 /** An expense brought across with the backup (Aworka). */
 export type CpExpense = { row: number; date: string; supplier: string; description: string; sourceCategory: string; amount: number; vat: number; category: string; skip: boolean; skipReason: string };
