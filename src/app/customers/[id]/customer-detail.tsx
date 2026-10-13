@@ -59,6 +59,8 @@ interface Props {
   invoiceEmailOn?: boolean;
   /** The business has its own email set up (invoices are sent from it). */
   invoiceEmailReady?: boolean;
+  /** Settings → Business: invoices emailed automatically when a day is finished. */
+  autoInvoiceOn?: boolean;
   /** Texts sent to this customer, newest first. */
   texts?: Array<{ id: number; kind: string; status: string; body: string; createdAt: string; error: string }>;
 }
@@ -88,7 +90,7 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", goCardlessOn = false, invoiceEmailOn = false, invoiceEmailReady = false, texts = [] }: Props) {
+export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", goCardlessOn = false, invoiceEmailOn = false, invoiceEmailReady = false, autoInvoiceOn = false, texts = [] }: Props) {
   const [showAllTexts, setShowAllTexts] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [bookDate, setBookDate] = useState("");
@@ -835,12 +837,17 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               placeholder="Window Cleaning"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-          <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2">
+          {invoiceEmailOn && <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2">
             <input type="checkbox" checked={form.emailInvoices} onChange={(e) => setForm(f => ({ ...f, emailInvoices: e.target.checked }))} className="mt-0.5" />
             <span className="text-sm text-slate-700">Email invoices to this customer
-              <span className="block text-xs text-slate-400">{form.email.trim() ? `Sent to ${form.email.trim()}` : "Add their email address above first."}</span>
+              <span className="block text-xs text-slate-400">
+                {!form.email.trim() ? "Add their email address above first."
+                  : !invoiceEmailReady ? "Set up your own email in Settings → Email first: invoices are sent from it."
+                  : autoInvoiceOn ? `Sent to ${form.email.trim()} when a day is finished, and from the Invoice section.`
+                  : `Lets you email invoices to ${form.email.trim()} from the Invoice section. Sending automatically when a day is finished is off (Settings → Business).`}
+              </span>
             </span>
-          </label>
+          </label>}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Usually pays by</label>
