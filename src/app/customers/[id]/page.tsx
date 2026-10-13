@@ -60,7 +60,7 @@ export default async function CustomerPage({ params }: Props) {
       {canPay && <BankReferences refs={bankRefs.map(({ id, label }) => ({ id, label }))} />}
       {settings.goCardlessOn && settings.goCardlessConfigured && (user.role === "OWNER" || user.role === "SUPER_ADMIN") && (
         <DirectDebitPanel customerId={customer.id} mandateId={customer.goCardlessMandateId ?? null} mandateStatus={customer.goCardlessMandateStatus ?? null}
-          waitingForSignup={Boolean(customer.goCardlessBillingRequestId)} reference={customer.goCardlessCustomerReference ?? ""} />
+          waitingForSignup={Boolean(customer.goCardlessBillingRequestId)} reference={customer.goCardlessCustomerReference ?? ""} plan={customer.goCardlessPlan ?? null} />
       )}
     </Suspense>
   );

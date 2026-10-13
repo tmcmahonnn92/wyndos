@@ -48,6 +48,9 @@ export type CpImportRow = {
   /** Positive = they owe you; negative = in credit. Already the right way round. */
   openingBalance: number;
   openingDate: string;
+  /** Their Direct Debit in the business's own GoCardless account (Aworka), linked straight away. */
+  goCardlessMandateId?: string;
+  goCardlessMandateStatus?: string;
 };
 
 /** Day (complete) to hang an imported clean on, made once per area and date. */
@@ -134,6 +137,12 @@ export async function importCpCustomers(rows: CpImportRow[], source = "CleanerPl
           active: r.active !== false,
           nextDueDate: next,
           lastCompletedDate: last,
+          ...(typeof r.goCardlessMandateId === "string" && /^MD[A-Z0-9]{6,40}$/.test(r.goCardlessMandateId) ? {
+            goCardlessMandateId: r.goCardlessMandateId,
+            goCardlessMandateStatus: text(r.goCardlessMandateStatus, 40) || "active",
+            // Their GoCardless payments up to now are in the history being imported.
+            goCardlessLinkedAt: new Date(),
+          } : {}),
         },
         select: { id: true, jobName: true },
       });
@@ -171,7 +180,7 @@ export async function importCpCustomers(rows: CpImportRow[], source = "CleanerPl
 }
 
 /** charge = a clean; payment; tip = extra on top of a payment (other income); writeoff = bad debt cleared off the oldest unpaid cleans. */
-export type CpHistoryItem = { customerId: number; kind: "charge" | "payment" | "tip" | "writeoff"; date: string; amount: number; method: string; note: string };
+export type CpHistoryItem = { customerId: number; kind: "charge" | "payment" | "tip" | "writeoff"; date: string; amount: number; method: string; note: string; goCardlessPaymentId?: string; goCardlessStatus?: string };
 
 /**
  * Step 2 (optional): past cleans, then payments. Send every charge before any payment:
@@ -246,6 +255,9 @@ export async function importCpHistory(items: CpHistoryItem[], source = "CleanerP
         writtenOff = money(writtenOff + take);
       }
     } else {
+      // A GoCardless payment keeps its ID (see below). Already in Wyndos: don't add it twice.
+      const gcId = typeof it.goCardlessPaymentId === "string" && /^PM[A-Z0-9]{6,40}$/.test(it.goCardlessPaymentId) ? it.goCardlessPaymentId : null;
+      if (gcId && await prisma.payment.findUnique({ where: { goCardlessPaymentId: gcId }, select: { id: true } })) { skipped++; continue; }
       let rest = amount;
       const allocations: Array<{ tenantId: number; jobId: number; amount: number }> = [];
       for (const j of owing.get(c.id) ?? []) {
@@ -256,10 +268,13 @@ export async function importCpHistory(items: CpHistoryItem[], source = "CleanerP
         j.left = money(j.left - take);
         rest = money(rest - take);
       }
+      // A GoCardless payment keeps its ID, so the Direct Debit sync knows it's already recorded
+      // (and can undo it if it's ever charged back).
       await prisma.payment.create({
         data: {
           tenantId, customerId: c.id, amount, method: METHODS.has(it.method) ? (it.method as "CASH" | "BACS" | "CARD") : "CASH",
           paidAt: new Date(day(it.date).getTime() + 12 * 3600000), notes: text(it.note, 200) || `From ${from}`,
+          ...(gcId ? { goCardlessPaymentId: gcId, goCardlessStatus: text(it.goCardlessStatus, 40) || "paid_out" } : {}),
           allocations: { create: allocations },
         },
       });

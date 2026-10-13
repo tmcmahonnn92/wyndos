@@ -155,7 +155,7 @@ export async function getDirectDebitBoard() {
     }),
     prisma.customer.findMany({
       where: { tenantId, OR: [{ goCardlessMandateId: { not: null } }, { goCardlessBillingRequestId: { not: null } }, { preferredPaymentMethod: "DD" }] },
-      select: { id: true, name: true, address: true, goCardlessMandateId: true, goCardlessMandateStatus: true, goCardlessBillingRequestId: true, active: true },
+      select: { id: true, name: true, address: true, goCardlessMandateId: true, goCardlessMandateStatus: true, goCardlessBillingRequestId: true, goCardlessPlan: true, active: true },
       orderBy: { name: "asc" },
     }),
   ]);
@@ -167,7 +167,7 @@ export async function getDirectDebitBoard() {
     // A failed collection that's since been paid another way (cash, a later Direct Debit) is done with.
     failed: failed.filter((j) => j.price - j.allocations.reduce((sum, a) => sum + a.amount, 0) > 0.005).map((j) => ({ jobId: j.id, customerId: j.customer.id, customer: j.customer.name, date: iso(j.workDay.date), amount: j.price, status: j.goCardlessStatus ?? "" })),
     people: people.map((c) => ({
-      id: c.id, name: c.name, address: c.address, active: c.active,
+      id: c.id, name: c.name, address: c.address, active: c.active, plan: c.goCardlessPlan ?? null,
       state: c.goCardlessMandateId ? (c.goCardlessMandateStatus ?? "linked") : c.goCardlessBillingRequestId ? "link_sent" : "not_set_up",
     })),
   };

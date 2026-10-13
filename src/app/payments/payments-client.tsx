@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Receipt,
-  RefreshCw,
   MessageSquare,
   CheckSquare,
   Square,
@@ -16,10 +15,10 @@ import {
   CheckCircle2,
   StickyNote,
   FileUp,
+  Landmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtCurrency, fmtDate } from "@/lib/utils";
-import { syncGoCardlessPayments } from "@/lib/actions";
 import { LogPaymentForm, type PaymentCustomerOption } from "./log-payment-form";
 import { AddCreditForm, type CreditCustomerOption } from "./add-credit-form";
 import { smsHref } from "@/components/phone-send-queue";
@@ -50,107 +49,28 @@ export function PaymentsToolbar({
   allCustomers,
   allowCredit = true,
   goCardlessConfigured,
-  goCardlessLastSyncedAt,
 }: {
   customers: Debtor[];
   allCustomers: CreditCustomerOption[];
   allowCredit?: boolean;
   goCardlessConfigured: boolean;
-  goCardlessLastSyncedAt: string | null;
+  goCardlessLastSyncedAt?: string | null;
 }) {
-  const router = useRouter();
-  const [syncResult, setSyncResult] = useState<null | {
-    scannedCount: number;
-    importedCount: number;
-    skippedCount: number;
-    unmatched: Array<{ paymentId: string; reason: string; customerName?: string | null }>;
-  }>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [isSyncing, startSyncTransition] = useTransition();
-
-  const handleSync = () => {
-    setSyncError(null);
-    startSyncTransition(async () => {
-      try {
-        const result = await syncGoCardlessPayments();
-        setSyncResult(result);
-        router.refresh();
-      } catch (error) {
-        setSyncError(String(error));
-      }
-    });
-  };
-
+  // One row, all the same size: the main action (Log payment) stands out; the rest are plain.
+  // Direct Debit syncing lives on its own page (and runs every night).
+  const secondary = "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200";
   return (
-    <div className="flex items-center gap-2">
-      {goCardlessConfigured && <div className="text-right hidden sm:block">
-        <p className="text-[11px] font-medium text-slate-500">GoCardless</p>
-        <p className="text-[11px] text-slate-400">{goCardlessLastSyncedAt ? `Last sync ${new Date(goCardlessLastSyncedAt).toLocaleString("en-GB")}` : "Not synced yet"}</p>
-      </div>}
-      {goCardlessConfigured && <button
-        type="button"
-        onClick={handleSync}
-        disabled={!goCardlessConfigured || isSyncing}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-        title={!goCardlessConfigured ? "Configure GoCardless in Settings first" : "Sync confirmed GoCardless payments"}
-      >
-        <RefreshCw size={14} className={cn(isSyncing && "animate-spin")} />
-        {isSyncing ? "Syncing..." : "Sync GoCardless"}
-      </button>}
-      {goCardlessConfigured && <Link
-        href="/payments/direct-debit"
-        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-        title="Collect by Direct Debit through GoCardless"
-      >
-        Direct Debit
-      </Link>}
-      <Link
-        href="/payments/import"
-        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-        title="Match payments from a bank statement or spreadsheet"
-      >
-        <FileUp size={14} />
-        <span className="hidden sm:inline">Bank statement</span>
-      </Link>
-      {allowCredit && <AddCreditForm customers={allCustomers} buttonClassName="whitespace-nowrap" />}
-      <LogPaymentForm customers={customers} buttonClassName="whitespace-nowrap" allowCredit={allowCredit} />
-
-      {(syncError || syncResult) && (
-        <div className="fixed bottom-4 right-4 z-50 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-slate-800">GoCardless sync</p>
-              {syncError ? (
-                <p className="mt-1 text-sm text-red-600">{syncError}</p>
-              ) : syncResult ? (
-                <div className="mt-1 space-y-1 text-sm text-slate-600">
-                  <p>Scanned {syncResult.scannedCount} payment{syncResult.scannedCount !== 1 ? "s" : ""}.</p>
-                  <p>Imported {syncResult.importedCount}, skipped {syncResult.skippedCount}.</p>
-                  {syncResult.unmatched.length > 0 && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                      {syncResult.unmatched.length} payment{syncResult.unmatched.length !== 1 ? "s" : ""} still need manual matching.
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-            <button type="button" onClick={() => { setSyncError(null); setSyncResult(null); }} className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
-              <X size={14} />
-            </button>
-          </div>
-          {syncResult && syncResult.unmatched.length > 0 && (
-            <ul className="mt-3 space-y-2 text-xs text-slate-600">
-              {syncResult.unmatched.map((item) => (
-                <li key={item.paymentId} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                  <span className="font-semibold text-slate-700">{item.paymentId}</span>
-                  {item.customerName ? ` · ${item.customerName}` : ""}
-                  {` · ${item.reason}`}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+    <div className="flex flex-wrap items-center gap-2">
+      {goCardlessConfigured && (
+        <Link href="/payments/direct-debit" className={secondary} title="Collect by Direct Debit through GoCardless">
+          <Landmark size={15} /> Direct Debit
+        </Link>
       )}
+      <Link href="/payments/import" className={secondary} title="Match payments from a bank statement or spreadsheet">
+        <FileUp size={15} /> Bank statement
+      </Link>
+      {allowCredit && <AddCreditForm customers={allCustomers} buttonClassName="whitespace-nowrap rounded-md border-slate-200 bg-white text-slate-700 hover:bg-slate-50" />}
+      <LogPaymentForm customers={customers} buttonClassName="whitespace-nowrap" allowCredit={allowCredit} size="sm" />
     </div>
   );
 }

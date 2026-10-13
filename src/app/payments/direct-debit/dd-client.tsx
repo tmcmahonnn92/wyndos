@@ -254,7 +254,7 @@ export function DirectDebitClient({ overview, board, customers }: { overview: Ov
                   {board.people.map((p) => (
                     <tr key={p.id} className={cn(!p.active && "text-slate-400")}>
                       <td className="px-3 py-2"><Link href={`/customers/${p.id}`} className="font-medium hover:underline">{p.name}</Link><p className="text-xs text-slate-400">{p.address}</p></td>
-                      <td className={cn("px-2 py-2 text-xs", good(p.state) ? "text-green-700" : p.state === "link_sent" ? "text-blue-700" : "text-amber-700")}>{label(p.state)}</td>
+                      <td className={cn("px-2 py-2 text-xs", good(p.state) ? "text-green-700" : p.state === "link_sent" ? "text-blue-700" : "text-amber-700")}>{label(p.state)}{p.plan && <span className="block text-[11px] text-slate-500">GoCardless plan {p.plan}: paid by the plan, not per clean</span>}</td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex justify-end gap-1.5">
                           {!good(p.state) && (

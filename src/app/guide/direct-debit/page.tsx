@@ -16,6 +16,7 @@ const SECTIONS = [
   { id: "before", title: "Before you start" },
   { id: "connect", title: "Connect GoCardless" },
   { id: "signup", title: "Sign customers up" },
+  { id: "moving", title: "Moving customers already on GoCardless" },
   { id: "collect", title: "Collect for cleans" },
   { id: "arrives", title: "When the money arrives" },
   { id: "problems", title: "Failed payments and charge-backs" },
@@ -94,10 +95,31 @@ export default async function DirectDebitGuidePage() {
           <p>
             <strong>Already have customers in GoCardless?</strong> Use <strong>Payments → Direct Debit → Link GoCardless customers</strong>.
             Wyndos suggests matches by name and postcode; check each one and link it. Nobody has to sign up again.
+            See <a href="#moving" className="text-blue-700 underline">Moving customers already on GoCardless</a>.
           </p>
         </Section>
 
-        <Section n={4} id="collect" title="Collect for cleans">
+        <Section n={4} id="moving" title="Moving customers already on GoCardless">
+          <p>Coming from another program, or already taking Direct Debits in GoCardless? Your customers&apos; Direct Debits belong to <strong>your</strong> GoCardless account, so they come with you.</p>
+          <ol>
+            <li><strong>Bring your customers in first</strong> (Customers → Import, or the CleanerPlanner / Aworka import), including their past payments if you have them.</li>
+            <li><strong>Connect GoCardless</strong> (step 2), then <strong>Payments → Direct Debit → Link GoCardless customers</strong>. Check the suggested matches and link them.</li>
+            <li>Press <strong>Sync now</strong>. Each Direct Debit shows as <strong>Active</strong>.</li>
+          </ol>
+          <ul>
+            <li><strong>Nothing is counted twice.</strong> Payments taken in GoCardless before you linked a customer are left alone: they&apos;re already in the history you imported. Only payments from then on are added.</li>
+            <li>
+              <strong>Customers on a GoCardless plan</strong> (a subscription, e.g. £15 a month): GoCardless keeps taking those payments, Wyndos records each one against their cleans,
+              and Wyndos <strong>never</strong> collects per clean for them, so they&apos;re not charged twice. Their Direct Debit shows the plan.
+              To switch someone to paying per clean, cancel the plan in GoCardless (their Direct Debit stays) and sync.
+            </li>
+            <li>Turn on <strong>Collect automatically</strong> only once everyone&apos;s linked and you&apos;ve checked who&apos;s on a plan.</li>
+            <li><strong>Moving from Aworka?</strong> The Aworka import brings each customer&apos;s Direct Debit across with them, so there&apos;s nothing to link: connect GoCardless and sync. Past GoCardless payments in the Aworka history are recognised, so nothing is counted twice.</li>
+            <li>If your old program used <strong>its own</strong> GoCardless account rather than yours, the Direct Debits can&apos;t simply be linked. Ask GoCardless support about moving them to your account (they can usually do this without customers signing again), or send each customer a sign-up link.</li>
+          </ul>
+        </Section>
+
+        <Section n={5} id="collect" title="Collect for cleans">
           <p>Tick the clean off as normal (<strong>Done</strong>). Then either:</p>
           <ul>
             <li><strong>Collect yourself:</strong> open <strong>Payments → Direct Debit</strong>. Cleans owing for Direct Debit customers are under <strong>To collect</strong>. Choose them and press <strong>Collect</strong>.</li>
@@ -107,7 +129,7 @@ export default async function DirectDebitGuidePage() {
           <Tip>Don&apos;t press <strong>Done &amp; Paid</strong> for a Direct Debit customer: that records cash or a transfer, and nothing is collected. Just press <strong>Done</strong>.</Tip>
         </Section>
 
-        <Section n={5} id="arrives" title="When the money arrives">
+        <Section n={6} id="arrives" title="When the money arrives">
           <ul>
             <li>A Direct Debit takes about <strong>3 to 5 working days</strong>. While it&apos;s on its way the clean shows under <strong>In progress</strong>.</li>
             <li>When GoCardless confirms it, the next sync records the payment against the clean, and it shows as paid on the customer&apos;s page, in Payments and in Accounting.</li>
@@ -115,7 +137,7 @@ export default async function DirectDebitGuidePage() {
           </ul>
         </Section>
 
-        <Section n={6} id="problems" title="Failed payments and charge-backs">
+        <Section n={7} id="problems" title="Failed payments and charge-backs">
           <ul>
             <li><strong>Failed</strong> (not enough money in the account, for example): the clean shows under <strong>Failed</strong> and still owes. Check with the customer, then press <strong>Try again</strong>. Wyndos never retries on its own.</li>
             <li><strong>Charged back</strong> (the customer claimed it back from their bank under the Direct Debit Guarantee): the payment is cancelled in Wyndos and the clean owes again.</li>
@@ -123,18 +145,18 @@ export default async function DirectDebitGuidePage() {
           </ul>
         </Section>
 
-        <Section n={7} id="changes" title="Undo, cancelled Direct Debits and payments made in GoCardless">
+        <Section n={8} id="changes" title="Undo, cancelled Direct Debits and payments made in GoCardless">
           <ul>
             <li>
               <strong>Ticked Done by mistake?</strong> Press <strong>Undo</strong>. If the Direct Debit hasn&apos;t gone to the bank yet it&apos;s cancelled and nothing is taken.
               If it&apos;s too late to stop, Wyndos tells you, and when the money arrives it&apos;s kept as credit for their next clean.
             </li>
             <li><strong>Customer cancels their Direct Debit:</strong> it shows as <strong>Cancelled</strong> after the next sync and nothing more is collected. To start again, send them a new sign-up link.</li>
-            <li><strong>Payment taken in GoCardless itself</strong> (not from Wyndos): the sync finds it, pays their oldest unpaid cleans, and keeps anything left over as credit.</li>
+            <li><strong>Payment taken in GoCardless itself</strong> (not from Wyndos, after the customer was linked): the sync finds it, pays their oldest unpaid cleans, and keeps anything left over as credit.</li>
           </ul>
         </Section>
 
-        <Section n={8} id="refunds" title="Refunds">
+        <Section n={9} id="refunds" title="Refunds">
           <p>
             Wyndos doesn&apos;t send refunds yet. To refund, do it in GoCardless (GoCardless switches refunds on for your account if you ask them),
             then record it in Wyndos as an <strong>expense</strong> so your money figures stay right. The clean stays marked as paid.
@@ -142,7 +164,7 @@ export default async function DirectDebitGuidePage() {
           <p>If you took money by mistake (for example twice), contact support and we&apos;ll help tidy it up.</p>
         </Section>
 
-        <Section n={9} id="disconnect" title="Disconnecting">
+        <Section n={10} id="disconnect" title="Disconnecting">
           <p>
             Delete the access token in GoCardless (<strong>Developers → Access tokens</strong>). Wyndos then stops
             collecting. Customers&apos; Direct Debits stay set up in GoCardless, and everything already recorded in Wyndos stays.
