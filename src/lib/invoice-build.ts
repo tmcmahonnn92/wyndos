@@ -60,5 +60,7 @@ export async function renderInvoicePdf(settings: Settings, customer: Customer, j
     totalPaid: jobs.reduce((s, j) => s + paidOf(j), 0),
     amountDue: jobs.reduce((s, j) => s + Math.max(0, j.price - paidOf(j)), 0),
   };
+  // Only says "paid" once the money is in; before that it's being collected.
+  if (dd) data.stamp = data.amountDue <= 0.005 ? "PAID BY DIRECT DEBIT" : "DIRECT DEBIT";
   return renderToBuffer(React.createElement(InvoicePDF, { data }) as React.ReactElement<DocumentProps>);
 }
