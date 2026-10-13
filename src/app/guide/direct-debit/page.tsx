@@ -115,8 +115,9 @@ export default async function DirectDebitGuidePage() {
           <ul>
             <li><strong>Nothing is counted twice.</strong> Payments taken in GoCardless before you linked a customer are left alone: they&apos;re already in the history you imported. Only payments from then on are added.</li>
             <li>
-              <strong>Customers on a GoCardless plan</strong> (a subscription, e.g. £15 a month): GoCardless keeps taking those payments, Wyndos records each one against their cleans,
-              and Wyndos <strong>never</strong> collects per clean for them, so they&apos;re not charged twice. Their Direct Debit shows the plan.
+              <strong>Customers on a GoCardless plan</strong> (a subscription, e.g. £15 a month): GoCardless keeps taking those payments and Wyndos records each one against their regular cleans,
+              so their regular cleans are <strong>never</strong> collected again (no charging twice). <strong>Extra jobs</strong> (gutters, a conservatory: any one-off that isn&apos;t their usual service)
+              aren&apos;t covered by the plan, so they show under <strong>To collect</strong> like anyone else&apos;s and are taken on the same Direct Debit. Their Direct Debit shows the plan.
               To switch someone to paying per clean, cancel the plan in GoCardless (their Direct Debit stays) and sync.
             </li>
             <li>Turn on <strong>Collect automatically</strong> only once everyone&apos;s linked and you&apos;ve checked who&apos;s on a plan.</li>
