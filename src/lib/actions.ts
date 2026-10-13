@@ -710,11 +710,24 @@ async function syncAreaScheduleAfterCompletion(
   // Setting: the next run goes to the same worker (default), or is left for the owner to give out.
   const keepWorker = (await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { keepWorkerOnNextRun: true } }))?.keepWorkerOnNextRun ?? true;
   const nextWorker = keepWorker ? workDay.assignedUserId ?? null : null;
-  const targetNextWorkDay = await prisma.workDay.upsert({
-    where: { tenantId_date_areaId: { tenantId, date: nextDue, areaId: workDay.area.id } },
-    update: keepWorker ? { assignedUserId: nextWorker } : {},
-    create: { tenantId, date: nextDue, areaId: workDay.area.id, assignedUserId: nextWorker ?? undefined },
+  // A run of this area already booked close to the next due date (e.g. moved by a day by hand):
+  // use that one rather than booking a second copy a day or two away.
+  const nearWindow = Math.max(3, await runDueWindow(tenantId, workDay.area));
+  const nearby = await prisma.workDay.findFirst({
+    where: {
+      tenantId, areaId: workDay.area.id, status: { not: "COMPLETE" }, partOfId: null,
+      id: { notIn: [workDay.id, ...(splitRun?.runDayIds ?? [])] },
+      date: { gte: addUtcDays(nextDue, -nearWindow), lte: addUtcDays(nextDue, nearWindow) },
+    },
+    orderBy: { date: "asc" },
   });
+  const targetNextWorkDay = nearby
+    ? (keepWorker ? await prisma.workDay.update({ where: { id: nearby.id }, data: { assignedUserId: nextWorker } }) : nearby)
+    : await prisma.workDay.upsert({
+      where: { tenantId_date_areaId: { tenantId, date: nextDue, areaId: workDay.area.id } },
+      update: keepWorker ? { assignedUserId: nextWorker } : {},
+      create: { tenantId, date: nextDue, areaId: workDay.area.id, assignedUserId: nextWorker ?? undefined },
+    });
 
   // Another open run of this area (booked earlier): its customers join the new next run.
   // Pieces of this same run (parts still to do) are left alone.
@@ -754,6 +767,14 @@ async function syncAreaScheduleAfterCompletion(
       targetCustomerIds.add(sourceJob.customerId);
     }
 
+    // Nothing actually done on it: the "skip this time" placeholders go with the rest,
+    // so the area isn't left with a second copy of its next run.
+    const doneThere = await prisma.job.count({ where: { tenantId, workDayId: sourceNextWorkDay.id, status: "COMPLETE" } });
+    if (doneThere === 0) {
+      await prisma.job.updateMany({ where: { tenantId, workDayId: sourceNextWorkDay.id, customerId: { notIn: [...targetCustomerIds] } }, data: { workDayId: targetNextWorkDay.id } });
+      const leftover = await prisma.job.findMany({ where: { tenantId, workDayId: sourceNextWorkDay.id }, select: { id: true } });
+      if (leftover.length) await deleteUnpaidJobs(tenantId, leftover.map((j) => j.id));
+    }
     const remainingJobs = await prisma.job.count({ where: { tenantId, workDayId: sourceNextWorkDay.id } });
     if (remainingJobs === 0) {
       await prisma.workDay.delete({ where: { id: sourceNextWorkDay.id } });

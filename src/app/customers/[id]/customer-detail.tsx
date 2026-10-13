@@ -725,13 +725,15 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                           job.status === "SKIPPED" ? "bg-gray-100 text-gray-600" :
                           "bg-slate-100 text-slate-600"
                         )}>
-                          {job.status}
+                          {{ PENDING: "Scheduled", COMPLETE: "Complete", SKIPPED: "Skipped", OUTSTANDING: "Not done" }[job.status as string] ?? job.status}
                         </span>
-                        {job.allocations.length > 0 && !hidePrices && (
-                          <span className="text-xs text-green-600">
-                            Paid {fmtCurrency(job.allocations.reduce((sum, allocation) => sum + allocation.amount, 0))}
-                          </span>
-                        )}
+                        {(() => {
+                          if (hidePrices || job.status !== "COMPLETE") return null;
+                          const paid = Math.round(job.allocations.reduce((sum, allocation) => sum + allocation.amount, 0) * 100) / 100;
+                          if (paid >= job.price - 0.005) return job.price > 0 ? <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-green-50 text-green-700">Paid {fmtCurrency(paid)}</span> : null;
+                          if (paid > 0.005) return <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800">Paid {fmtCurrency(paid)} · {fmtCurrency(job.price - paid)} unpaid</span>;
+                          return <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-700">Unpaid</span>;
+                        })()}
                       </div>
                     </div>
                     <div className="ml-3 flex items-center gap-2 flex-shrink-0">
