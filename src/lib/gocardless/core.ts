@@ -119,6 +119,25 @@ export async function testConnection(tenantId: number) {
   return { name, verification };
 }
 
+/** Send money back to a customer through GoCardless (refunds must be switched on for the GoCardless account). */
+export async function createGcRefund(tenantId: number, input: { gcPaymentId: string; amount: number; alreadyRefunded: number; wyndosPaymentId: number }) {
+  const conn = await requireConnection(tenantId);
+  const pence = Math.round(input.amount * 100);
+  // GoCardless asks for the running total refunded on this payment, so a retry can't refund twice.
+  const total = Math.round((input.alreadyRefunded + input.amount) * 100);
+  try {
+    const res = await gc<{ refunds: { id: string; status: string } }>(conn, "POST", "/refunds", {
+      body: { refunds: { amount: pence, total_amount_confirmation: total, links: { payment: input.gcPaymentId }, metadata: { wyndosPaymentId: String(input.wyndosPaymentId) } } },
+      idempotencyKey: `wyndos-refund-${input.wyndosPaymentId}-${total}`,
+    });
+    return res.refunds;
+  } catch (issue) {
+    const msg = issue instanceof Error ? issue.message : String(issue);
+    if (/refund.*(disabled|not enabled|not allowed)|forbidden/i.test(msg)) throw new Error("Refunds aren't switched on for your GoCardless account yet. Ask GoCardless to turn them on, or refund by bank transfer and record it here.");
+    throw issue;
+  }
+}
+
 // ── Linking customers ───────────────────────────────────────────────────────
 
 export async function listCustomersAndMandates(tenantId: number) {
@@ -498,6 +517,38 @@ export async function syncTenant(tenantId: number) {
       if (!rec || rec.voidedAt || collectingIds.has(p.id) || !GC_FAILED.has(p.status)) continue;
       await prisma.payment.update({ where: { id: rec.id }, data: { voidedAt: new Date(), voidReason: `Direct Debit ${p.status.replace(/_/g, " ")}`, goCardlessStatus: p.status } });
       summary.failed++;
+    }
+
+    // 3d. Refunds: keep Wyndos's refunds in step with GoCardless, and add refunds made in the
+    // GoCardless dashboard (written off, so the clean isn't collected again).
+    try {
+      const { recordRefund, undoRefund } = await import("@/lib/refunds");
+      const gcRefunds = await gcList<{ id: string; amount: number; status: string; created_at?: string; reference?: string | null; links?: { payment?: string } }>(
+        conn, "/refunds", "refunds", { "created_at[gte]": new Date(Date.now() - 120 * 86400000).toISOString() }, 5);
+      for (const r of gcRefunds) {
+        const mine = await prisma.payment.findUnique({ where: { goCardlessRefundId: r.id }, select: { id: true, tenantId: true, voidedAt: true, goCardlessStatus: true } });
+        if (mine && mine.tenantId !== tenantId) continue;
+        const dead = ["cancelled", "bounced", "funds_returned"].includes(r.status);
+        if (mine) {
+          if (r.status !== mine.goCardlessStatus) await prisma.payment.update({ where: { id: mine.id }, data: { goCardlessStatus: r.status } });
+          if (dead && !mine.voidedAt) await undoRefund(tenantId, mine.id, `GoCardless refund ${r.status.replace(/_/g, " ")}`);
+          continue;
+        }
+        if (dead || !r.links?.payment) continue;
+        const original = await prisma.payment.findFirst({ where: { tenantId, goCardlessPaymentId: r.links.payment, voidedAt: null }, select: { id: true } });
+        if (!original) continue;
+        try {
+          await recordRefund(tenantId, {
+            paymentId: original.id, amount: r.amount / 100, outcome: "WRITE_OFF", method: "BACS",
+            reason: "made in GoCardless", at: r.created_at ? new Date(r.created_at) : new Date(),
+            goCardlessRefundId: r.id, goCardlessStatus: r.status,
+          });
+        } catch (issue) {
+          summary.problems.push(`Refund ${r.id}: ${issue instanceof Error ? issue.message : issue}`);
+        }
+      }
+    } catch (issue) {
+      summary.problems.push(`Refunds: ${issue instanceof Error ? issue.message : issue}`);
     }
 
     // 4. Auto-collect cleans completed since auto-collect was turned on.

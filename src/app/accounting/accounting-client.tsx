@@ -757,7 +757,7 @@ export function AccountingClient({
                 const isOtherIncome = "receivedAt" in entry;
                 const date = isOtherIncome ? entry.receivedAt : entry.paidAt;
                 const label = isOtherIncome ? entry.sourceLabel : entry.customer.name;
-                const subtitle = isOtherIncome ? `${entry.categoryLabel} · ${entry.taxTreatmentLabel}${formatRepeatSummary(entry) ? ` · ${formatRepeatSummary(entry)}` : ""}` : entry.method;
+                const subtitle = isOtherIncome ? `${entry.categoryLabel} · ${entry.taxTreatmentLabel}${formatRepeatSummary(entry) ? ` · ${formatRepeatSummary(entry)}` : ""}` : entry.amount < 0 ? `Refund · ${entry.method}` : entry.method;
                 return (
                   <div key={`${entry.sourceType}-${entry.id}`} className="rounded-lg border border-slate-200 px-3 py-2">
                     <div className="flex items-start justify-between gap-3">

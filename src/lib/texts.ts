@@ -268,10 +268,12 @@ export async function creditFor(tenantId: number, customerIds: number[]) {
     select: { customerId: true, amount: true, allocations: { select: { amount: true } } },
   });
   const credit = new Map<number, number>();
+  // Refunds of credit are negative, so add everything up per customer, then keep what's left.
   for (const p of payments) {
     const spare = p.amount - p.allocations.reduce((s, a) => s + a.amount, 0);
-    if (spare > 0.005) credit.set(p.customerId, Number(((credit.get(p.customerId) ?? 0) + spare).toFixed(2)));
+    credit.set(p.customerId, Number(((credit.get(p.customerId) ?? 0) + spare).toFixed(2)));
   }
+  for (const [id, v] of credit) if (v <= 0.005) credit.delete(id);
   return credit;
 }
 

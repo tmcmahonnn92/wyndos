@@ -93,7 +93,7 @@ export function MtdClient({ overview, isOwner, initialTab }: { overview: Overvie
         ...allowances.assets.map((a) => [a.description, a.pool, a.opening, a.additions, a.claim, a.closing, a.balancing, a.note]),
       ]), "Year end");
       const txRows: Array<Array<string | number>> = [
-        ...tx.payments.map((p) => [p.date, "Income: customer payment", `${p.customer} (${p.method})`, "turnover", p.amount, "", "", "", "", ""]),
+        ...tx.payments.map((p) => [p.date, p.amount < 0 ? "Income: refund to customer" : "Income: customer payment", `${p.customer} (${p.method})`, "turnover", p.amount, "", "", "", "", ""]),
         ...tx.otherIncome.map((o) => [o.date, "Income: other", o.source || o.category, TURNOVER_INCOME.has(o.category) ? "turnover" : "other", o.amount, o.vat, o.net, "", "", ""]),
         ...tx.expenses.map((e) => [e.date, "Expense", e.supplier || e.category, e.hmrcCategory, e.amount, e.vat, e.net, e.businessPct, e.vehicle, e.notes]),
       ].sort((x, y) => String(x[0]).localeCompare(String(y[0])));

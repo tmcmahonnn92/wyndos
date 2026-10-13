@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
+import { RefundCreditButton, RefundPaymentButton } from "./refunds";
 import { fmtDate, fmtCurrency, cn } from "@/lib/utils";
 import { AddressFields } from "@/components/address-fields";
 import { smsHref } from "@/components/phone-send-queue";
@@ -404,9 +405,12 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
   };
 
   const handleDeletePayment = (paymentId: number) => {
-    if (!confirm("Void this payment? You can restore it later if needed.")) return;
+    const isRefund = customer.payments.find((x) => x.id === paymentId)?.amount ?? 0;
+    if (!confirm(isRefund < 0 ? "Undo this refund? Only if the money didn't actually go back." : "Void this payment? You can restore it later if needed.")) return;
     startTransition(async () => {
-      await voidPayment(paymentId, "Voided from customer detail");
+      try {
+        await voidPayment(paymentId, isRefund < 0 ? "Refund undone" : "Voided from customer detail");
+      } catch (e) { alert(e instanceof Error ? e.message : "Couldn't do that."); }
       router.refresh();
     });
   };
@@ -467,6 +471,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                   {fmtCurrency(credit)} credit: no need to pay, it comes off the next clean
                 </p>
               )}
+              {!hidePrices && canPay && credit > 0.005 && <div className="mt-1"><RefundCreditButton customerId={customer.id} credit={credit} /></div>}
               {!hidePrices && canPay && allowCredit && (
                 <div className="mt-1.5">
                   <AddCreditForm
@@ -766,16 +771,17 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                   <li key={p.id} className="flex items-center gap-2 px-4 py-3">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-700">{fmtDate(p.paidAt)}</p>
-                      <p className="text-xs text-slate-500">{p.method}{p.notes ? ` · ${p.notes}` : ""}</p>
+                      <p className="text-xs text-slate-500">{p.amount < 0 ? "Refund" : p.method}{p.notes ? ` · ${p.notes}` : ""}</p>
                     </div>
-                    <span className="text-sm font-semibold text-green-700 flex-shrink-0">{hidePrices ? null : `+${fmtCurrency(p.amount)}`}</span>
-                    <button
+                    <span className={`text-sm font-semibold flex-shrink-0 ${p.amount < 0 ? "text-amber-700" : "text-green-700"}`}>{hidePrices ? null : p.amount < 0 ? `−${fmtCurrency(-p.amount)}` : `+${fmtCurrency(p.amount)}`}</span>
+                    {canPay && p.amount > 0 && <RefundPaymentButton paymentId={p.id} />}
+                    {p.amount > 0 && <button
                       onClick={() => openEditPayment(p)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors flex-shrink-0"
                       title="Edit payment"
                     >
                       <Pencil size={13} />
-                    </button>
+                    </button>}
                     <button
                       onClick={() => handleDeletePayment(p.id)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"

@@ -429,9 +429,22 @@ async function sparePayments(tenantId: number, customerIds: number[]) {
     select: { id: true, customerId: true, amount: true, allocations: { select: { amount: true } } },
     orderBy: [{ paidAt: "asc" }, { id: "asc" }],
   });
-  return payments
-    .map((p) => ({ id: p.id, customerId: p.customerId, spare: round2(p.amount - p.allocations.reduce((s, a) => s + a.amount, 0)) }))
-    .filter((p) => p.spare > 0.005);
+  return netSpare(payments.map((p) => ({ id: p.id, customerId: p.customerId, spare: round2(p.amount - p.allocations.reduce((s, a) => s + a.amount, 0)) })));
+}
+
+/** Spare money per payment, with any refund of credit (a negative payment) taken off that customer's newest spare first. */
+function netSpare<T extends { customerId: number; spare: number }>(rows: T[]): T[] {
+  const owedBack = new Map<number, number>();
+  for (const r of rows) if (r.spare < -0.005) owedBack.set(r.customerId, round2((owedBack.get(r.customerId) ?? 0) - r.spare));
+  const out = rows.filter((r) => r.spare > 0.005).map((r) => ({ ...r }));
+  for (let i = out.length - 1; i >= 0; i--) {
+    const left = owedBack.get(out[i].customerId) ?? 0;
+    if (left <= 0.005) continue;
+    const take = Math.min(left, out[i].spare);
+    out[i].spare = round2(out[i].spare - take);
+    owedBack.set(out[i].customerId, round2(left - take));
+  }
+  return out.filter((r) => r.spare > 0.005);
 }
 
 /**
@@ -491,7 +504,7 @@ async function sparePaymentsAll(tenantId: number) {
     where: { tenantId, voidedAt: null },
     select: { customerId: true, amount: true, allocations: { select: { amount: true } } },
   });
-  return payments.filter((p) => p.amount - p.allocations.reduce((s, a) => s + a.amount, 0) > 0.005);
+  return netSpare(payments.map((p) => ({ ...p, spare: round2(p.amount - p.allocations.reduce((s, a) => s + a.amount, 0)) })));
 }
 
 /** A job's price went down below what's been paid on it: the extra goes back to credit. */
@@ -4254,6 +4267,18 @@ export async function voidPayment(paymentId: number, reason?: string) {
   const tenantId = actor.tenantId;
   const payment = await requireTenantPayment(tenantId, paymentId);
   await assertPaymentNotLocked(tenantId, payment.paidAt);
+  if (payment.amount < 0) {
+    // Undoing a refund: the money didn't go back after all.
+    if (payment.goCardlessRefundId) throw new Error("This refund went through GoCardless, so it can't be undone here.");
+    const { undoRefund } = await import("@/lib/refunds");
+    await undoRefund(tenantId, payment.id, reason ?? "Refund undone");
+    revalidatePath("/payments");
+    revalidatePath(`/customers/${payment.customerId}`);
+    return;
+  }
+  if (await prisma.payment.count({ where: { tenantId, refundOfId: payment.id, voidedAt: null } })) {
+    throw new Error("This payment has a refund on it. Undo the refund first.");
+  }
   await prisma.payment.update({
     where: { id: payment.id },
     data: { voidedAt: new Date(), voidReason: reason ?? null },
@@ -4269,6 +4294,7 @@ export async function restorePayment(paymentId: number) {
   const tenantId = actor.tenantId;
   const payment = await requireTenantPayment(tenantId, paymentId);
   await assertPaymentNotLocked(tenantId, payment.paidAt);
+  if (payment.amount < 0) throw new Error("To refund again, use Refund on the payment.");
   await prisma.payment.update({
     where: { id: payment.id },
     data: { voidedAt: null, voidReason: null },
@@ -6495,4 +6521,58 @@ export async function disconnectGoCardless() {
   const { disconnect } = await import("@/lib/gocardless/oauth");
   await disconnect(actor.tenantId);
   revalidatePath("/settings");
+}
+
+
+// ─── Refunds ────────────────────────────────────────────────────────────────
+
+/** What the Refund window needs: how much is left to refund, and whether GoCardless can do it. */
+export async function getRefundInfo(paymentId: number) {
+  const actor = await requirePerm("payments");
+  const { refundable } = await import("@/lib/refunds");
+  const { payment, left, onJob } = await refundable(actor.tenantId, Number(paymentId));
+  const onCleans = round2([...onJob.values()].reduce((s, v) => s + Math.max(0, v), 0));
+  const viaGc = Boolean(payment.goCardlessPaymentId) && ["confirmed", "paid_out"].includes(payment.goCardlessStatus ?? "");
+  return { left, onCleans, viaGc, gcPending: Boolean(payment.goCardlessPaymentId) && !viaGc, method: payment.method };
+}
+
+/** Refund (some of) a payment: cash/bank/card already given back, or sent back through GoCardless. */
+export async function refundPayment(paymentId: number, data: { amount: number; outcome: "WRITE_OFF" | "OWING"; how: "GOCARDLESS" | "CASH" | "BACS" | "CARD"; reason?: string }) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  const { refundable, recordRefund } = await import("@/lib/refunds");
+  await assertPaymentNotLocked(tenantId, new Date());
+  const outcome = data.outcome === "OWING" ? "OWING" : "WRITE_OFF";
+  const amount = round2(Number(data.amount));
+  const { payment, left, refundedByGc } = await refundable(tenantId, Number(paymentId));
+  if (!(amount > 0) || amount > left + 0.004) throw new Error(`Enter an amount up to £${left.toFixed(2)}.`);
+  let gcRefund: { id: string; status: string } | null = null;
+  if (data.how === "GOCARDLESS") {
+    if (!payment.goCardlessPaymentId) throw new Error("This payment wasn't taken by Direct Debit.");
+    if (!["confirmed", "paid_out"].includes(payment.goCardlessStatus ?? "")) throw new Error("GoCardless can only refund a payment once it has been collected. Wait for it, or cancel the collection instead.");
+    const { createGcRefund } = await import("@/lib/gocardless/core");
+    gcRefund = await createGcRefund(tenantId, { gcPaymentId: payment.goCardlessPaymentId, amount, alreadyRefunded: refundedByGc, wyndosPaymentId: payment.id });
+  }
+  await recordRefund(tenantId, {
+    paymentId: payment.id, amount, outcome,
+    method: data.how === "GOCARDLESS" ? "BACS" : data.how,
+    reason: data.reason, userId: actor.userId,
+    goCardlessRefundId: gcRefund?.id ?? null, goCardlessStatus: gcRefund?.status ?? null,
+  });
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${payment.customerId}`);
+  revalidatePath("/accounting");
+}
+
+/** Give a customer back their spare credit (paid in advance / paid too much / leaving). */
+export async function refundCustomerCredit(customerId: number, data: { amount: number; how: "CASH" | "BACS" | "CARD"; reason?: string }) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  await requireTenantCustomer(tenantId, Number(customerId));
+  await assertPaymentNotLocked(tenantId, new Date());
+  const { refundCredit } = await import("@/lib/refunds");
+  await refundCredit(tenantId, Number(customerId), Number(data.amount), ["CASH", "BACS", "CARD"].includes(data.how) ? data.how : "BACS", data.reason ?? "", actor.userId);
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${customerId}`);
+  revalidatePath("/accounting");
 }

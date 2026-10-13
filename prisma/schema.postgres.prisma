@@ -512,6 +512,12 @@ model Payment {
   voidReason  String?
   /// Money carried over from another program (credit they already had): not income in Wyndos's accounts.
   broughtForward      Boolean   @default(false)
+  /// A refund is a payment with a negative amount; this is the payment it gave money back on.
+  refundOfId          Int?
+  /// The refund also took the money off the clean's price (written off), rather than leaving it owing.
+  refundWriteOff      Boolean   @default(false)
+  /// Refunded through GoCardless.
+  goCardlessRefundId  String?   @unique
   goCardlessPaymentId String?     @unique
   goCardlessStatus    String?
   goCardlessReference String?
@@ -526,6 +532,7 @@ model Payment {
 
   @@index([tenantId])
   @@index([tenantId, customerId])
+  @@index([refundOfId])
   @@index([tenantId, goCardlessStatus])
   @@index([paidAt])
   @@index([voidedAt])
