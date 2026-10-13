@@ -6667,3 +6667,68 @@ export async function useCreditForCustomer(fromCustomerId: number, toCustomerId:
   revalidatePath(`/customers/${toCustomerId}`);
   return { used: round2(rows.reduce((s, r) => s + r.amount, 0)) };
 }
+
+// ─── Balance corrections ────────────────────────────────────────────────────
+
+/** Debt that shouldn't be owed (wrong import, goodwill, bad debt): taken off unpaid cleans' prices, newest first. */
+export async function writeOffDebt(customerId: number, amount: number | null, reason?: string) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  await requireTenantCustomer(tenantId, Number(customerId));
+  const jobs = await prisma.job.findMany({
+    where: { tenantId, customerId: Number(customerId), status: "COMPLETE", isQuote: false },
+    select: { id: true, price: true, notes: true, workDay: { select: { date: true } }, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
+    orderBy: [{ workDay: { date: "desc" } }, { id: "desc" }],
+  });
+  const owing = jobs.map((j) => ({ ...j, due: round2(j.price - j.allocations.reduce((s, a) => s + a.amount, 0)) })).filter((j) => j.due > 0.005);
+  const total = round2(owing.reduce((s, j) => s + j.due, 0));
+  let rest = round2(amount && amount > 0 ? Math.min(Number(amount), total) : total);
+  if (rest <= 0.005) throw new Error("Nothing owed.");
+  // Accruals: the cleans' sales change, so their dates must be in open quarters.
+  const { mtdSettings } = await import("@/lib/mtd/data");
+  if ((await mtdSettings(tenantId)).basis === "ACCRUALS") await assertNotLocked(tenantId, ...owing.map((j) => j.workDay.date));
+  const note = `written off${reason?.trim() ? `: ${reason.trim().slice(0, 120)}` : ""}`;
+  for (const j of owing) {
+    if (rest <= 0.005) break;
+    const take = round2(Math.min(j.due, rest));
+    await prisma.job.update({ where: { id: j.id }, data: { price: round2(j.price - take), notes: [j.notes, `£${take.toFixed(2)} ${note}`].filter(Boolean).join(" · ").slice(0, 500) } });
+    rest = round2(rest - take);
+  }
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${customerId}`);
+}
+
+/**
+ * Credit that shouldn't be there (money recorded that was never actually received, e.g. a wrong
+ * import): the spare part of their payments is reduced, newest first. A payment left at £0 is undone.
+ * Money you did receive and are giving back is a refund instead (Refund credit).
+ */
+export async function removeCredit(customerId: number, amount: number, reason?: string) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  await requireTenantCustomer(tenantId, Number(customerId));
+  const spare = await sparePayments(tenantId, [Number(customerId)]);
+  const total = round2(spare.reduce((s, p) => s + p.spare, 0));
+  let rest = round2(Math.min(Number(amount) || 0, total));
+  if (rest <= 0.005) throw new Error("No credit to remove.");
+  const ids = [...spare].reverse();
+  const payments = await prisma.payment.findMany({ where: { tenantId, id: { in: ids.map((p) => p.id) } }, select: { id: true, amount: true, paidAt: true, notes: true, goCardlessPaymentId: true } });
+  const byId = new Map(payments.map((p) => [p.id, p]));
+  for (const s of ids) {
+    if (rest <= 0.005) break;
+    const p = byId.get(s.id)!;
+    if (p.goCardlessPaymentId) continue; // A real Direct Debit payment: money did come in. Use it for another customer or refund it.
+    await assertPaymentNotLocked(tenantId, p.paidAt);
+    const take = round2(Math.min(s.spare, rest));
+    const left = round2(p.amount - take);
+    const note = `£${take.toFixed(2)} credit removed${reason?.trim() ? `: ${reason.trim().slice(0, 120)}` : ""}`;
+    await prisma.payment.update({ where: { id: p.id }, data: left <= 0.005
+      ? { voidedAt: new Date(), voidReason: note }
+      : { amount: left, notes: [p.notes, note].filter(Boolean).join(" · ").slice(0, 500) } });
+    rest = round2(rest - take);
+  }
+  if (rest > 0.005) throw new Error(`£${rest.toFixed(2)} of the credit is from Direct Debit payments that really came in. Use it for another customer or refund it instead.`);
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${customerId}`);
+  revalidatePath("/accounting");
+}

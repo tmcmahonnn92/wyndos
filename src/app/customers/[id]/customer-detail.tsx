@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { RefundCreditButton, RefundPaymentButton } from "./refunds";
 import { MovePaymentButton, UseCreditButton } from "./move-money";
+import { BalanceFixButton } from "./balance-fix";
 import { fmtDate, fmtCurrency, cn } from "@/lib/utils";
 import { AddressFields } from "@/components/address-fields";
 import { smsHref } from "@/components/phone-send-queue";
@@ -464,7 +465,10 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                   <p className="text-xs text-slate-500">
                     {unpaidJobs.length} unpaid job{unpaidJobs.length !== 1 ? "s" : ""}
                   </p>
-                  <button onClick={() => { setLogPayJobIds(new Set(unpaidJobIds)); setPayOpen(true); }} className="text-xs text-blue-600 hover:underline">Log payment</button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => { setLogPayJobIds(new Set(unpaidJobIds)); setPayOpen(true); }} className="text-xs text-blue-600 hover:underline">Log payment</button>
+                    {canPay && !hidePrices && <BalanceFixButton customerId={customer.id} kind="debt" max={balance} />}
+                  </div>
                 </div>
               )}
               {!hidePrices && credit > 0.005 && (
@@ -472,7 +476,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                   {fmtCurrency(credit)} credit: no need to pay, it comes off the next clean
                 </p>
               )}
-              {!hidePrices && canPay && credit > 0.005 && <div className="mt-1 flex flex-wrap gap-1.5"><RefundCreditButton customerId={customer.id} credit={credit} /><UseCreditButton customerId={customer.id} credit={credit} /></div>}
+              {!hidePrices && canPay && credit > 0.005 && <div className="mt-1 flex flex-wrap gap-1.5"><RefundCreditButton customerId={customer.id} credit={credit} /><UseCreditButton customerId={customer.id} credit={credit} /><BalanceFixButton customerId={customer.id} kind="credit" max={credit} /></div>}
               {!hidePrices && canPay && allowCredit && (
                 <div className="mt-1.5">
                   <AddCreditForm

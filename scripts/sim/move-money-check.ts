@@ -26,6 +26,12 @@ async function main() {
   await act.movePaymentToCustomer(pay.id, h2.id);
   check("move: H1 owes 20", (await owed(h1.id)) === 20, String(await owed(h1.id)));
   check("move: H2 paid with 20 credit", (await owed(h2.id)) === 0 && (await credit(h2.id)) === 20, `${await owed(h2.id)} / ${await credit(h2.id)}`);
+  // Remove credit that isn't real (H2 has £20 credit from a cash/bank payment), and write off H1's debt.
+  await act.removeCredit(h2.id, 20, "wrong import");
+  check("remove credit: H2 credit 0", (await credit(h2.id)) === 0, String(await credit(h2.id)));
+  check("remove credit: H2 still paid", (await owed(h2.id)) === 0);
+  await act.writeOffDebt(h1.id, null, "wrong import");
+  check("write off: H1 owes 0", (await owed(h1.id)) === 0, String(await owed(h1.id)));
   console.log(fails ? `${fails} failed` : "all passed");
 }
 main().then(() => process.exit(fails ? 1 : 0), (e) => { console.error(e); process.exit(1); });
