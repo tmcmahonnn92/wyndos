@@ -360,8 +360,9 @@ export async function syncTenant(tenantId: number) {
     // made for, so it's linked to them whatever details were typed in.
     try {
       const done = await gcList<{ id: string; status: string; metadata?: Record<string, string | null | undefined>; links?: { customer?: string; mandate_request_mandate?: string } }>(
-        conn, "/billing_requests", "billing_requests", { status: "fulfilled", "created_at[gte]": new Date(Date.now() - 90 * 86400000).toISOString() }, 3);
-      for (const br of done) {
+        conn, "/billing_requests", "billing_requests", { "created_at[gte]": new Date(Date.now() - 90 * 86400000).toISOString() }, 5);
+      // GoCardless won't take the status and date filters together, so only completed ones are used here.
+      for (const br of done.filter((x) => x.status === "fulfilled")) {
         const cid = Number(br.metadata?.wyndosCustomerId);
         const mandateId = br.links?.mandate_request_mandate;
         if (!cid || !mandateId) continue;
