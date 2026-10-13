@@ -672,7 +672,8 @@ export function DayView({
       setBulkDest("new");
       setBulkNewDate(tomorrowISO());
       setBulkExistingDayId("");
-      setCompletionDate(todayDateValue);
+      // Done on the day it was planned unless they say otherwise (so the run stays where it was).
+      setCompletionDate(scheduledDateValue);
       setCompleteScope(scope);
     } else {
       safely(async () => {
@@ -986,7 +987,8 @@ export function DayView({
         {/* Whole-date actions */}
         {days.length > 0 && (
           <div className="flex gap-2">
-            {plannedDays.length > 0 && (
+            {/* One main button: Start until something's begun, then Complete. */}
+            {plannedDays.length > 0 && !openDays.some((d) => d.status === "IN_PROGRESS") && (
               <Button onClick={() => handleStart(plannedDays)} disabled={isPending} className="flex-1" size="lg">
                 <Play size={16} />
                 {multi ? "Start day" : "Start Area"}
@@ -1527,12 +1529,23 @@ export function DayView({
                   </p>
                 </div>
               </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setCompletionDate(scheduledDateValue)}
+                  className={cn("rounded-lg border px-3 py-1.5 text-xs font-semibold", completionDate === scheduledDateValue ? "border-blue-600 bg-blue-600 text-white" : "border-blue-200 bg-white text-blue-800")}>
+                  On the planned day ({fmtShortDate(`${scheduledDateValue}T12:00:00Z`)})
+                </button>
+                <button type="button" onClick={() => setCompletionDate(todayDateValue)}
+                  className={cn("rounded-lg border px-3 py-1.5 text-xs font-semibold", completionDate === todayDateValue ? "border-blue-600 bg-blue-600 text-white" : "border-blue-200 bg-white text-blue-800")}>
+                  Today
+                </button>
+              </div>
               <input
                 type="date"
                 value={completionDate}
                 onChange={(e) => setCompletionDate(e.target.value)}
                 className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               />
+              {completionDate !== scheduledDateValue && <p className="text-xs text-blue-800/80">The run moves to {fmtDate(`${completionDate}T12:00:00Z`)} in your history.</p>}
             </div>
           )}
 

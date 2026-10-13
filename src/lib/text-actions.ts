@@ -184,6 +184,7 @@ export async function getBulkRecipients() {
     where: { tenantId, active: true },
     select: {
       id: true, name: true, address: true, phone: true, isProspect: true, nextDueDate: true, price: true,
+      preferredPaymentMethod: true, goCardlessMandateId: true, goCardlessMandateStatus: true,
       area: { select: { id: true, name: true, color: true, isSystemArea: true } },
       tags: { select: { tag: { select: { id: true, name: true } } } },
     },
@@ -237,6 +238,9 @@ export async function getBulkRecipients() {
     mobile: ukMobile(c.phone),
     isProspect: c.isProspect,
     price: c.price,
+    preferredPaymentMethod: c.preferredPaymentMethod,
+    goCardlessMandateId: c.goCardlessMandateId,
+    goCardlessMandateStatus: c.goCardlessMandateStatus,
     owed: balance.get(c.id) ?? 0,
     nextDue: c.nextDueDate ? textDate(c.nextDueDate) : "",
     area: c.area && !c.area.isSystemArea ? { id: c.area.id, name: c.area.name, color: c.area.color } : null,

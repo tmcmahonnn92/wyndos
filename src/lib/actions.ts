@@ -710,11 +710,24 @@ async function syncAreaScheduleAfterCompletion(
   // Setting: the next run goes to the same worker (default), or is left for the owner to give out.
   const keepWorker = (await prisma.tenantSettings.findUnique({ where: { tenantId }, select: { keepWorkerOnNextRun: true } }))?.keepWorkerOnNextRun ?? true;
   const nextWorker = keepWorker ? workDay.assignedUserId ?? null : null;
-  const targetNextWorkDay = await prisma.workDay.upsert({
-    where: { tenantId_date_areaId: { tenantId, date: nextDue, areaId: workDay.area.id } },
-    update: keepWorker ? { assignedUserId: nextWorker } : {},
-    create: { tenantId, date: nextDue, areaId: workDay.area.id, assignedUserId: nextWorker ?? undefined },
+  // A run of this area already booked close to the next due date (e.g. moved by a day by hand):
+  // use that one rather than booking a second copy a day or two away.
+  const nearWindow = Math.max(3, await runDueWindow(tenantId, workDay.area));
+  const nearby = await prisma.workDay.findFirst({
+    where: {
+      tenantId, areaId: workDay.area.id, status: { not: "COMPLETE" }, partOfId: null,
+      id: { notIn: [workDay.id, ...(splitRun?.runDayIds ?? [])] },
+      date: { gte: addUtcDays(nextDue, -nearWindow), lte: addUtcDays(nextDue, nearWindow) },
+    },
+    orderBy: { date: "asc" },
   });
+  const targetNextWorkDay = nearby
+    ? (keepWorker ? await prisma.workDay.update({ where: { id: nearby.id }, data: { assignedUserId: nextWorker } }) : nearby)
+    : await prisma.workDay.upsert({
+      where: { tenantId_date_areaId: { tenantId, date: nextDue, areaId: workDay.area.id } },
+      update: keepWorker ? { assignedUserId: nextWorker } : {},
+      create: { tenantId, date: nextDue, areaId: workDay.area.id, assignedUserId: nextWorker ?? undefined },
+    });
 
   // Another open run of this area (booked earlier): its customers join the new next run.
   // Pieces of this same run (parts still to do) are left alone.
@@ -754,6 +767,14 @@ async function syncAreaScheduleAfterCompletion(
       targetCustomerIds.add(sourceJob.customerId);
     }
 
+    // Nothing actually done on it: the "skip this time" placeholders go with the rest,
+    // so the area isn't left with a second copy of its next run.
+    const doneThere = await prisma.job.count({ where: { tenantId, workDayId: sourceNextWorkDay.id, status: "COMPLETE" } });
+    if (doneThere === 0) {
+      await prisma.job.updateMany({ where: { tenantId, workDayId: sourceNextWorkDay.id, customerId: { notIn: [...targetCustomerIds] } }, data: { workDayId: targetNextWorkDay.id } });
+      const leftover = await prisma.job.findMany({ where: { tenantId, workDayId: sourceNextWorkDay.id }, select: { id: true } });
+      if (leftover.length) await deleteUnpaidJobs(tenantId, leftover.map((j) => j.id));
+    }
     const remainingJobs = await prisma.job.count({ where: { tenantId, workDayId: sourceNextWorkDay.id } });
     if (remainingJobs === 0) {
       await prisma.workDay.delete({ where: { id: sourceNextWorkDay.id } });
@@ -4690,6 +4711,9 @@ export async function getPaymentsPage() {
         jobIds: unpaidJobs.map((j) => j.id),
         unpaidJobs,
         credit: credit.get(customer.id) ?? 0,
+        preferredPaymentMethod: customer.preferredPaymentMethod,
+        goCardlessMandateId: customer.goCardlessMandateId,
+        goCardlessMandateStatus: customer.goCardlessMandateStatus,
       };
     });
 
@@ -6575,4 +6599,154 @@ export async function refundCustomerCredit(customerId: number, data: { amount: n
   revalidatePath("/payments");
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/accounting");
+}
+
+// ─── Moving money between customers ─────────────────────────────────────────
+
+/** Customers to choose from (name and address). */
+export async function listCustomersBrief() {
+  const actor = await requirePerm("payments");
+  return prisma.customer.findMany({ where: { tenantId: actor.tenantId }, select: { id: true, name: true, address: true }, orderBy: { name: "asc" }, take: 5000 });
+}
+
+/** A payment put on the wrong customer: move it (it then pays the other customer's cleans, oldest first). */
+export async function movePaymentToCustomer(paymentId: number, toCustomerId: number) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  const payment = await requireTenantPayment(tenantId, Number(paymentId));
+  await requireTenantCustomer(tenantId, Number(toCustomerId));
+  if (payment.voidedAt) throw new Error("This payment has been undone.");
+  if (payment.amount < 0) throw new Error("A refund can't be moved.");
+  if (payment.customerId === Number(toCustomerId)) return;
+  if (await prisma.payment.count({ where: { tenantId, refundOfId: payment.id, voidedAt: null } })) throw new Error("This payment has a refund on it, so it can't be moved.");
+  await prisma.$transaction([
+    prisma.paymentAllocation.deleteMany({ where: { tenantId, paymentId: payment.id } }),
+    prisma.payment.update({ where: { id: payment.id }, data: { customerId: Number(toCustomerId), notes: [payment.notes, "Moved from another customer"].filter(Boolean).join(" · ").slice(0, 500) } }),
+  ]);
+  // The new customer's unpaid cleans are paid from it; the old customer's cleans it paid owe again
+  // (or are paid from any other credit they have).
+  await applyCredit(tenantId, [Number(toCustomerId), payment.customerId]);
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${payment.customerId}`);
+  revalidatePath(`/customers/${toCustomerId}`);
+}
+
+/** One customer's spare credit pays another customer's unpaid cleans (e.g. one Direct Debit for two houses). */
+export async function useCreditForCustomer(fromCustomerId: number, toCustomerId: number, amount?: number) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  await requireTenantCustomer(tenantId, Number(fromCustomerId));
+  await requireTenantCustomer(tenantId, Number(toCustomerId));
+  if (Number(fromCustomerId) === Number(toCustomerId)) throw new Error("Choose a different customer.");
+  const spare = await sparePayments(tenantId, [Number(fromCustomerId)]);
+  let budget = round2(Math.min(spare.reduce((s, p) => s + p.spare, 0), amount && amount > 0 ? Number(amount) : Infinity));
+  if (budget <= 0.005) throw new Error("No credit to use.");
+  const jobs = await prisma.job.findMany({
+    where: { tenantId, customerId: Number(toCustomerId), status: "COMPLETE", isQuote: false },
+    select: { id: true, price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
+    orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
+  });
+  const rows: Array<{ tenantId: number; paymentId: number; jobId: number; amount: number }> = [];
+  let p = 0;
+  for (const job of jobs) {
+    if (budget <= 0.005 || p >= spare.length) break;
+    let due = round2(job.price - job.allocations.reduce((s, a) => s + a.amount, 0));
+    while (due > 0.005 && budget > 0.005 && p < spare.length) {
+      const take = round2(Math.min(due, spare[p].spare, budget));
+      rows.push({ tenantId, paymentId: spare[p].id, jobId: job.id, amount: take });
+      spare[p].spare = round2(spare[p].spare - take);
+      due = round2(due - take);
+      budget = round2(budget - take);
+      if (spare[p].spare <= 0.005) p++;
+    }
+  }
+  if (!rows.length) throw new Error("They have no unpaid cleans to pay.");
+  await prisma.paymentAllocation.createMany({ data: rows });
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${fromCustomerId}`);
+  revalidatePath(`/customers/${toCustomerId}`);
+  return { used: round2(rows.reduce((s, r) => s + r.amount, 0)) };
+}
+
+// ─── Balance corrections ────────────────────────────────────────────────────
+
+/** Debt that shouldn't be owed (wrong import, goodwill, bad debt): taken off unpaid cleans' prices, newest first. */
+export async function writeOffDebt(customerId: number, amount: number | null, reason?: string) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  await requireTenantCustomer(tenantId, Number(customerId));
+  const jobs = await prisma.job.findMany({
+    where: { tenantId, customerId: Number(customerId), status: "COMPLETE", isQuote: false },
+    select: { id: true, price: true, notes: true, workDay: { select: { date: true } }, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
+    orderBy: [{ workDay: { date: "desc" } }, { id: "desc" }],
+  });
+  const owing = jobs.map((j) => ({ ...j, due: round2(j.price - j.allocations.reduce((s, a) => s + a.amount, 0)) })).filter((j) => j.due > 0.005);
+  const total = round2(owing.reduce((s, j) => s + j.due, 0));
+  let rest = round2(amount && amount > 0 ? Math.min(Number(amount), total) : total);
+  if (rest <= 0.005) throw new Error("Nothing owed.");
+  // Accruals: the cleans' sales change, so their dates must be in open quarters.
+  const { mtdSettings } = await import("@/lib/mtd/data");
+  if ((await mtdSettings(tenantId)).basis === "ACCRUALS") await assertNotLocked(tenantId, ...owing.map((j) => j.workDay.date));
+  const note = `written off${reason?.trim() ? `: ${reason.trim().slice(0, 120)}` : ""}`;
+  for (const j of owing) {
+    if (rest <= 0.005) break;
+    const take = round2(Math.min(j.due, rest));
+    await prisma.job.update({ where: { id: j.id }, data: { price: round2(j.price - take), notes: [j.notes, `£${take.toFixed(2)} ${note}`].filter(Boolean).join(" · ").slice(0, 500) } });
+    rest = round2(rest - take);
+  }
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${customerId}`);
+}
+
+/**
+ * Credit that shouldn't be there (money recorded that was never actually received, e.g. a wrong
+ * import): the spare part of their payments is reduced, newest first. A payment left at £0 is undone.
+ * Money you did receive and are giving back is a refund instead (Refund credit).
+ */
+export async function removeCredit(customerId: number, amount: number, reason?: string) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  await requireTenantCustomer(tenantId, Number(customerId));
+  const spare = await sparePayments(tenantId, [Number(customerId)]);
+  const total = round2(spare.reduce((s, p) => s + p.spare, 0));
+  let rest = round2(Math.min(Number(amount) || 0, total));
+  if (rest <= 0.005) throw new Error("No credit to remove.");
+  const ids = [...spare].reverse();
+  const payments = await prisma.payment.findMany({ where: { tenantId, id: { in: ids.map((p) => p.id) } }, select: { id: true, amount: true, paidAt: true, notes: true, goCardlessPaymentId: true } });
+  const byId = new Map(payments.map((p) => [p.id, p]));
+  for (const s of ids) {
+    if (rest <= 0.005) break;
+    const p = byId.get(s.id)!;
+    if (p.goCardlessPaymentId) continue; // A real Direct Debit payment: money did come in. Use it for another customer or refund it.
+    await assertPaymentNotLocked(tenantId, p.paidAt);
+    const take = round2(Math.min(s.spare, rest));
+    const left = round2(p.amount - take);
+    const note = `£${take.toFixed(2)} credit removed${reason?.trim() ? `: ${reason.trim().slice(0, 120)}` : ""}`;
+    await prisma.payment.update({ where: { id: p.id }, data: left <= 0.005
+      ? { voidedAt: new Date(), voidReason: note }
+      : { amount: left, notes: [p.notes, note].filter(Boolean).join(" · ").slice(0, 500) } });
+    rest = round2(rest - take);
+  }
+  if (rest > 0.005) throw new Error(`£${rest.toFixed(2)} of the credit is from Direct Debit payments that really came in. Use it for another customer or refund it instead.`);
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${customerId}`);
+  revalidatePath("/accounting");
+}
+
+/** Credit given that isn't money received (goodwill, a correction). Not counted as income. */
+export async function addCreditAdjustment(customerId: number, amount: number, reason?: string) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  await requireTenantCustomer(tenantId, Number(customerId));
+  const value = round2(Number(amount));
+  if (!(value > 0) || value > 100000) throw new Error("Enter an amount above zero.");
+  await prisma.payment.create({ data: {
+    tenantId, customerId: Number(customerId), amount: value, method: "BACS", paidAt: new Date(),
+    // broughtForward: kept out of income, like credit carried over from another program.
+    broughtForward: true, collectedByUserId: actor.userId,
+    notes: `Credit added (not money received)${reason?.trim() ? `: ${reason.trim().slice(0, 120)}` : ""}`,
+  } });
+  await applyCredit(tenantId, [Number(customerId)]);
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${customerId}`);
 }

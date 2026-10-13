@@ -1,5 +1,7 @@
 "use client";
 
+import { PaysByFilter, paysByOf, usePaysByChoice, type PaysBy } from "@/components/pays-by-filter";
+
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -30,6 +32,9 @@ import { ukMobile } from "@/lib/text-format";
 import { INVOICE_EMAIL_ENABLED } from "@/lib/features";
 
 export type Debtor = PaymentCustomerOption & {
+  preferredPaymentMethod?: string | null;
+  goCardlessMandateId?: string | null;
+  goCardlessMandateStatus?: string | null;
   email: string;
   phone: string;
   jobIds: number[];
@@ -317,11 +322,18 @@ export function DebtorsPanel({
   // Reminders open in the phone's own Messages app.
   const smsRemindersEnabled = true;
 
+  const [paysBy, setPaysBy] = usePaysByChoice("wyndos.paysBy.payments");
+  const paysByCounts = useMemo(() => {
+    const out: Partial<Record<PaysBy, number>> = {};
+    for (const d of debtors) out[paysByOf(d)] = (out[paysByOf(d)] ?? 0) + 1;
+    return out;
+  }, [debtors]);
   const filteredDebtors = useMemo(
     () => (selectedAreaId ? debtors.filter((debtor) => debtor.areaId === selectedAreaId) : debtors)
+      .filter((debtor) => paysBy.size === 0 || paysBy.has(paysByOf(debtor)))
       .filter((debtor) => !onlyLate || debtor.late)
       .filter((debtor) => matchesPaymentSearch(query, [debtor.name, debtor.address, debtor.areaName ?? "", ...debtor.unpaidJobs.map((j) => j.notes ?? "")], [Number(debtor.debt)])),
-    [debtors, selectedAreaId, query, onlyLate]
+    [debtors, selectedAreaId, query, onlyLate, paysBy]
   );
 
   const totalDebt = filteredDebtors.reduce((sum, customer) => sum + Number(customer.debt), 0);
@@ -437,6 +449,8 @@ export function DebtorsPanel({
           })}
         </div>
       )}
+
+      <div className="mb-3"><PaysByFilter counts={paysByCounts} chosen={paysBy} onChange={(next) => { setPaysBy(next); setSelected(new Set()); }} /></div>
 
       {/* Header row */}
       <div className="flex items-center justify-between gap-2 mb-2">

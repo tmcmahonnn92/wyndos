@@ -1,5 +1,7 @@
 "use client";
 
+import { PaysByFilter, paysByOf, usePaysByChoice, type PaysBy } from "@/components/pays-by-filter";
+
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, Filter, MessageSquare, PoundSterling, Send } from "lucide-react";
@@ -26,6 +28,9 @@ type Recipient = {
   mobile: string | null;
   isProspect: boolean;
   price: number;
+  preferredPaymentMethod?: string | null;
+  goCardlessMandateId?: string | null;
+  goCardlessMandateStatus?: string | null;
   owed: number;
   nextDue: string;
   area: { id: number; name: string; color: string } | null;
@@ -140,8 +145,15 @@ export function MessagesClient({
     return [...map.entries()].map(([id, name]) => ({ id, name }));
   }, [recipients]);
 
+  const [paysBy, setPaysBy] = usePaysByChoice("wyndos.paysBy.texts");
+  const paysByCounts = useMemo(() => {
+    const out: Partial<Record<PaysBy, number>> = {};
+    for (const r of recipients) out[paysByOf(r)] = (out[paysByOf(r)] ?? 0) + 1;
+    return out;
+  }, [recipients]);
   const filtered = recipients.filter((r) => {
     if (!includeQuotes && r.isProspect) return false;
+    if (paysBy.size > 0 && !paysBy.has(paysByOf(r))) return false;
     if (areaIds.size > 0 && !(r.area && areaIds.has(r.area.id))) return false;
     if (tagId && !r.tags.some((t) => String(t.id) === tagId)) return false;
     if (view === "unpaid" && r.owed <= 0.005) return false;
@@ -367,6 +379,7 @@ export function MessagesClient({
                 </div>
               </div>
             )}
+            <PaysByFilter counts={paysByCounts} chosen={paysBy} onChange={(next) => { setPaysBy(next); setPicked(new Set()); }} />
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-500">{filtered.length} customer{filtered.length === 1 ? "" : "s"} · <b className="text-slate-800">{picked.size} chosen</b></span>
               <span className="flex gap-3">

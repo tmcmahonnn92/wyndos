@@ -16,6 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { RefundCreditButton, RefundPaymentButton } from "./refunds";
+import { MovePaymentButton, UseCreditButton } from "./move-money";
+import { BalanceFixButton } from "./balance-fix";
 import { fmtDate, fmtCurrency, cn } from "@/lib/utils";
 import { AddressFields } from "@/components/address-fields";
 import { smsHref } from "@/components/phone-send-queue";
@@ -463,7 +465,10 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                   <p className="text-xs text-slate-500">
                     {unpaidJobs.length} unpaid job{unpaidJobs.length !== 1 ? "s" : ""}
                   </p>
-                  <button onClick={() => { setLogPayJobIds(new Set(unpaidJobIds)); setPayOpen(true); }} className="text-xs text-blue-600 hover:underline">Log payment</button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => { setLogPayJobIds(new Set(unpaidJobIds)); setPayOpen(true); }} className="text-xs text-blue-600 hover:underline">Log payment</button>
+                    {canPay && !hidePrices && <BalanceFixButton customerId={customer.id} kind="debt" max={balance} />}
+                  </div>
                 </div>
               )}
               {!hidePrices && credit > 0.005 && (
@@ -471,15 +476,16 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                   {fmtCurrency(credit)} credit: no need to pay, it comes off the next clean
                 </p>
               )}
-              {!hidePrices && canPay && credit > 0.005 && <div className="mt-1"><RefundCreditButton customerId={customer.id} credit={credit} /></div>}
+              {!hidePrices && canPay && credit > 0.005 && <div className="mt-1 flex flex-wrap gap-1.5"><RefundCreditButton customerId={customer.id} credit={credit} /><UseCreditButton customerId={customer.id} credit={credit} /><BalanceFixButton customerId={customer.id} kind="credit" max={credit} /></div>}
               {!hidePrices && canPay && allowCredit && (
-                <div className="mt-1.5">
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   <AddCreditForm
                     customers={[{ id: customer.id, name: customer.name, address: customer.address, credit }]}
                     initialCustomerId={customer.id}
                     buttonLabel="Paid in advance"
                     buttonClassName="h-7 px-2 text-xs"
                   />
+                  <BalanceFixButton customerId={customer.id} kind="add" max={0} />
                 </div>
               )}
             </CardContent>
@@ -725,13 +731,15 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                           job.status === "SKIPPED" ? "bg-gray-100 text-gray-600" :
                           "bg-slate-100 text-slate-600"
                         )}>
-                          {job.status}
+                          {{ PENDING: "Scheduled", COMPLETE: "Complete", SKIPPED: "Skipped", OUTSTANDING: "Not done" }[job.status as string] ?? job.status}
                         </span>
-                        {job.allocations.length > 0 && !hidePrices && (
-                          <span className="text-xs text-green-600">
-                            Paid {fmtCurrency(job.allocations.reduce((sum, allocation) => sum + allocation.amount, 0))}
-                          </span>
-                        )}
+                        {(() => {
+                          if (hidePrices || job.status !== "COMPLETE") return null;
+                          const paid = Math.round(job.allocations.reduce((sum, allocation) => sum + allocation.amount, 0) * 100) / 100;
+                          if (paid >= job.price - 0.005) return job.price > 0 ? <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-green-50 text-green-700">Paid {fmtCurrency(paid)}</span> : null;
+                          if (paid > 0.005) return <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800">Paid {fmtCurrency(paid)} · {fmtCurrency(job.price - paid)} unpaid</span>;
+                          return <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-700">Unpaid</span>;
+                        })()}
                       </div>
                     </div>
                     <div className="ml-3 flex items-center gap-2 flex-shrink-0">
@@ -775,6 +783,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                     </div>
                     <span className={`text-sm font-semibold flex-shrink-0 ${p.amount < 0 ? "text-amber-700" : "text-green-700"}`}>{hidePrices ? null : p.amount < 0 ? `−${fmtCurrency(-p.amount)}` : `+${fmtCurrency(p.amount)}`}</span>
                     {canPay && p.amount > 0 && <RefundPaymentButton paymentId={p.id} />}
+                    {canPay && p.amount > 0 && <MovePaymentButton paymentId={p.id} customerId={customer.id} amount={p.amount} />}
                     {p.amount > 0 && <button
                       onClick={() => openEditPayment(p)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors flex-shrink-0"
