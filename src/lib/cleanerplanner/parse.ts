@@ -146,7 +146,12 @@ export type CpBackup = {
   /** Estimates (Aworka): brought in as quotes, not customers. */
   quotes?: Array<{ name: string; address: string; houseNameNumber: string; street: string; town: string; postcode: string; phone: string; email: string; notes: string; price: number; frequencyWeeks?: number; jobName: string }>;
   counts2?: { tips: number; writeoffs: number; balancesChecked: number; balancesMatched: number };
+  /** Aworka: which columns hold the GoCardless details (guessed; the owner can change them), with an example value from each column. */
+  gcColumns?: { columns: Array<{ name: string; sample: string }>; mandate: string | null; customer: string | null; status: string | null };
 };
+
+/** Columns to read the GoCardless details from (null = none). */
+export type GcColumnChoice = { mandate: string | null; customer: string | null; status: string | null };
 
 const FILES = ["Jobs.csv", "Customers.csv", "Contacts.csv", "Rounds.csv", "Services.csv", "PaymentMethods.csv", "Notes.csv", "Transactions.csv"] as const;
 export type CpFiles = Partial<Record<(typeof FILES)[number], string>>;
