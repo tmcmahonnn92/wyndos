@@ -345,7 +345,7 @@ export function AccountingClient({
           supplier: expenseForm.supplier,
           amount,
           businessPct: Number(expenseForm.businessPct) || 0,
-          vehicleId: expenseForm.vehicleId ? Number(expenseForm.vehicleId) : null,
+          vehicleId: expenseForm.vehicleId && ["FUEL", "VEHICLE_MAINTENANCE", "VEHICLE_COSTS", "PARKING"].includes(expenseForm.category) ? Number(expenseForm.vehicleId) : null,
           taxTreatment: expenseForm.taxTreatment,
           expenseDate: new Date(expenseForm.expenseDate),
           notes: expenseForm.notes,
@@ -489,7 +489,7 @@ export function AccountingClient({
           supplier: expenseForm.supplier,
           amount,
           businessPct: Number(expenseForm.businessPct) || 0,
-          vehicleId: expenseForm.vehicleId ? Number(expenseForm.vehicleId) : null,
+          vehicleId: expenseForm.vehicleId && ["FUEL", "VEHICLE_MAINTENANCE", "VEHICLE_COSTS", "PARKING"].includes(expenseForm.category) ? Number(expenseForm.vehicleId) : null,
           taxTreatment: expenseForm.taxTreatment,
           expenseDate: new Date(expenseForm.expenseDate),
           notes: expenseForm.notes,
@@ -600,14 +600,16 @@ export function AccountingClient({
               <input type="number" min="0" max="100" step="1" value={expenseForm.businessPct} onChange={(event) => setExpenseForm((prev) => ({ ...prev, businessPct: event.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               <p className="mt-0.5 text-[11px] text-slate-400">Under 100 if partly personal (e.g. phone 70%).</p>
             </div>
-            <div>
+            {/* Vehicle: only for vehicle costs, and only once a vehicle is set up (it decides how
+                fuel and repairs are claimed: actual costs, or the mileage rate instead). */}
+            {vehicles.length > 0 && ["FUEL", "VEHICLE_MAINTENANCE", "VEHICLE_COSTS", "PARKING"].includes(expenseForm.category) && <div>
               <label className="mb-1 block text-xs font-medium text-slate-700">Vehicle</label>
               <select value={expenseForm.vehicleId} onChange={(event) => { const v = vehicles.find((x) => String(x.id) === event.target.value); setExpenseForm((prev) => ({ ...prev, vehicleId: event.target.value, businessPct: v && v.method === "ACTUAL" ? String(v.businessPct) : prev.businessPct })); }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                 <option value="">Not for a vehicle</option>
                 {vehicles.map((v) => <option key={v.id} value={v.id}>{v.name}{v.method === "MILEAGE" ? " (mileage rate)" : ` (${v.businessPct}% business)`}</option>)}
               </select>
               {vehicles.find((x) => String(x.id) === expenseForm.vehicleId)?.method === "MILEAGE" && ["FUEL", "VEHICLE_MAINTENANCE", "VEHICLE_COSTS"].includes(expenseForm.category) && <p className="mt-0.5 text-[11px] text-amber-700">This vehicle uses the mileage rate, so this cost isn&apos;t claimed (parking and tolls still are).</p>}
-            </div>
+            </div>}
             <div className="sm:col-span-2">
               <label className="mb-1 block text-xs font-medium text-slate-700">Tax / VAT treatment</label>
               <select value={expenseForm.taxTreatment} onChange={(event) => setExpenseForm((prev) => ({ ...prev, taxTreatment: event.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">{taxTreatmentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
@@ -670,6 +672,8 @@ export function AccountingClient({
           <button type="button" onClick={applyDateRange} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Apply range</button>
           <button type="button" onClick={clearDateRange} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Reset range</button>
           <button type="button" onClick={exportMonthlySummary} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><Download size={14} />Export summary CSV</button>
+          {/* Phones: adding is up here, not a floating + (that's the menu button). */}
+          <button type="button" onClick={() => setQuickAddOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 xl:hidden"><Receipt size={14} />Add expense / income</button>
           <Link href="/accounting/mtd" className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">MTD &amp; tax</Link>
           <Link href="/accounting/import" className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"><Upload size={14} />Import expenses</Link>
           <button type="button" onClick={exportExpenses} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><Receipt size={14} />Export expenses CSV</button>
@@ -803,8 +807,6 @@ export function AccountingClient({
           </Card>
         </div>
       </div>
-
-      <button type="button" onClick={() => setQuickAddOpen(true)} className="fixed bottom-20 right-4 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 xl:hidden" aria-label="Add expense or income"><Plus size={24} /></button>
 
       {quickAddOpen && (
         <div className="fixed inset-0 z-50 flex items-end bg-slate-900/40 xl:hidden">
