@@ -41,8 +41,8 @@ export function RefundPaymentButton({ paymentId }: { paymentId: number }) {
 
   return (
     <>
-      <button onClick={start} className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors flex-shrink-0" title="Refund">
-        <RotateCcw size={13} />
+      <button onClick={start} className="inline-flex flex-shrink-0 items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100" title="Refund this payment">
+        <RotateCcw size={12} /> Refund
       </button>
       <Modal open={open} onClose={() => setOpen(false)} title="Refund">
         {!info ? <p className="text-sm text-slate-500">{error || "Loading…"}</p> : info.left <= 0.004 ? (
@@ -107,7 +107,7 @@ export function RefundCreditButton({ customerId, credit }: { customerId: number;
   };
   return (
     <>
-      <button type="button" onClick={() => { setAmount(credit.toFixed(2)); setOpen(true); }} className="text-xs font-semibold text-slate-500 hover:text-amber-700 hover:underline">Refund credit</button>
+      <button type="button" onClick={() => { setAmount(credit.toFixed(2)); setOpen(true); }} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"><RotateCcw size={12} /> Refund credit</button>
       <Modal open={open} onClose={() => setOpen(false)} title="Refund credit">
         <div className="space-y-3 text-sm">
           <label className="block">
