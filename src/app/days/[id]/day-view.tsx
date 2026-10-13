@@ -109,8 +109,9 @@ function getJobTitle(job: { name?: string | null }) {
 /** Credit the customer holds (paid in advance / paid extra), not used on any clean yet. */
 function creditOf(job: Job) {
   const payments = (job.customer as { payments?: Array<{ amount: number; allocations: Array<{ amount: number }> }> }).payments ?? [];
-  const spare = payments.reduce((sum, p) => sum + Math.max(0, p.amount - p.allocations.reduce((s, a) => s + a.amount, 0)), 0);
-  return Number(spare.toFixed(2));
+  // A refund of credit is a negative payment, so it comes off.
+  const spare = payments.reduce((sum, p) => sum + p.amount - p.allocations.reduce((s, a) => s + a.amount, 0), 0);
+  return Number(Math.max(0, spare).toFixed(2));
 }
 
 function getPaidAfterCompletion(job: Job) {

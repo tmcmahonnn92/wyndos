@@ -8,7 +8,7 @@ const { auth } = NextAuth(authConfig);
 const ONBOARDING_REFRESH_COOKIE = "wyndos_onboarding_refresh";
 const PUBLIC_ROUTES = new Set(["/auth/signin", "/auth/signup", "/home"]);
 /** Legal pages: open to everyone, signed in or not. */
-const LEGAL_ROUTES = new Set(["/privacy", "/terms", "/cookies", "/guide"]);
+const LEGAL_ROUTES = new Set(["/privacy", "/terms", "/cookies", "/guide", "/guide/direct-debit"]);
 const PUBLIC_PREFIXES = ["/auth/invite/", "/auth/verify-email", "/screens/", "/direct-debit-done"];
 
 function parseTenantId(rawValue: string | undefined) {
@@ -26,6 +26,8 @@ export default auth((req) => {
   if (pathname === "/api/health") return NextResponse.next();
   // Stripe calls this; it checks Stripe's signature itself.
   if (pathname === "/api/stripe/webhook") return NextResponse.next();
+  // GoCardless calls this; it checks GoCardless's signature itself.
+  if (pathname === "/api/gocardless/webhook") return NextResponse.next();
   // Cron endpoints check their own CRON_SECRET bearer token.
   if (pathname.startsWith("/api/cron/")) return NextResponse.next();
 

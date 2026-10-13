@@ -111,10 +111,31 @@ export type GcCustomer = { id: string; email?: string | null; given_name?: strin
 
 export async function testConnection(tenantId: number) {
   const conn = await requireConnection(tenantId);
-  const res = await gc<{ creditors?: Array<{ name?: string }> }>(conn, "GET", "/creditors", { params: { limit: "1" } });
+  const res = await gc<{ creditors?: Array<{ name?: string; verification_status?: string }> }>(conn, "GET", "/creditors", { params: { limit: "1" } });
   const name = res.creditors?.[0]?.name?.trim() || "GoCardless account";
+  // GoCardless account check: successful, in_review or action_required (payouts wait until it's done).
+  const verification = res.creditors?.[0]?.verification_status ?? null;
   await prisma.tenantSettings.update({ where: { tenantId }, data: { goCardlessCreditorName: name, goCardlessLastError: "" } });
-  return { name };
+  return { name, verification };
+}
+
+/** Send money back to a customer through GoCardless (refunds must be switched on for the GoCardless account). */
+export async function createGcRefund(tenantId: number, input: { gcPaymentId: string; amount: number; alreadyRefunded: number; wyndosPaymentId: number }) {
+  const conn = await requireConnection(tenantId);
+  const pence = Math.round(input.amount * 100);
+  // GoCardless asks for the running total refunded on this payment, so a retry can't refund twice.
+  const total = Math.round((input.alreadyRefunded + input.amount) * 100);
+  try {
+    const res = await gc<{ refunds: { id: string; status: string } }>(conn, "POST", "/refunds", {
+      body: { refunds: { amount: pence, total_amount_confirmation: total, links: { payment: input.gcPaymentId }, metadata: { wyndosPaymentId: String(input.wyndosPaymentId) } } },
+      idempotencyKey: `wyndos-refund-${input.wyndosPaymentId}-${total}`,
+    });
+    return res.refunds;
+  } catch (issue) {
+    const msg = issue instanceof Error ? issue.message : String(issue);
+    if (/refund.*(disabled|not enabled|not allowed)|forbidden/i.test(msg)) throw new Error("Refunds aren't switched on for your GoCardless account yet. Ask GoCardless to turn them on, or refund by bank transfer and record it here.");
+    throw issue;
+  }
 }
 
 // ── Linking customers ───────────────────────────────────────────────────────
@@ -381,13 +402,22 @@ export async function syncTenant(tenantId: number) {
     }
 
     // 2. Mandate statuses (cancelled, expired, …).
-    const linked = await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true, goCardlessMandateStatus: true } });
+    const linked = await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true, goCardlessMandateStatus: true, goCardlessCustomerId: true } });
     const mandateById = new Map<string, GcMandate>();
     if (linked.length) for (const m of await gcList<GcMandate>(conn, "/mandates", "mandates")) mandateById.set(m.id, m);
     for (const c of linked) {
-      const m = mandateById.get(c.goCardlessMandateId!);
-      if (m && m.status !== c.goCardlessMandateStatus) {
-        await prisma.customer.update({ where: { id: c.id }, data: { goCardlessMandateStatus: m.status, ...(m.links?.customer ? { goCardlessCustomerId: m.links.customer } : {}) } });
+      let m = mandateById.get(c.goCardlessMandateId!);
+      // A customer can have more than one mandate over time (e.g. new bank account: GoCardless
+      // cancels the old one and makes a new one for the same customer). Move to the working one.
+      if (m && !GC_MANDATE_USABLE.has(m.status) && m.links?.customer) {
+        const mine = [...mandateById.values()].filter((x) => x.links?.customer === m!.links!.customer && GC_MANDATE_USABLE.has(x.status));
+        const better = mine.find((x) => x.status === "active") ?? mine[0];
+        if (better) m = better;
+      }
+      if (!m) continue;
+      const custId = m.links?.customer ?? null;
+      if (m.id !== c.goCardlessMandateId || m.status !== c.goCardlessMandateStatus || (custId && custId !== c.goCardlessCustomerId)) {
+        await prisma.customer.update({ where: { id: c.id }, data: { goCardlessMandateId: m.id, goCardlessMandateStatus: m.status, ...(custId ? { goCardlessCustomerId: custId } : {}) } });
         summary.mandatesUpdated++;
       }
     }
@@ -487,6 +517,38 @@ export async function syncTenant(tenantId: number) {
       if (!rec || rec.voidedAt || collectingIds.has(p.id) || !GC_FAILED.has(p.status)) continue;
       await prisma.payment.update({ where: { id: rec.id }, data: { voidedAt: new Date(), voidReason: `Direct Debit ${p.status.replace(/_/g, " ")}`, goCardlessStatus: p.status } });
       summary.failed++;
+    }
+
+    // 3d. Refunds: keep Wyndos's refunds in step with GoCardless, and add refunds made in the
+    // GoCardless dashboard (written off, so the clean isn't collected again).
+    try {
+      const { recordRefund, undoRefund } = await import("@/lib/refunds");
+      const gcRefunds = await gcList<{ id: string; amount: number; status: string; created_at?: string; reference?: string | null; links?: { payment?: string } }>(
+        conn, "/refunds", "refunds", { "created_at[gte]": new Date(Date.now() - 120 * 86400000).toISOString() }, 5);
+      for (const r of gcRefunds) {
+        const mine = await prisma.payment.findUnique({ where: { goCardlessRefundId: r.id }, select: { id: true, tenantId: true, voidedAt: true, goCardlessStatus: true } });
+        if (mine && mine.tenantId !== tenantId) continue;
+        const dead = ["cancelled", "bounced", "funds_returned"].includes(r.status);
+        if (mine) {
+          if (r.status !== mine.goCardlessStatus) await prisma.payment.update({ where: { id: mine.id }, data: { goCardlessStatus: r.status } });
+          if (dead && !mine.voidedAt) await undoRefund(tenantId, mine.id, `GoCardless refund ${r.status.replace(/_/g, " ")}`);
+          continue;
+        }
+        if (dead || !r.links?.payment) continue;
+        const original = await prisma.payment.findFirst({ where: { tenantId, goCardlessPaymentId: r.links.payment, voidedAt: null }, select: { id: true } });
+        if (!original) continue;
+        try {
+          await recordRefund(tenantId, {
+            paymentId: original.id, amount: r.amount / 100, outcome: "WRITE_OFF", method: "BACS",
+            reason: "made in GoCardless", at: r.created_at ? new Date(r.created_at) : new Date(),
+            goCardlessRefundId: r.id, goCardlessStatus: r.status,
+          });
+        } catch (issue) {
+          summary.problems.push(`Refund ${r.id}: ${issue instanceof Error ? issue.message : issue}`);
+        }
+      }
+    } catch (issue) {
+      summary.problems.push(`Refunds: ${issue instanceof Error ? issue.message : issue}`);
     }
 
     // 4. Auto-collect cleans completed since auto-collect was turned on.
