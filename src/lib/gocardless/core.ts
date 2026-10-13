@@ -251,7 +251,6 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
     const pence = Math.round(j.due * 100);
     // One key per attempt: retrying the same clean after a failure needs a new key.
     const key = `wyndos-t${tenantId}-job${j.id}-${j.goCardlessPaymentId ?? "first"}`;
-    const date = j.workDay.date.toISOString().slice(0, 10);
     try {
       let payment: GcPayment;
       try {
@@ -259,7 +258,8 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
           idempotencyKey: key,
           body: { payments: {
             amount: pence, currency: "GBP",
-            description: `${j.name || "Window cleaning"} ${date}`.slice(0, 100),
+            // Shown to the customer in GoCardless's payment emails: "Window Cleaning on 12 Oct 2026".
+            description: `${j.name || "Window cleaning"} on ${j.workDay.date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}`.slice(0, 100),
             metadata: { wyndosCustomerId: String(j.customer.id), wyndosJobId: String(j.id) },
             links: { mandate },
           } },
