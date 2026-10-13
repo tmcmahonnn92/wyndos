@@ -86,7 +86,10 @@ export function DirectDebitPanel({ customerId, mandateId, mandateStatus, waiting
           </div>
         )}
         {error && <p className="text-xs text-red-600">{error}</p>}
-        <Link href="/payments/direct-debit" className="inline-block text-xs font-semibold text-blue-700">Collect, sync and link customers →</Link>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          <Link href="/payments/direct-debit" className="text-xs font-semibold text-blue-700">Collect, sync and link customers →</Link>
+          <Link href="/guide/direct-debit" className="text-xs text-slate-500 hover:underline">How Direct Debit works</Link>
+        </div>
       </div>
     </section>
   );

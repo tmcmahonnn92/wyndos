@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 
 export const metadata = {
   title: "Getting started | Wyndos",
-  description: "Set up Wyndos step by step: your business, areas, importing customers, planning, working a day, texts, workers and payments.",
+  description: "Set up Wyndos step by step: your business, areas, importing customers, planning, working a day, texts, workers, payments and Direct Debit.",
 };
 
 /*
@@ -25,6 +25,7 @@ const STEPS = [
   { id: "texts", title: "Text your customers" },
   { id: "workers", title: "Add your workers" },
   { id: "payments", title: "Keep track of money" },
+  { id: "direct-debit", title: "Direct Debit (GoCardless)" },
   { id: "dashboard", title: "Your dashboard" },
   { id: "help", title: "Help and the app" },
 ];
@@ -102,6 +103,13 @@ export default async function GuidePage() {
               ))}
             </ol>
           </nav>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm print:hidden">
+            <p className="mb-2 text-sm font-semibold text-slate-900">More guides</p>
+            <Link href="/guide/direct-debit" className="flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:bg-blue-100">
+              <span><b>Direct Debit with GoCardless</b><span className="block text-blue-800/80">Connect, sign customers up, collect, refunds, and one person paying for several houses.</span></span>
+              <span className="font-semibold">Open →</span>
+            </Link>
+          </div>
         </header>
 
         <Step n={1} id="business" title="Your business details">
@@ -151,6 +159,12 @@ export default async function GuidePage() {
             Moving from CleanerPlanner? Use <strong>Moving from CleanerPlanner</strong> at the top of the import page and upload
             your CleanerPlanner backup. Customers, rounds, due dates and balances all come across.
           </p>
+          <p>
+            Moving from Aworka? Use <strong>Moving from Aworka?</strong> on the import page and upload your Aworka full export.
+            Customers, rounds, prices, due dates, balances, history and expenses come across, and so do customers&apos; Direct Debits
+            (see <Link href="/guide/direct-debit#moving" className="font-semibold text-blue-700 underline">Moving customers already on GoCardless</Link>).
+            You check everything before it&apos;s saved.
+          </p>
           <p>Your customers then appear under <strong>Customers</strong>. Tap anyone to see their details, history and what they owe.</p>
           <Shot src="d-customers" alt="The Customers list with names, addresses, area, due date and price" />
           <Tip>Adding one customer? Press <strong>Add Customer</strong> on the Customers page, or the blue + button on your phone.</Tip>
@@ -190,6 +204,7 @@ export default async function GuidePage() {
           <ul>
             <li>Press <strong>Start Area</strong> when you begin.</li>
             <li>Press <strong>Done</strong> when a house is cleaned, or <strong>Done &amp; Paid</strong> if they paid you there and then.</li>
+            <li>Customers on Direct Debit show <strong>Done · Direct Debit</strong>: just press it, and the money is collected through GoCardless. Don&apos;t take cash from them as well.</li>
             <li>
               With Done &amp; Paid you can change <strong>Price this time</strong> (front only, say) and <strong>They paid</strong>
               (if they gave you £10 for an £8 clean, the extra is kept as credit for next time).
@@ -201,9 +216,15 @@ export default async function GuidePage() {
             </li>
           </ul>
           <Tip>Rained off? On the day, press <strong>More → Rained off</strong> to move the whole day in one go.</Tip>
-          <p>
-            No signal? Keep going. Wyndos saves what you tap on the phone and sends it when you&apos;re back online.
-          </p>
+          <p><strong>No signal?</strong> Keep going.</p>
+          <ul>
+            <li><strong>Done</strong>, <strong>Skip</strong>, <strong>Done &amp; Paid</strong>, notes and price changes are saved on the phone. A bar at the top says how many are waiting.</li>
+            <li>They&apos;re sent by themselves when signal comes back, oldest first. On iPhone that happens while Wyndos is open, so open it once you have signal.</li>
+            <li>Starting or completing the day, moving houses and adding customers need signal.</li>
+            <li>If something can&apos;t be saved when it&apos;s sent (say the house was deleted in the meantime), it shows under <strong>offline changes need checking</strong>, with what it was and why. Press <strong>Try again</strong> or <strong>Remove</strong>.</li>
+            <li>Don&apos;t sign out while changes are waiting: Wyndos warns you, because signing out deletes them.</li>
+          </ul>
+          <Tip>Add Wyndos to your home screen (see <a href="#help" className="underline">Help and the app</a>). Phones keep saved changes safer for apps on the home screen.</Tip>
         </Step>
 
         <Step n={6} id="order" title="Set the order of your day">
@@ -284,11 +305,38 @@ export default async function GuidePage() {
           <ul>
             <li>Paid by bank transfer? Use <strong>Bank statement</strong> to match payments from your bank&apos;s download. The file is read on your device and never stored.</li>
             <li><strong>Accounting</strong> adds up income and expenses for the tax year, ready for your self-assessment.</li>
-            <li>Taking <strong>Direct Debit</strong> through GoCardless? See <Link href="/guide/direct-debit" className="font-semibold text-blue-700 underline">Direct Debit with GoCardless</Link>.</li>
+            <li><strong>Pays by</strong> at the top of Payments and Texts shows just the customers who pay a certain way (cash, bank, Direct Debit and so on).</li>
+          </ul>
+          <p>On a customer&apos;s page, under <strong>Payments</strong>, you can put their money right:</p>
+          <ul>
+            <li><strong>Refund this payment</strong>: all or part of it, back through GoCardless or given back yourself. Choose whether the clean is <strong>written off</strong> or <strong>left owing</strong>.</li>
+            <li><strong>Move payment to another customer</strong>: logged against the wrong person.</li>
+            <li><strong>Use credit for another customer</strong>: one person paying for two houses. It pays the other customer&apos;s oldest unpaid cleans and isn&apos;t counted as new money.</li>
+            <li><strong>Write off what they owe</strong>, <strong>Remove credit</strong> or <strong>Add credit</strong> (credit that isn&apos;t money received, such as carried over from your old system). <strong>Refund credit</strong> gives spare credit back.</li>
           </ul>
         </Step>
 
-        <Step n={10} id="dashboard" title="Your dashboard">
+        <Step n={10} id="direct-debit" title="Direct Debit (GoCardless)">
+          <p>
+            Customers sign a Direct Debit once. When you tick a clean <strong>Done</strong>, Wyndos asks GoCardless to take the money
+            and marks the clean paid when it arrives. You need your own GoCardless account; GoCardless charges its own fees.
+          </p>
+          <ol>
+            <li><strong>Settings → Business → GoCardless</strong>: press <strong>Connect my GoCardless account</strong>.</li>
+            <li>Open a customer and press <strong>Get sign-up link</strong> under <strong>Direct Debit</strong>. Send them the link.</li>
+            <li>Collect from <strong>Payments → Direct Debit</strong>, or tick <strong>Collect automatically</strong>.</li>
+          </ol>
+          <p>
+            One person paying for several houses? Keep each house as its own customer and choose
+            <strong> Use another customer&apos;s Direct Debit</strong>. Each clean is still collected separately, with the address on it.
+          </p>
+          <p>
+            <Link href="/guide/direct-debit" className="font-semibold text-blue-700 underline">Read the full Direct Debit guide →</Link>{" "}
+            (failed payments, refunds, moving from another program, sharing).
+          </p>
+        </Step>
+
+        <Step n={11} id="dashboard" title="Your dashboard">
           <div className="grid items-start gap-6 sm:grid-cols-[1fr_280px]">
             <div className="space-y-4">
               <p>
@@ -301,7 +349,7 @@ export default async function GuidePage() {
           </div>
         </Step>
 
-        <Step n={11} id="help" title="Help and the app">
+        <Step n={12} id="help" title="Help and the app">
           <div className="grid items-start gap-6 sm:grid-cols-[1fr_280px]">
             <div className="space-y-4">
               <p>
