@@ -375,6 +375,12 @@ model Customer {
   goCardlessMandateStatus String?
   /// A sign-up link sent to the customer that hasn't been completed yet.
   goCardlessBillingRequestId String?
+  /// When Wyndos first saw this customer's Direct Debit. Payments taken in GoCardless before
+  /// then (e.g. history brought in by an import) are never added again by the sync.
+  goCardlessLinkedAt      DateTime?
+  /// An active GoCardless subscription (plan) on their Direct Debit, e.g. "£15.00 monthly".
+  /// GoCardless takes those payments itself, so Wyndos never collects per clean for them.
+  goCardlessPlan          String?
   active                 Boolean       @default(true)
   sortOrder              Int           @default(0)
   /// Always put this customer straight after that customer when both are on the same day (any area).

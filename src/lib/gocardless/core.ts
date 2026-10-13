@@ -103,6 +103,7 @@ type GcPayment = {
   reference?: string | null; description?: string | null;
   metadata?: Record<string, string | null | undefined>; links?: { mandate?: string | null };
 };
+type GcSubscription = { id: string; amount: number; interval?: number | null; interval_unit?: string | null; status: string; links?: { mandate?: string | null } };
 type GcMandate = { id: string; status: string; reference?: string | null; created_at?: string | null; metadata?: Record<string, string | null | undefined>; links?: { customer?: string | null } };
 export type GcCustomer = { id: string; email?: string | null; given_name?: string | null; family_name?: string | null; company_name?: string | null; address_line1?: string | null; postal_code?: string | null; metadata?: Record<string, string | null | undefined> };
 
@@ -215,7 +216,8 @@ export async function cleansToCollect(tenantId: number, opts: { since?: Date | n
   const jobs = await prisma.job.findMany({
     where: {
       tenantId, status: "COMPLETE", isQuote: false, price: { gt: 0 },
-      customer: { goCardlessMandateId: { not: null }, ...(opts.customerIds ? { id: { in: opts.customerIds } } : {}) },
+      // Customers on a GoCardless plan pay through the plan, never per clean.
+      customer: { goCardlessMandateId: { not: null }, goCardlessPlan: null, ...(opts.customerIds ? { id: { in: opts.customerIds } } : {}) },
       ...(opts.since ? { completedAt: { gte: opts.since } } : {}),
     },
     select: {
@@ -359,6 +361,32 @@ export async function syncTenant(tenantId: number) {
       }
     }
 
+    // 2b. First time Wyndos sees a Direct Debit (linked, signed up, or typed in): note when.
+    // Payments taken in GoCardless before then aren't added again (history comes from imports).
+    await prisma.customer.updateMany({ where: { tenantId, goCardlessMandateId: { not: null }, goCardlessLinkedAt: null }, data: { goCardlessLinkedAt: new Date() } });
+
+    // 2c. GoCardless plans (subscriptions): GoCardless takes those payments itself, so Wyndos
+    // must never also collect per clean for that customer.
+    if (linked.length) {
+      let subs: GcSubscription[] | null = null;
+      try { subs = await gcList<GcSubscription>(conn, "/subscriptions", "subscriptions", { status: "active" }); }
+      catch (issue) { summary.problems.push(`Plans: ${issue instanceof Error ? issue.message : issue}`); }
+      if (subs) {
+      const planByMandate = new Map<string, string>();
+      for (const sub of subs) {
+        if (!sub.links?.mandate) continue;
+        const unit = ({ weekly: "week", monthly: "month", yearly: "year" } as Record<string, string>)[sub.interval_unit ?? ""] ?? "period";
+        const n = sub.interval && sub.interval > 1 ? sub.interval : 1;
+        planByMandate.set(sub.links.mandate, `£${(sub.amount / 100).toFixed(2)} ${n === 1 ? `a ${unit}` : `every ${n} ${unit}s`}`);
+      }
+      const current = await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true, goCardlessPlan: true } });
+      for (const c of current) {
+        const plan = planByMandate.get(c.goCardlessMandateId!) ?? null;
+        if (plan !== c.goCardlessPlan) await prisma.customer.update({ where: { id: c.id }, data: { goCardlessPlan: plan } });
+      }
+      }
+    }
+
     // 3. Payments from the last ~100 days.
     const since = new Date(Date.now() - 100 * 86400000).toISOString();
     const payments = await gcList<GcPayment>(conn, "/payments", "payments", { "created_at[gte]": since });
@@ -393,12 +421,19 @@ export async function syncTenant(tenantId: number) {
 
     // 3b. Money received for payments made outside Wyndos (e.g. set up in GoCardless): match by mandate.
     const collectingIds = new Set((await prisma.job.findMany({ where: { tenantId, goCardlessPaymentId: { not: null } }, select: { goCardlessPaymentId: true } })).map((j) => j.goCardlessPaymentId!));
-    const customersByMandate = new Map((await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true } })).map((c) => [c.goCardlessMandateId!, c.id]));
+    const linkedRows = await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true, goCardlessLinkedAt: true } });
+    const customersByMandate = new Map(linkedRows.map((c) => [c.goCardlessMandateId!, c.id]));
+    const linkedAtById = new Map(linkedRows.map((c) => [c.id, c.goCardlessLinkedAt]));
     for (const p of payments) {
       if (!GC_RECEIVED.has(p.status) || recorded.has(p.id) || collectingIds.has(p.id) || p.metadata?.wyndosJobId) continue;
       const metaId = Number(p.metadata?.wyndosCustomerId) || null;
       const customerId = (metaId && await prisma.customer.count({ where: { id: metaId, tenantId } }) ? metaId : null) ?? customersByMandate.get(p.links?.mandate ?? "") ?? null;
       if (!customerId) continue;
+      // Taken before Wyndos was linked to this Direct Debit (e.g. moving from another program):
+      // that money is already in their imported history, so it isn't added twice.
+      const linkedAt = linkedAtById.get(customerId);
+      const takenOn = (p.charge_date ?? p.created_at ?? "").slice(0, 10);
+      if (linkedAt && takenOn && takenOn < linkedAt.toISOString().slice(0, 10)) continue;
       // Pay the oldest unpaid clean it covers; anything left over stays as credit on the payment.
       const open = await prisma.job.findMany({
         // Cleans not being collected: never sent to GoCardless, or their collection failed.
