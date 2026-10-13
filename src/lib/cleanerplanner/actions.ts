@@ -159,13 +159,13 @@ export async function importCpCustomers(rows: CpImportRow[], source = "CleanerPl
         await prisma.job.create({
           data: {
             tenantId, workDayId, customerId: customer.id, name: "Balance brought forward", price: bal,
-            status: "COMPLETE", completedAt: day(when), isOneOff: true, notes: `Owed when moving from ${from}`,
+            status: "COMPLETE", completedAt: day(when), isOneOff: true, notes: `Owed when moving from ${from}`, broughtForward: true,
           },
         });
         owedTotal += bal;
       } else if (bal < -0.004) {
         await prisma.payment.create({
-          data: { tenantId, customerId: customer.id, amount: -bal, method: "BACS", paidAt: day(when), notes: `Credit brought forward from ${from}` },
+          data: { tenantId, customerId: customer.id, amount: -bal, method: "BACS", paidAt: day(when), notes: `Credit brought forward from ${from}`, broughtForward: true },
         });
         creditTotal += -bal;
       }

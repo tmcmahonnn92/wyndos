@@ -18,6 +18,7 @@ import { orderDays } from "@/lib/day-order";
 import { assertNotLocked } from "@/lib/mtd/data";
 import { goCardlessOn, hasTrialFeature } from "@/lib/trial-features";
 import { after } from "next/server";
+import { REPEAT_UNITS, addRepeatInterval, isValidRepeatUnit, materialiseRecurring } from "@/lib/recurring";
 import { scheduleInvoiceRun } from "@/lib/invoice-queue";
 import {
   getActor,
@@ -4204,6 +4205,7 @@ export async function recordPayment(data: {
     if (visible !== new Set(jobIds).size) throw new AccessDeniedError();
   }
   // Only what a payment needs; tenantId always comes from the signed-in user.
+  if (data.paidAt instanceof Date) await assertPaymentNotLocked(tenantId, data.paidAt);
   const paymentNote = typeof data.notes === "string" && data.notes.trim() ? stampNote(data.notes.slice(0, 500), await nameOf(actor.userId)) : undefined;
   await createAllocatedPayment({
     tenantId,
@@ -4239,10 +4241,18 @@ export async function syncGoCardlessPayments() {
   };
 }
 
+/** On the cash basis, payments are the income HMRC has seen for a submitted quarter, so they're locked like expenses. */
+async function assertPaymentNotLocked(tenantId: number, ...dates: Array<Date | null | undefined>) {
+  const { mtdSettings } = await import("@/lib/mtd/data");
+  if ((await mtdSettings(tenantId)).basis !== "CASH") return;
+  await assertNotLocked(tenantId, ...dates);
+}
+
 export async function voidPayment(paymentId: number, reason?: string) {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
   const payment = await requireTenantPayment(tenantId, paymentId);
+  await assertPaymentNotLocked(tenantId, payment.paidAt);
   await prisma.payment.update({
     where: { id: payment.id },
     data: { voidedAt: new Date(), voidReason: reason ?? null },
@@ -4257,6 +4267,7 @@ export async function restorePayment(paymentId: number) {
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
   const payment = await requireTenantPayment(tenantId, paymentId);
+  await assertPaymentNotLocked(tenantId, payment.paidAt);
   await prisma.payment.update({
     where: { id: payment.id },
     data: { voidedAt: null, voidReason: null },
@@ -4276,6 +4287,7 @@ export async function updatePaymentMeta(
   const actor = await requirePerm("payments");
   const tenantId = actor.tenantId;
   const payment = await requireTenantPayment(tenantId, paymentId);
+  if (data.paidAt !== undefined && +data.paidAt !== +payment.paidAt) await assertPaymentNotLocked(tenantId, payment.paidAt, data.paidAt);
   await prisma.payment.update({
     where: { id: payment.id },
     data: {
@@ -4670,32 +4682,24 @@ export async function getPaymentsPage() {
 }
 
 const ACCOUNTING_MONTHS = 12;
-const REPEAT_UNITS = ["DAY", "WEEK", "MONTH", "YEAR"] as const;
 
-function isValidRepeatUnit(value: string | null | undefined): value is (typeof REPEAT_UNITS)[number] {
-  return REPEAT_UNITS.includes((value ?? "") as (typeof REPEAT_UNITS)[number]);
-}
-
-function addRepeatInterval(date: Date, count: number, unit: (typeof REPEAT_UNITS)[number]) {
-  switch (unit) {
-    case "DAY":
-      return addUtcDays(date, count);
-    case "WEEK":
-      return addUtcDays(date, count * 7);
-    case "MONTH":
-      return addUtcMonths(date, count);
-    case "YEAR":
-      return new Date(Date.UTC(date.getUTCFullYear() + count, date.getUTCMonth(), date.getUTCDate()));
-  }
-}
-
-function getNextScheduledDate(anchorDate: Date, repeatEvery: number, repeatUnit: (typeof REPEAT_UNITS)[number]) {
-  const today = utcDay(new Date());
+/** The entry itself is the first one; the next copy is one interval after it, even if that's already passed
+ * (the copies due up to today are added straight away, so a repeat started on an old date catches up). */
+function getNextScheduledDate(anchorDate: Date, repeatEvery: number, repeatUnit: (typeof REPEAT_UNITS)[number], entryDate: Date) {
+  const day = utcDay(anchorDate).getUTCDate();
   let next = utcDay(anchorDate);
-  while (next <= today) {
-    next = utcDay(addRepeatInterval(next, repeatEvery, repeatUnit));
-  }
+  while (next <= utcDay(entryDate)) next = utcDay(addRepeatInterval(next, repeatEvery, repeatUnit, day));
   return next;
+}
+
+/** Stop a repeating expense or income. Copies already added stay. */
+export async function stopRepeating(kind: "expense" | "income", id: number) {
+  const actor = await requirePerm("accounting");
+  const where = { id: Number(id), tenantId: actor.tenantId };
+  const data = { isRecurring: false, nextScheduledAt: null };
+  if (kind === "expense") await prisma.expense.updateMany({ where, data });
+  else await prisma.otherIncome.updateMany({ where, data });
+  revalidatePath("/accounting");
 }
 
 function normaliseRecurringSchedule(data: {
@@ -4736,7 +4740,7 @@ function normaliseRecurringSchedule(data: {
     throw new Error("Repeat end date is invalid.");
   }
 
-  const nextScheduledAt = getNextScheduledDate(repeatAnchorDate, repeatEvery, data.repeatUnit);
+  const nextScheduledAt = getNextScheduledDate(repeatAnchorDate, repeatEvery, data.repeatUnit, data.entryDate);
   if (repeatEndsAt && nextScheduledAt > repeatEndsAt) {
     throw new Error("Repeat end date falls before the next scheduled date.");
   }
@@ -4800,129 +4804,6 @@ function calculateTaxBreakdown(amount: number, taxTreatmentValue: string | null 
     vatAmount,
     netAmount,
   };
-}
-
-async function materialiseRecurringExpenseTemplates(tenantId: number) {
-  const today = utcDay(new Date());
-  const templates = await prisma.expense.findMany({
-    where: {
-      tenantId,
-      isRecurring: true,
-      recurrenceTemplateId: null,
-      nextScheduledAt: { not: null, lte: today },
-    },
-    orderBy: { id: "asc" },
-  });
-
-  for (const template of templates) {
-    if (!template.nextScheduledAt || !template.repeatEvery || !isValidRepeatUnit(template.repeatUnit)) continue;
-
-    let nextScheduledAt = utcDay(template.nextScheduledAt);
-    const repeatEndsAt = template.repeatEndsAt ? utcDay(template.repeatEndsAt) : null;
-    const repeatEvery = template.repeatEvery;
-    const repeatUnit = template.repeatUnit;
-
-    await prisma.$transaction(async (tx) => {
-      while (nextScheduledAt <= today && (!repeatEndsAt || nextScheduledAt <= repeatEndsAt)) {
-        const existing = await tx.expense.findFirst({
-          where: {
-            tenantId,
-            recurrenceTemplateId: template.id,
-            expenseDate: nextScheduledAt,
-          },
-          select: { id: true },
-        });
-
-        if (!existing) {
-          await tx.expense.create({
-            data: {
-              tenantId,
-              recurrenceTemplateId: template.id,
-              category: template.category,
-              hmrcCategory: template.hmrcCategory,
-              supplier: template.supplier,
-              amount: template.amount,
-              netAmount: template.netAmount,
-              vatAmount: template.vatAmount,
-              vatRate: template.vatRate,
-              taxTreatment: template.taxTreatment,
-              expenseDate: nextScheduledAt,
-              notes: template.notes,
-              isRecurring: false,
-            },
-          });
-        }
-
-        nextScheduledAt = utcDay(addRepeatInterval(nextScheduledAt, repeatEvery, repeatUnit));
-      }
-
-      await tx.expense.update({
-        where: { id: template.id },
-        data: { nextScheduledAt: repeatEndsAt && nextScheduledAt > repeatEndsAt ? null : nextScheduledAt },
-      });
-    });
-  }
-}
-
-async function materialiseRecurringOtherIncomeTemplates(tenantId: number) {
-  const today = utcDay(new Date());
-  const templates = await prisma.otherIncome.findMany({
-    where: {
-      tenantId,
-      isRecurring: true,
-      recurrenceTemplateId: null,
-      nextScheduledAt: { not: null, lte: today },
-    },
-    orderBy: { id: "asc" },
-  });
-
-  for (const template of templates) {
-    if (!template.nextScheduledAt || !template.repeatEvery || !isValidRepeatUnit(template.repeatUnit)) continue;
-
-    let nextScheduledAt = utcDay(template.nextScheduledAt);
-    const repeatEndsAt = template.repeatEndsAt ? utcDay(template.repeatEndsAt) : null;
-    const repeatEvery = template.repeatEvery;
-    const repeatUnit = template.repeatUnit;
-
-    await prisma.$transaction(async (tx) => {
-      while (nextScheduledAt <= today && (!repeatEndsAt || nextScheduledAt <= repeatEndsAt)) {
-        const existing = await tx.otherIncome.findFirst({
-          where: {
-            tenantId,
-            recurrenceTemplateId: template.id,
-            receivedAt: nextScheduledAt,
-          },
-          select: { id: true },
-        });
-
-        if (!existing) {
-          await tx.otherIncome.create({
-            data: {
-              tenantId,
-              recurrenceTemplateId: template.id,
-              category: template.category,
-              source: template.source,
-              amount: template.amount,
-              netAmount: template.netAmount,
-              vatAmount: template.vatAmount,
-              vatRate: template.vatRate,
-              taxTreatment: template.taxTreatment,
-              receivedAt: nextScheduledAt,
-              notes: template.notes,
-              isRecurring: false,
-            },
-          });
-        }
-
-        nextScheduledAt = utcDay(addRepeatInterval(nextScheduledAt, repeatEvery, repeatUnit));
-      }
-
-      await tx.otherIncome.update({
-        where: { id: template.id },
-        data: { nextScheduledAt: repeatEndsAt && nextScheduledAt > repeatEndsAt ? null : nextScheduledAt },
-      });
-    });
-  }
 }
 
 export async function createExpense(data: {
@@ -5109,6 +4990,11 @@ export async function saveOpeningFigures(data: { income: number; expenses: numbe
   const to = getTaxYearStartDate(taxYear + 1);
   const asAt = /^\d{4}-\d{2}-\d{2}$/.test(data.asAt) ? isoToUTC(data.asAt) : utcDay(new Date());
   if (asAt < from || asAt >= to) throw new Error("The date must be in this tax year.");
+  const [oldIncome, oldExpense] = await Promise.all([
+    prisma.otherIncome.findFirst({ where: { tenantId, category: "OPENING", receivedAt: { gte: from, lt: to } }, select: { receivedAt: true } }),
+    prisma.expense.findFirst({ where: { tenantId, category: "OPENING", expenseDate: { gte: from, lt: to } }, select: { expenseDate: true } }),
+  ]);
+  await assertNotLocked(tenantId, asAt, oldIncome?.receivedAt, oldExpense?.expenseDate);
 
   await prisma.$transaction(async (tx) => {
     await tx.otherIncome.deleteMany({ where: { tenantId, category: "OPENING", receivedAt: { gte: from, lt: to } } });
@@ -5229,9 +5115,10 @@ export async function getAccountingMonth(month: string) {
   const m = /^(\d{4})-(\d{2})$/.exec(String(month ?? "")) ?? /^(\d{4})-(\d{2})$/.exec(new Date().toISOString().slice(0, 7))!;
   const start = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1));
   const end = new Date(Date.UTC(Number(m[1]), Number(m[2]), 1));
+  await materialiseRecurring(tenantId);
   const [payments, expenses, other] = await Promise.all([
     prisma.payment.findMany({
-      where: { tenantId, voidedAt: null, paidAt: { gte: start, lt: end } },
+      where: { tenantId, voidedAt: null, broughtForward: false, paidAt: { gte: start, lt: end } },
       select: { id: true, amount: true, paidAt: true, method: true, notes: true, customer: { select: { id: true, name: true } } },
       orderBy: [{ paidAt: "asc" }, { id: "asc" }],
     }),
@@ -5290,10 +5177,7 @@ export async function getAccountingPage(options?: {
 }) {
   const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
-  await Promise.all([
-    materialiseRecurringExpenseTemplates(tenantId),
-    materialiseRecurringOtherIncomeTemplates(tenantId),
-  ]);
+  await materialiseRecurring(tenantId);
 
   const currentTaxYearStart = getCurrentTaxYearStart();
   const selectedTaxYearStart = Number.isInteger(options?.taxYearStart)
@@ -5309,7 +5193,7 @@ export async function getAccountingPage(options?: {
 
   const [payments, expenses, otherIncomeEntries, cleansDone] = await Promise.all([
     prisma.payment.findMany({
-      where: { tenantId, voidedAt: null, paidAt: { gte: rangeStart, lt: rangeEnd } },
+      where: { tenantId, voidedAt: null, broughtForward: false, paidAt: { gte: rangeStart, lt: rangeEnd } },
       select: { id: true, amount: true, paidAt: true, method: true, customer: { select: { id: true, name: true } } },
       orderBy: { paidAt: "desc" },
     }),
@@ -5323,7 +5207,7 @@ export async function getAccountingPage(options?: {
     }),
     // Sales (accruals): the value of cleans done, whether or not they've been paid yet.
     prisma.job.findMany({
-      where: { tenantId, status: "COMPLETE", isQuote: false, workDay: { date: { gte: rangeStart, lt: rangeEnd } } },
+      where: { tenantId, status: "COMPLETE", isQuote: false, broughtForward: false, workDay: { date: { gte: rangeStart, lt: rangeEnd } } },
       select: { price: true, workDay: { select: { date: true } } },
     }),
   ]);

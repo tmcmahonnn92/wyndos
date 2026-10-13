@@ -259,3 +259,14 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - `SEED=1 DAYS=120 ... scripts/sim/run.ts` → random 120-day business; after every action checks the rules in `scripts/sim/lib.ts` (area has one run, nobody missed/twice, money in = paid cleans + credit, etc.) and reports the first action that broke each rule.
 - Rules to keep: a done clean is never deleted/repriced/moved; money only sits on done cleans; a part of a run (house moved to another date) never books or deletes the area's next run; re-dating or finishing an old day never winds back a customer cleaned since.
 - Known and accepted: moving a customer into an area with a different cycle means they wait for (or are early for) that area's next run; carrying every house off a day leaves the day empty until it's finished.
+
+## MTD and expenses (Oct 2026)
+- Wyndos keeps the digital records and works out HMRC's quarterly boxes; it does **not** send to HMRC (export → bridging software), do the final declaration or work out tax. The MTD page says so.
+- Repeat expenses/income: `src/lib/recurring.ts` `materialiseRecurring(tenantId)` runs when Accounting, MTD, month view or exports load (no cron). The entry is the first one; copies catch up from its date, capped at 400 per run. "Stop repeating" on each row.
+- Locks (marked as submitted): expenses, other income, mileage, use of home, assets, opening figures, settings (basis/quarters) and, on cash basis, customer payments (void/restore/date change/backdated payment).
+- Use of home months count mid-month (April is in the new tax year). Payment dates are UK dates (BST).
+- Vehicles: can't switch method once trips or linked costs exist. MTD shows "Worth checking" for unlinked fuel while a vehicle is on mileage, and car/van assets alongside a mileage vehicle.
+- Capital allowances: main pool 18% to 2025/26, 14% from 2026/27; special 6%; zero-emission FYA to 5 Apr 2027. Pooled car sales come off the pool (no balancing allowance); single asset pool settles on sale.
+- `broughtForward` on Payment/Job: balances/credit carried over from another program are never income.
+- Checks: `scripts/sim/mtd-calc-check.ts` (pure sums) and `scripts/sim/mtd-actions-check.ts` (actions, needs DB).
+- Known limits: no VAT registration date/Flat Rate Scheme; refunds (roadmap); calendar quarters 1–5 April edge; balancing charge on AIA items sold uses sale price × business %.

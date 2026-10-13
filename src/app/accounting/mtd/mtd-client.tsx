@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AlertTriangle, Car, CheckCircle2, ChevronDown, ChevronUp, Download, Home, Loader2, Lock, Package, Trash2, Unlock } from "lucide-react";
 import { HMRC_EXPENSE_CATEGORIES } from "@/lib/accounting";
-import { HMRC_EXPENSE_FIELDS, homeRate, mileageRate } from "@/lib/mtd/calc";
+import { HMRC_EXPENSE_FIELDS, TURNOVER_INCOME, homeRate, mileageRate } from "@/lib/mtd/calc";
 import {
   addMileageTrip, deleteAsset, deleteMileageTrip, getMtdTransactions, lockQuarter, saveAsset, saveVehicle, setAccountsSettings,
   setHomeHours, unlockQuarter, type getMtdOverview,
@@ -74,6 +74,7 @@ export function MtdClient({ overview, isOwner, initialTab }: { overview: Overvie
         ["Mileage, Use of home, Assets", "Simplified expenses and assets."],
         [],
         ["Expense fields include any private part; the matching …Disallowable field holds that part. Check figures with your accountant."],
+        ["Wyndos doesn't send anything to HMRC. Send these figures with HMRC-recognised bridging software."],
       ];
       XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(about), "About");
       XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(fieldRows((p) => p.cumulative)), "Cumulative");
@@ -81,7 +82,7 @@ export function MtdClient({ overview, isOwner, initialTab }: { overview: Overvie
       XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([
         ["HMRC field", "Description", "Amount"],
         ["annualInvestmentAllowance", "Annual Investment Allowance", allowances.annualInvestmentAllowance],
-        ["capitalAllowanceMainPool", "Main pool writing-down allowance (18%)", allowances.capitalAllowanceMainPool],
+        ["capitalAllowanceMainPool", `Main pool writing-down allowance (${overview.taxYear >= 2026 ? 14 : 18}%)`, allowances.capitalAllowanceMainPool],
         ["capitalAllowanceSpecialRatePool", "Special rate pool writing-down allowance (6%)", allowances.capitalAllowanceSpecialRatePool],
         ["capitalAllowanceSingleAssetPool", "Single asset pools (private use cars)", allowances.capitalAllowanceSingleAssetPool],
         ["zeroEmissionsCarAllowance", "Zero-emission car first-year allowance", allowances.zeroEmissionsCarAllowance],
@@ -93,7 +94,7 @@ export function MtdClient({ overview, isOwner, initialTab }: { overview: Overvie
       ]), "Year end");
       const txRows: Array<Array<string | number>> = [
         ...tx.payments.map((p) => [p.date, "Income: customer payment", `${p.customer} (${p.method})`, "turnover", p.amount, "", "", "", "", ""]),
-        ...tx.otherIncome.map((o) => [o.date, "Income: other", o.source || o.category, ["COMMERCIAL", "BONUS", "OPENING"].includes(o.category) ? "turnover" : "other", o.amount, o.vat, o.net, "", "", ""]),
+        ...tx.otherIncome.map((o) => [o.date, "Income: other", o.source || o.category, TURNOVER_INCOME.has(o.category) ? "turnover" : "other", o.amount, o.vat, o.net, "", "", ""]),
         ...tx.expenses.map((e) => [e.date, "Expense", e.supplier || e.category, e.hmrcCategory, e.amount, e.vat, e.net, e.businessPct, e.vehicle, e.notes]),
       ].sort((x, y) => String(x[0]).localeCompare(String(y[0])));
       XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["Date", "Type", "Description", "HMRC field", "Gross", "VAT", "Net", "Business %", "Vehicle", "Notes"], ...txRows]), "Transactions");
@@ -143,6 +144,13 @@ export function MtdClient({ overview, isOwner, initialTab }: { overview: Overvie
         <Stat label="Estimated profit" value={fmtCurrency(yearProfit)} strong />
       </div>
       <p className="text-xs text-slate-500">Estimated taxable profit for {overview.taxYearLabel} so far. {overview.consolidatedAllowed ? "Turnover is under £90,000, so you can send one total for expenses (consolidated) if you prefer." : "Turnover is £90,000 or more, so expenses must be sent by category."}</p>
+
+      {overview.checks.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p className="font-semibold">Worth checking</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">{overview.checks.map((c) => <li key={c}>{c}</li>)}</ul>
+        </div>
+      )}
 
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
@@ -197,7 +205,7 @@ export function MtdClient({ overview, isOwner, initialTab }: { overview: Overvie
                         ) : (
                           <button type="button" disabled={pending} onClick={() => act(() => lockQuarter(overview.taxYear, p.index))} className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white"><CheckCircle2 size={12} /> Mark as submitted to HMRC</button>
                         )}
-                        <span className="text-[11px] text-slate-400">Submitted quarters can&apos;t have expenses or income added, changed or deleted.</span>
+                        <span className="text-[11px] text-slate-400">Once marked as submitted, expenses, other income, mileage, use of home{settings.basis === "CASH" ? ", customer payments" : ""} and your accounts settings for this quarter are locked.</span>
                       </div>
                     )}
                   </div>
