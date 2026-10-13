@@ -8,7 +8,7 @@ const { auth } = NextAuth(authConfig);
 const ONBOARDING_REFRESH_COOKIE = "wyndos_onboarding_refresh";
 const PUBLIC_ROUTES = new Set(["/auth/signin", "/auth/signup", "/home"]);
 /** Legal pages: open to everyone, signed in or not. */
-const LEGAL_ROUTES = new Set(["/privacy", "/terms", "/cookies", "/guide"]);
+const LEGAL_ROUTES = new Set(["/privacy", "/terms", "/cookies", "/guide", "/guide/direct-debit"]);
 const PUBLIC_PREFIXES = ["/auth/invite/", "/auth/verify-email", "/screens/", "/direct-debit-done"];
 
 function parseTenantId(rawValue: string | undefined) {

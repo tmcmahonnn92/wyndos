@@ -46,5 +46,5 @@ Record the demo with a second sandbox GoCardless account, acting as a window cle
 ## Still to do before submitting
 - Live GoCardless account and live partner app (redirect URL `https://wyndos.io/api/gocardless/oauth/callback`, webhook URL `https://wyndos.io/api/gocardless/webhook`).
 - Ask GoCardless to enable refunds in the sandbox.
-- Public user guide URL (the guide is in the app at /guide/direct-debit; a public copy needs publishing).
+- User guide URL: https://wyndos.io/guide/direct-debit (public, part of the guide).
 - High-resolution logo.

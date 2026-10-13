@@ -42,9 +42,7 @@ export function DirectDebitGuide({ publicView = false }: { publicView?: boolean 
     <div className="bg-slate-50 px-4 py-6">
       <article className="mx-auto max-w-3xl space-y-8">
         <header className="space-y-4">
-          {publicView
-            ? <a href="https://wyndos.io" className="text-sm text-blue-700 hover:underline">Wyndos: window cleaning round management</a>
-            : <Link href="/guide" className="text-sm text-blue-700 hover:underline">← Getting started</Link>}
+          <Link href="/guide" className="text-sm text-blue-700 hover:underline">← Getting started</Link>
           <h1 className="text-3xl font-black leading-tight text-slate-900">Direct Debit with GoCardless</h1>
           <p className="text-[15px] leading-7 text-slate-700">
             Customers sign a Direct Debit once. After that, when you finish a clean, Wyndos asks GoCardless to take the money,

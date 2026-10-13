@@ -284,4 +284,4 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Actions: `getRefundInfo`, `refundPayment` (how: GOCARDLESS | CASH | BACS | CARD), `refundCustomerCredit`. Voiding a refund undoes it (restores prices); GoCardless refunds can't be voided. A payment with a refund can't be voided.
 - GoCardless: `createGcRefund` (`POST /refunds`, total_amount_confirmation, idempotency key). Sync step 3d: status updates; cancelled/bounced/funds_returned → undone; dashboard refunds recorded as write-offs.
 - UI: customer page payment rows (refund button, refunds shown as "Refund −£"), "Refund credit". Guide section 9 rewritten. Checks: `scripts/sim/refund-check.ts`.
-- Partner review answers + demo script: `docs/GOCARDLESS-PARTNER-REVIEW.md`. Guide content is `src/app/guide/direct-debit/guide-content.tsx` (`publicView` for a public copy, not published yet).
+- Partner review answers + demo script: `docs/GOCARDLESS-PARTNER-REVIEW.md`. Guide content is `src/app/guide/direct-debit/guide-content.tsx` (public at /guide/direct-debit; app links only for businesses with Direct Debit on).
