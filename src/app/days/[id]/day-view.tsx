@@ -658,6 +658,8 @@ export function DayView({
   /** Pending jobs of the areas being completed (all workers, not just the filtered view). */
   const scopePending = (scope: number[]) =>
     allJobsView.filter((j) => j.status === "PENDING" && scope.includes(j.workDayId));
+  /** Areas not yet completed where every clean is done. */
+  const readyDays = openDays.filter((d) => allJobsView.some((j) => j.workDayId === d.id) && scopePending([d.id]).length === 0);
 
   const handleComplete = (targets: Day[]) => {
     const scope = targets.map((d) => d.id);
@@ -958,6 +960,28 @@ export function DayView({
           </div>
         )}
 
+        {/* Every clean in an area done: say so, and how to finish it (finishing books the next run). */}
+        {(() => {
+          const ready = readyDays;
+          if (ready.length === 0) return null;
+          const everything = ready.length === openDays.length;
+          return (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+              <CheckCircle2 size={18} className="flex-shrink-0 text-green-600" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-green-800">
+                  {everything && !multi ? "All cleans done" : `All cleans done in ${ready.map((d) => areaLabel(d)).join(", ")}`}
+                </p>
+                <p className="text-xs text-green-700">Complete {ready.length === 1 && multi && !everything ? "the area" : "the day"} to book the next run{ready.length > 1 ? "s" : ""}.</p>
+              </div>
+              <Button onClick={() => handleComplete(ready)} disabled={isPending} size="sm">
+                <CheckSquare size={14} />
+                {multi && !everything ? (ready.length === 1 ? `Complete ${areaLabel(ready[0])}` : "Complete these areas") : "Complete Day"}
+              </Button>
+            </div>
+          );
+        })()}
+
         {/* Whole-date actions */}
         {days.length > 0 && (
           <div className="flex gap-2">
@@ -967,7 +991,7 @@ export function DayView({
                 {multi ? "Start day" : "Start Area"}
               </Button>
             )}
-            {plannedDays.length === 0 && openDays.length > 0 && (
+            {openDays.some((d) => d.status === "IN_PROGRESS") && readyDays.length < openDays.length && (
               <Button onClick={() => handleComplete(openDays)} disabled={isPending} className="flex-1" size="lg" variant="secondary">
                 <CheckSquare size={16} />
                 Complete Day
