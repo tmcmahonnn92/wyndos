@@ -2873,7 +2873,8 @@ export async function importQuotes(records: Array<{ name: string; address: strin
     if (workDayId === null) workDayId = (await prisma.workDay.create({ data: { tenantId, date, status: "COMPLETE" } })).id;
     await prisma.job.create({ data: {
       tenantId, workDayId, customerId: customer.id, name: "Quote", price: 0,
-      isOneOff: true, isQuote: true, status: "COMPLETE", completedAt: now, completedByUserId: actor.userId,
+      // Nobody here quoted it: it came from the old program.
+      isOneOff: true, isQuote: true, status: "COMPLETE", completedAt: now, completedByUserId: null,
       quoteStatus: "QUOTED", quotedPrice: price, quotedFrequencyWeeks: frequencyWeeks, quotedAt: now,
       notes: "Imported quote",
     } });
