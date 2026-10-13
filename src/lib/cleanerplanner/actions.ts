@@ -51,6 +51,7 @@ export type CpImportRow = {
   /** Their Direct Debit in the business's own GoCardless account (Aworka), linked straight away. */
   goCardlessMandateId?: string;
   goCardlessMandateStatus?: string;
+  goCardlessCustomerId?: string;
 };
 
 /** Day (complete) to hang an imported clean on, made once per area and date. */
@@ -110,8 +111,22 @@ export async function importCpCustomers(rows: CpImportRow[], source = "CleanerPl
       const parts = { houseNameNumber: text(r.houseNameNumber, 120), street: text(r.street, 160), town: text(r.town, 80), postcode: text(r.postcode, 10).toUpperCase() };
       const address = composeAddress(parts) || text(r.address, 300) || name;
       const jobName = text(r.jobName, 80) || "Window Cleaning";
-      const already = await prisma.customer.findFirst({ where: { tenantId, name, address, jobName }, select: { id: true } });
-      if (already) { skipped++; errors.push(`${name}: already in Wyndos (same name, address and job), left as it was`); continue; }
+      const already = await prisma.customer.findFirst({ where: { tenantId, name, address, jobName }, select: { id: true, goCardlessMandateId: true, goCardlessCustomerId: true } });
+      if (already) {
+        // Importing again: only fill in Direct Debit details they don't have yet; everything else is left alone.
+        const mandate = typeof r.goCardlessMandateId === "string" && /^MD[A-Z0-9]{6,40}$/.test(r.goCardlessMandateId) ? r.goCardlessMandateId : null;
+        const gcCustomer = typeof r.goCardlessCustomerId === "string" && /^CU[A-Z0-9]{6,40}$/.test(r.goCardlessCustomerId) ? r.goCardlessCustomerId : null;
+        const fill = {
+          ...(mandate && !already.goCardlessMandateId ? { goCardlessMandateId: mandate, goCardlessMandateStatus: text(r.goCardlessMandateStatus, 40) || "active", goCardlessLinkedAt: new Date(), preferredPaymentMethod: "DD" } : {}),
+          ...(gcCustomer && !already.goCardlessCustomerId ? { goCardlessCustomerId: gcCustomer } : {}),
+        };
+        if (Object.keys(fill).length) {
+          await prisma.customer.update({ where: { id: already.id }, data: fill });
+          errors.push(`${name}: already in Wyndos, Direct Debit details added`);
+        } else errors.push(`${name}: already in Wyndos (same name, address and job), left as it was`);
+        skipped++;
+        continue;
+      }
 
       const last = isIso(r.lastCompletedDate) ? day(r.lastCompletedDate) : null;
       const next = oneOff ? null : isIso(r.nextDueDate)
@@ -139,6 +154,7 @@ export async function importCpCustomers(rows: CpImportRow[], source = "CleanerPl
           lastCompletedDate: last,
           ...(typeof r.goCardlessMandateId === "string" && /^MD[A-Z0-9]{6,40}$/.test(r.goCardlessMandateId) ? {
             goCardlessMandateId: r.goCardlessMandateId,
+            ...(typeof r.goCardlessCustomerId === "string" && /^CU[A-Z0-9]{6,40}$/.test(r.goCardlessCustomerId) ? { goCardlessCustomerId: r.goCardlessCustomerId } : {}),
             goCardlessMandateStatus: text(r.goCardlessMandateStatus, 40) || "active",
             // Their GoCardless payments up to now are in the history being imported.
             goCardlessLinkedAt: new Date(),

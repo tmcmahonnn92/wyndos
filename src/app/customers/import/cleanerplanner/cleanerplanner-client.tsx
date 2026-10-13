@@ -47,6 +47,8 @@ export function MoveImport({ source }: { source: Source }) {
   const [busy, setBusy] = useState("");
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
+  /** The files as read (Aworka), so changing the Direct Debit columns can re-read them. */
+  const [entries, setEntries] = useState<Array<{ name: string; text: string }> | null>(null);
 
   const load = async (list: FileList | null) => {
     if (!list?.length) return;
@@ -55,6 +57,7 @@ export function MoveImport({ source }: { source: Source }) {
     setError(""); setBackup(null); setResult(null);
     try {
       const entries = await readFiles(list);
+      setEntries(entries);
       const b = source === "Aworka" ? readAworka(entries) : readBackup(pickFiles(entries));
       if (b.customers.length === 0) throw new Error("No jobs found in this backup.");
       setBackup(b);
@@ -136,7 +139,7 @@ export function MoveImport({ source }: { source: Source }) {
           preferredPaymentMethod: c.preferredPaymentMethod, notes: c.notes, nextDueDate: c.nextDueDate,
           lastCompletedDate: c.lastCompletedDate, sortOrder: c.sortOrder, active: c.active, scheduled: repeats(c),
           openingBalance: Math.round(opening * 100) / 100, openingDate: openingDate || "",
-          goCardlessMandateId: c.goCardlessMandateId, goCardlessMandateStatus: c.goCardlessMandateStatus,
+          goCardlessMandateId: c.goCardlessMandateId, goCardlessMandateStatus: c.goCardlessMandateStatus, goCardlessCustomerId: c.goCardlessCustomerId,
         };
       });
       const ids: Record<string, number> = {};
@@ -283,6 +286,34 @@ export function MoveImport({ source }: { source: Source }) {
               <Stat label="In credit" value={fmtCurrency(totals.credit)} sub={plural(totals.inCredit, "customer")} />
             </div>
             {backup.warnings.map((w) => <p key={w} className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{w}</p>)}
+            {backup.gcColumns && entries && (() => {
+              const g = backup.gcColumns;
+              const pick = (field: "mandate" | "customer" | "status", col: string) => {
+                const next = { mandate: g.mandate, customer: g.customer, status: g.status, [field]: col || null };
+                try { setBackup(readAworka(entries, next)); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't read that file."); }
+              };
+              const linked = backup.customers.filter((c) => c.goCardlessMandateId).length;
+              const rows: Array<["mandate" | "customer" | "status", string, string]> = [
+                ["mandate", "Direct Debit mandate ID", "starts MD"],
+                ["customer", "GoCardless customer ID", "starts CU"],
+                ["status", "Direct Debit status", "e.g. Active"],
+              ];
+              return (
+                <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+                  <p className="text-sm font-semibold text-slate-800">Direct Debit (GoCardless) columns</p>
+                  <p className="text-xs text-slate-500">Check these are the right columns in your file. The example is the first value in that column. {linked} customer{linked === 1 ? "" : "s"} will come in linked to their Direct Debit.</p>
+                  {rows.map(([field, label, hint]) => (
+                    <label key={field} className="grid gap-1 text-xs sm:grid-cols-[180px_1fr] sm:items-center">
+                      <span className="font-medium text-slate-700">{label} <span className="text-slate-400">({hint})</span></span>
+                      <select value={g[field] ?? ""} onChange={(e) => pick(field, e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+                        <option value="">Not in this file</option>
+                        {g.columns.map((c) => <option key={c.name} value={c.name}>{c.name}{c.sample ? ` (e.g. ${c.sample.slice(0, 30)})` : " (empty)"}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+              );
+            })()}
             {Boolean(backup.notImported?.length) && (
               <NotImportedList rows={backup.notImported!.map((n) => ({ name: n.name, reason: n.reason }))} fileName={`${source.toLowerCase()}-not-imported.csv`} />
             )}

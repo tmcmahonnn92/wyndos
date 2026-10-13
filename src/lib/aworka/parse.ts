@@ -1,5 +1,5 @@
 import { fixUkPhone } from "@/lib/text-format";
-import { mapPaymentMethod, parseCsv, type CpBackup, type CpCustomer, type CpExpense, type CpRow, type CpTxn } from "@/lib/cleanerplanner/parse";
+import { mapPaymentMethod, parseCsv, type CpBackup, type CpCustomer, type CpExpense, type CpRow, type CpTxn, type GcColumnChoice } from "@/lib/cleanerplanner/parse";
 import { ruleCategory } from "@/lib/smart-import/expense-plan";
 
 /**
@@ -66,13 +66,23 @@ export function isAworkaExport(names: string[]) {
   return base.includes("jobs.csv") && base.some((b) => /^activity-.*\.csv$/.test(b) || b === "expenses.csv");
 }
 
-export function readAworka(entries: Array<{ name: string; text: string }>): CpBackup {
+export function readAworka(entries: Array<{ name: string; text: string }>, gcChoice?: GcColumnChoice): CpBackup {
   const file = (re: RegExp) => entries.filter((e) => re.test((e.name.split(/[\\/]/).pop() ?? "").toLowerCase()));
   const jobsFile = file(/^jobs\.csv$/)[0];
   if (!jobsFile) throw new Error("This doesn't look like an Aworka export: jobs.csv is missing.");
   const jobs = parseCsv(jobsFile.text);
   if (!jobs[0] || !("Aworka Job ID" in jobs[0])) throw new Error("This jobs.csv isn't from Aworka (no 'Aworka Job ID' column).");
   const warnings: string[] = [];
+  // GoCardless columns: guessed from the column names and values, shown with an example so the owner can confirm or change them.
+  const headers = Object.keys(jobs[0] ?? {});
+  const sampleOf = (col: string) => jobs.map((r) => String(r[col] ?? "").trim()).find(Boolean) ?? "";
+  const gcNamed = headers.filter((k) => /gocardless|go cardless|\bgc\b|mandate|direct debit|\bdd\b/i.test(k));
+  const holding = (re: RegExp) => gcNamed.map((k) => ({ k, n: jobs.filter((r) => re.test(String(r[k] ?? "").trim())).length })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n)[0]?.k ?? null;
+  const gc: GcColumnChoice = gcChoice ?? {
+    mandate: holding(/^MD[A-Z0-9]{6,}$/i),
+    customer: holding(/^CU[A-Z0-9]{6,}$/i),
+    status: headers.includes("GoCardless Status") ? "GoCardless Status" : gcNamed.find((k) => /status/i.test(k)) ?? null,
+  };
   const notImported: Array<{ name: string; reason: string }> = [];
   const quotes: NonNullable<CpBackup["quotes"]> = [];
 
@@ -98,6 +108,11 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
     const scheduled = weeks !== null && status !== "done";
     if (!scheduled) unscheduled++;
     const method = j["Payment Method"] ?? "";
+    // GoCardless IDs (MD… = Direct Debit mandate, CU… = GoCardless customer) from the chosen columns.
+    const cell = (col: string | null) => (col ? String(j[col] ?? "").trim() : "");
+    const mandate = /^MD[A-Z0-9]{6,}$/i.test(cell(gc.mandate)) ? cell(gc.mandate).toUpperCase() : "";
+    const gcCustomer = /^CU[A-Z0-9]{6,}$/i.test(cell(gc.customer)) ? cell(gc.customer).toUpperCase() : "";
+    const mandateStatus = cell(gc.status);
     const allowed = j["Allowed Days"] ?? "";
     const notes = [
       j["Customer Notes"], j.Notes,
@@ -128,10 +143,11 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
       scheduled,
       price: num(j.Price),
       jobName: (j.Task ?? "").trim() || "Window Cleaning",
-      preferredPaymentMethod: /gocardless|direct debit/i.test(method) || /^MD[A-Z0-9]{6,}$/i.test((j["GoCardless Mandate"] ?? "").trim()) ? "DD" : mapPaymentMethod(method),
+      preferredPaymentMethod: /gocardless|direct debit/i.test(method) || mandate ? "DD" : mapPaymentMethod(method),
       // The Direct Debit itself (it's in the business's own GoCardless account), linked straight away.
-      goCardlessMandateId: /^MD[A-Z0-9]{6,}$/i.test((j["GoCardless Mandate"] ?? "").trim()) ? (j["GoCardless Mandate"] ?? "").trim().toUpperCase() : undefined,
-      goCardlessMandateStatus: /^MD[A-Z0-9]{6,}$/i.test((j["GoCardless Mandate"] ?? "").trim()) ? gcStatus(j["GoCardless Status"] ?? "") : undefined,
+      goCardlessMandateId: mandate || undefined,
+      goCardlessMandateStatus: mandate ? gcStatus(mandateStatus) : undefined,
+      goCardlessCustomerId: gcCustomer || undefined,
       notes: [...new Set(notes)].join("\n"),
       nextDueDate: scheduled ? iso(j["Next Due"]) : "",
       lastCompletedDate: iso(j["Last Done/Skipped"]),
@@ -370,6 +386,7 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
     notImported,
     expenses,
     quotes,
+    gcColumns: { columns: headers.map((name) => ({ name, sample: sampleOf(name) })), ...gc },
   };
 }
 
