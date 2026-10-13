@@ -4711,6 +4711,9 @@ export async function getPaymentsPage() {
         jobIds: unpaidJobs.map((j) => j.id),
         unpaidJobs,
         credit: credit.get(customer.id) ?? 0,
+        preferredPaymentMethod: customer.preferredPaymentMethod,
+        goCardlessMandateId: customer.goCardlessMandateId,
+        goCardlessMandateStatus: customer.goCardlessMandateStatus,
       };
     });
 
