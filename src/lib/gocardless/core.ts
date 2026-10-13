@@ -349,6 +349,30 @@ export async function syncTenant(tenantId: number) {
       }
     }
 
+    // 1b. A sign-up link filled in after a newer one was made (or by someone else for this
+    // customer, under another name or address): every link carries the Wyndos customer it was
+    // made for, so it's linked to them whatever details were typed in.
+    try {
+      const done = await gcList<{ id: string; status: string; metadata?: Record<string, string | null | undefined>; links?: { customer?: string; mandate_request_mandate?: string } }>(
+        conn, "/billing_requests", "billing_requests", { status: "fulfilled", "created_at[gte]": new Date(Date.now() - 90 * 86400000).toISOString() }, 3);
+      for (const br of done) {
+        const cid = Number(br.metadata?.wyndosCustomerId);
+        const mandateId = br.links?.mandate_request_mandate;
+        if (!cid || !mandateId) continue;
+        const c = await prisma.customer.findFirst({ where: { id: cid, tenantId }, select: { id: true, goCardlessMandateId: true, goCardlessMandateStatus: true } });
+        if (!c || c.goCardlessMandateId === mandateId) continue;
+        // Never replace a working Direct Debit; only fill a gap or a dead one.
+        if (c.goCardlessMandateId && (!c.goCardlessMandateStatus || GC_MANDATE_USABLE.has(c.goCardlessMandateStatus))) continue;
+        await prisma.customer.update({ where: { id: c.id }, data: {
+          goCardlessMandateId: mandateId, goCardlessMandateStatus: "pending_submission", preferredPaymentMethod: "DD", goCardlessBillingRequestId: null,
+          ...(br.links?.customer ? { goCardlessCustomerId: br.links.customer } : {}),
+        } });
+        summary.mandatesLinked++;
+      }
+    } catch (issue) {
+      summary.problems.push(`Sign-up links: ${issue instanceof Error ? issue.message : issue}`);
+    }
+
     // 2. Mandate statuses (cancelled, expired, …).
     const linked = await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true, goCardlessMandateStatus: true } });
     const mandateById = new Map<string, GcMandate>();
