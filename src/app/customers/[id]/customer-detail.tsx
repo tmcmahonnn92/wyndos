@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { RefundCreditButton, RefundPaymentButton } from "./refunds";
+import { MovePaymentButton, UseCreditButton } from "./move-money";
 import { fmtDate, fmtCurrency, cn } from "@/lib/utils";
 import { AddressFields } from "@/components/address-fields";
 import { smsHref } from "@/components/phone-send-queue";
@@ -471,7 +472,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                   {fmtCurrency(credit)} credit: no need to pay, it comes off the next clean
                 </p>
               )}
-              {!hidePrices && canPay && credit > 0.005 && <div className="mt-1"><RefundCreditButton customerId={customer.id} credit={credit} /></div>}
+              {!hidePrices && canPay && credit > 0.005 && <div className="mt-1 flex flex-wrap gap-1.5"><RefundCreditButton customerId={customer.id} credit={credit} /><UseCreditButton customerId={customer.id} credit={credit} /></div>}
               {!hidePrices && canPay && allowCredit && (
                 <div className="mt-1.5">
                   <AddCreditForm
@@ -777,6 +778,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                     </div>
                     <span className={`text-sm font-semibold flex-shrink-0 ${p.amount < 0 ? "text-amber-700" : "text-green-700"}`}>{hidePrices ? null : p.amount < 0 ? `−${fmtCurrency(-p.amount)}` : `+${fmtCurrency(p.amount)}`}</span>
                     {canPay && p.amount > 0 && <RefundPaymentButton paymentId={p.id} />}
+                    {canPay && p.amount > 0 && <MovePaymentButton paymentId={p.id} customerId={customer.id} amount={p.amount} />}
                     {p.amount > 0 && <button
                       onClick={() => openEditPayment(p)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors flex-shrink-0"

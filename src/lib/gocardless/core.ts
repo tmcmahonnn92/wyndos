@@ -307,7 +307,7 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
 // ── Sync ────────────────────────────────────────────────────────────────────
 
 /** Record money GoCardless received against a clean (or as credit when there's no clean). */
-async function recordReceived(tenantId: number, customerId: number, p: GcPayment, jobId: number | null, opts: { regularOnly?: boolean } = {}) {
+async function recordReceived(tenantId: number, customerId: number, p: GcPayment, jobId: number | null, opts: { regularOnly?: boolean; alsoFor?: number[] } = {}) {
   const amount = round2(p.amount / 100);
   const paidAt = p.charge_date ? new Date(`${p.charge_date}T00:00:00.000Z`) : new Date();
   let onJob = 0;
@@ -329,7 +329,8 @@ async function recordReceived(tenantId: number, customerId: number, p: GcPayment
       const regularName = opts.regularOnly ? ((await tx.customer.findUnique({ where: { id: customerId }, select: { jobName: true } }))?.jobName || "Window Cleaning") : "";
       const unpaid = await tx.job.findMany({
         // Not ones being collected by their own Direct Debit (that money is on its way).
-        where: { tenantId, customerId, status: "COMPLETE", isQuote: false, ...(jobId ? { id: { not: jobId } } : {}), OR: [{ goCardlessPaymentId: null }, { goCardlessStatus: { in: [...GC_FAILED] } }] },
+        // One Direct Debit can pay for several customers (e.g. two properties): all their cleans count.
+        where: { tenantId, customerId: { in: [customerId, ...(opts.alsoFor ?? [])] }, status: "COMPLETE", isQuote: false, ...(jobId ? { id: { not: jobId } } : {}), OR: [{ goCardlessPaymentId: null }, { goCardlessStatus: { in: [...GC_FAILED] } }] },
         orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
         select: { id: true, price: true, isOneOff: true, name: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
       });
@@ -483,12 +484,15 @@ export async function syncTenant(tenantId: number) {
     // 3b. Money received for payments made outside Wyndos (e.g. set up in GoCardless): match by mandate.
     const collectingIds = new Set((await prisma.job.findMany({ where: { tenantId, goCardlessPaymentId: { not: null } }, select: { goCardlessPaymentId: true } })).map((j) => j.goCardlessPaymentId!));
     const linkedRows = await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true, goCardlessLinkedAt: true } });
-    const customersByMandate = new Map(linkedRows.map((c) => [c.goCardlessMandateId!, c.id]));
+    // Several customers can share one Direct Debit (two properties, a landlord): keep them all.
+    const customersByMandate = new Map<string, number[]>();
+    for (const c of linkedRows) customersByMandate.set(c.goCardlessMandateId!, [...(customersByMandate.get(c.goCardlessMandateId!) ?? []), c.id]);
     const linkedAtById = new Map(linkedRows.map((c) => [c.id, c.goCardlessLinkedAt]));
     for (const p of payments) {
       if (!GC_RECEIVED.has(p.status) || recorded.has(p.id) || collectingIds.has(p.id) || p.metadata?.wyndosJobId) continue;
       const metaId = Number(p.metadata?.wyndosCustomerId) || null;
-      const customerId = (metaId && await prisma.customer.count({ where: { id: metaId, tenantId } }) ? metaId : null) ?? customersByMandate.get(p.links?.mandate ?? "") ?? null;
+      const sharing = customersByMandate.get(p.links?.mandate ?? "") ?? [];
+      const customerId = (metaId && await prisma.customer.count({ where: { id: metaId, tenantId } }) ? metaId : null) ?? sharing[0] ?? null;
       if (!customerId) continue;
       // Taken before Wyndos was linked to this Direct Debit (e.g. moving from another program):
       // that money is already in their imported history, so it isn't added twice.
@@ -498,7 +502,7 @@ export async function syncTenant(tenantId: number) {
       // Pay the oldest unpaid clean it covers; anything left over stays as credit on the payment.
       const open = await prisma.job.findMany({
         // Cleans not being collected: never sent to GoCardless, or their collection failed.
-        where: { tenantId, customerId, status: "COMPLETE", isQuote: false, OR: [{ goCardlessPaymentId: null }, { goCardlessStatus: { in: [...GC_FAILED] } }] },
+        where: { tenantId, customerId: { in: [customerId, ...sharing.filter((id) => id !== customerId)] }, status: "COMPLETE", isQuote: false, OR: [{ goCardlessPaymentId: null }, { goCardlessStatus: { in: [...GC_FAILED] } }] },
         select: { id: true, price: true, isOneOff: true, name: true, customer: { select: { jobName: true } }, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
         orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
         take: 200,
@@ -506,7 +510,7 @@ export async function syncTenant(tenantId: number) {
       // A payment from a GoCardless plan (subscription) pays regular cleans only; extra jobs are collected separately.
       const fromPlan = Boolean(p.links?.subscription);
       const oldest = open.find((j) => (!fromPlan || !isExtraJob(j, j.customer)) && j.price - j.allocations.reduce((s, a) => s + a.amount, 0) > 0.005);
-      await recordReceived(tenantId, customerId, p, oldest?.id ?? null, { regularOnly: fromPlan });
+      await recordReceived(tenantId, customerId, p, oldest?.id ?? null, { regularOnly: fromPlan, alsoFor: sharing.filter((id) => id !== customerId) });
       summary.imported++;
     }
 

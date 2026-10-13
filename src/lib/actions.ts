@@ -6600,3 +6600,70 @@ export async function refundCustomerCredit(customerId: number, data: { amount: n
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/accounting");
 }
+
+// ─── Moving money between customers ─────────────────────────────────────────
+
+/** Customers to choose from (name and address). */
+export async function listCustomersBrief() {
+  const actor = await requirePerm("payments");
+  return prisma.customer.findMany({ where: { tenantId: actor.tenantId }, select: { id: true, name: true, address: true }, orderBy: { name: "asc" }, take: 5000 });
+}
+
+/** A payment put on the wrong customer: move it (it then pays the other customer's cleans, oldest first). */
+export async function movePaymentToCustomer(paymentId: number, toCustomerId: number) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  const payment = await requireTenantPayment(tenantId, Number(paymentId));
+  await requireTenantCustomer(tenantId, Number(toCustomerId));
+  if (payment.voidedAt) throw new Error("This payment has been undone.");
+  if (payment.amount < 0) throw new Error("A refund can't be moved.");
+  if (payment.customerId === Number(toCustomerId)) return;
+  if (await prisma.payment.count({ where: { tenantId, refundOfId: payment.id, voidedAt: null } })) throw new Error("This payment has a refund on it, so it can't be moved.");
+  await prisma.$transaction([
+    prisma.paymentAllocation.deleteMany({ where: { tenantId, paymentId: payment.id } }),
+    prisma.payment.update({ where: { id: payment.id }, data: { customerId: Number(toCustomerId), notes: [payment.notes, "Moved from another customer"].filter(Boolean).join(" · ").slice(0, 500) } }),
+  ]);
+  // The new customer's unpaid cleans are paid from it; the old customer's cleans it paid owe again
+  // (or are paid from any other credit they have).
+  await applyCredit(tenantId, [Number(toCustomerId), payment.customerId]);
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${payment.customerId}`);
+  revalidatePath(`/customers/${toCustomerId}`);
+}
+
+/** One customer's spare credit pays another customer's unpaid cleans (e.g. one Direct Debit for two houses). */
+export async function useCreditForCustomer(fromCustomerId: number, toCustomerId: number, amount?: number) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  await requireTenantCustomer(tenantId, Number(fromCustomerId));
+  await requireTenantCustomer(tenantId, Number(toCustomerId));
+  if (Number(fromCustomerId) === Number(toCustomerId)) throw new Error("Choose a different customer.");
+  const spare = await sparePayments(tenantId, [Number(fromCustomerId)]);
+  let budget = round2(Math.min(spare.reduce((s, p) => s + p.spare, 0), amount && amount > 0 ? Number(amount) : Infinity));
+  if (budget <= 0.005) throw new Error("No credit to use.");
+  const jobs = await prisma.job.findMany({
+    where: { tenantId, customerId: Number(toCustomerId), status: "COMPLETE", isQuote: false },
+    select: { id: true, price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
+    orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
+  });
+  const rows: Array<{ tenantId: number; paymentId: number; jobId: number; amount: number }> = [];
+  let p = 0;
+  for (const job of jobs) {
+    if (budget <= 0.005 || p >= spare.length) break;
+    let due = round2(job.price - job.allocations.reduce((s, a) => s + a.amount, 0));
+    while (due > 0.005 && budget > 0.005 && p < spare.length) {
+      const take = round2(Math.min(due, spare[p].spare, budget));
+      rows.push({ tenantId, paymentId: spare[p].id, jobId: job.id, amount: take });
+      spare[p].spare = round2(spare[p].spare - take);
+      due = round2(due - take);
+      budget = round2(budget - take);
+      if (spare[p].spare <= 0.005) p++;
+    }
+  }
+  if (!rows.length) throw new Error("They have no unpaid cleans to pay.");
+  await prisma.paymentAllocation.createMany({ data: rows });
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${fromCustomerId}`);
+  revalidatePath(`/customers/${toCustomerId}`);
+  return { used: round2(rows.reduce((s, r) => s + r.amount, 0)) };
+}
