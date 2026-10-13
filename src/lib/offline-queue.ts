@@ -82,6 +82,27 @@ export function isNetworkError(error: unknown) {
   return /failed to fetch|networkerror|network error|load failed|fetch failed|ERR_INTERNET_DISCONNECTED|connection|unexpected response|timed out|timeout|aborted|offline|network request failed/i.test(message);
 }
 
+/**
+ * True when the server no longer knows this page's buttons: Wyndos was updated while the page
+ * was open (every update renames them). Not the server saying no: keep the change and reload.
+ */
+export function isOutOfDate(error: unknown) {
+  if (error && typeof error === "object" && (error as { name?: string }).name === "UnrecognizedActionError") return true;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /Server Action .* was not found|failed-to-find-server-action/i.test(message);
+}
+
+/** Load the latest Wyndos (at most once a minute, so a stuck page can't loop). */
+export function reloadForUpdate() {
+  if (typeof window === "undefined" || (typeof navigator !== "undefined" && navigator.onLine === false)) return;
+  try {
+    const last = Number(sessionStorage.getItem("wyndos-update-reload") || 0);
+    if (Date.now() - last < 60_000) return;
+    sessionStorage.setItem("wyndos-update-reload", String(Date.now()));
+  } catch {}
+  window.location.reload();
+}
+
 /** Weak signal ("one bar"): give up waiting after this long and save the tap on the phone. */
 const SLOW_SIGNAL_MS = 12_000;
 
@@ -120,6 +141,12 @@ export async function runOrQueue(action: NewAction, run: (clientRequestId: strin
       enqueue(action, clientRequestId);
       return "queued" as const;
     }
+    if (isOutOfDate(error)) {
+      // Wyndos was updated: save the tap, load the new version, and it's sent from there.
+      enqueue(action, clientRequestId);
+      reloadForUpdate();
+      return "queued" as const;
+    }
     throw error;
   }
 }
@@ -136,9 +163,10 @@ let flushing = false;
 
 /** Send queued actions in order. Stops at the first network failure; drops actions the server rejects. */
 export async function flushQueue(handlers: FlushHandlers) {
-  if (flushing) return { sent: 0, failed: [] as string[] };
+  if (flushing) return { sent: 0, failed: [] as string[], outOfDate: false };
   flushing = true;
   let sent = 0;
+  let outOfDate = false;
   const failed: string[] = [];
   try {
     for (const entry of read()) {
@@ -154,6 +182,8 @@ export async function flushQueue(handlers: FlushHandlers) {
         sent++;
       } catch (error) {
         if (isNetworkError(error)) break;
+        // Wyndos was updated while this page was open: keep everything and reload.
+        if (isOutOfDate(error)) { outOfDate = true; break; }
         failed.push(error instanceof Error ? error.message : "Could not save a queued change.");
       }
       write(read().filter((item) => item.id !== entry.id));
@@ -161,7 +191,8 @@ export async function flushQueue(handlers: FlushHandlers) {
   } finally {
     flushing = false;
   }
-  return { sent, failed };
+  if (outOfDate) reloadForUpdate();
+  return { sent, failed, outOfDate };
 }
 
 /** Signing out: remove saved pages from this phone. */

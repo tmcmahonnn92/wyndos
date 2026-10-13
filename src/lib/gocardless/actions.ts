@@ -216,7 +216,8 @@ export async function getDirectDebitSharing(customerId: number) {
     select: { id: true, name: true, address: true, goCardlessMandateId: true },
     orderBy: { name: "asc" },
   });
-  return { sharedWith, options };
+  const hasOwn = Boolean(me.goCardlessMandateId && (!me.goCardlessMandateStatus || GC_MANDATE_USABLE.has(me.goCardlessMandateStatus)));
+  return { sharedWith, options, hasOwn };
 }
 
 /** This customer's cleans are paid by another customer's Direct Debit. */
@@ -231,7 +232,7 @@ export async function shareDirectDebit(customerId: number, fromCustomerId: numbe
     if (!me || !from) throw new Error("Customer not found.");
     if (me.id === from.id) throw new Error("Choose a different customer.");
     if (!from.goCardlessMandateId || (from.goCardlessMandateStatus && !GC_MANDATE_USABLE.has(from.goCardlessMandateStatus))) throw new Error(`${from.name} hasn't got a working Direct Debit.`);
-    if (me.goCardlessMandateId === from.goCardlessMandateId) return { ok: true as const };
+    if (me.goCardlessMandateId === from.goCardlessMandateId) return { ok: true as const, mandateId: from.goCardlessMandateId, gcCustomerId: from.goCardlessCustomerId ?? "" };
     if (me.goCardlessMandateId && (!me.goCardlessMandateStatus || GC_MANDATE_USABLE.has(me.goCardlessMandateStatus))) {
       throw new Error("This customer already has their own Direct Debit. Stop using it first (Stop using this Direct Debit), then choose the other one.");
     }
@@ -245,7 +246,7 @@ export async function shareDirectDebit(customerId: number, fromCustomerId: numbe
     revalidatePath(`/customers/${me.id}`);
     revalidatePath(`/customers/${from.id}`);
     revalidatePath("/payments/direct-debit");
-    return { ok: true as const };
+    return { ok: true as const, mandateId: from.goCardlessMandateId, gcCustomerId: from.goCardlessCustomerId ?? "" };
   } catch (issue) {
     return { ok: false as const, error: message(issue) };
   }
