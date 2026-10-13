@@ -408,8 +408,10 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
   };
 
   const handleDeletePayment = (paymentId: number) => {
-    const isRefund = customer.payments.find((x) => x.id === paymentId)?.amount ?? 0;
-    if (!confirm(isRefund < 0 ? "Undo this refund? Only if the money didn't actually go back." : "Void this payment? You can restore it later if needed.")) return;
+    const row = customer.payments.find((x) => x.id === paymentId);
+    const isRefund = row?.amount ?? 0;
+    const removal = (row?.notes ?? "").startsWith("Credit removed");
+    if (!confirm(removal ? "Put this credit back?" : isRefund < 0 ? "Undo this refund? Only if the money didn't actually go back." : "Void this payment? You can restore it later if needed.")) return;
     startTransition(async () => {
       try {
         await unwrap(voidPayment(paymentId, isRefund < 0 ? "Refund undone" : "Voided from customer detail"));
@@ -780,7 +782,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                   <li key={p.id} className="flex items-center gap-2 px-4 py-3">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-700">{fmtDate(p.paidAt)}</p>
-                      <p className="text-xs text-slate-500">{p.amount < 0 ? "Refund" : p.method}{p.notes ? ` · ${p.notes}` : ""}</p>
+                      <p className="text-xs text-slate-500">{p.amount < 0 ? ((p.notes ?? "").startsWith("Credit removed") ? "Undo to put the credit back" : "Refund") : p.method}{p.notes ? ` · ${p.notes}` : ""}</p>
                     </div>
                     <span className={`text-sm font-semibold flex-shrink-0 ${p.amount < 0 ? "text-amber-700" : "text-green-700"}`}>{hidePrices ? null : p.amount < 0 ? `−${fmtCurrency(-p.amount)}` : `+${fmtCurrency(p.amount)}`}</span>
                     {canPay && p.amount > 0 && !(p as { broughtForward?: boolean }).broughtForward && <RefundPaymentButton paymentId={p.id} />}

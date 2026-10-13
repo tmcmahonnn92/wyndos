@@ -197,3 +197,74 @@ export async function syncGoCardlessNow() {
     return { ok: false as const, error: message(issue) };
   }
 }
+
+
+// ─── One Direct Debit paying for several customers ──────────────────────────
+// Each customer keeps their own cleans and balance; they just use the same mandate. Each clean is
+// still collected on its own (tied to that clean), so nothing has to be shared out afterwards.
+
+/** Who else uses this customer's Direct Debit, and whose Direct Debit they could use. */
+export async function getDirectDebitSharing(customerId: number) {
+  const actor = await owner();
+  const me = await prisma.customer.findFirst({ where: { id: Number(customerId), tenantId: actor.tenantId }, select: { id: true, goCardlessMandateId: true, goCardlessMandateStatus: true } });
+  if (!me) throw new Error("Customer not found.");
+  const sharedWith = me.goCardlessMandateId
+    ? await prisma.customer.findMany({ where: { tenantId: actor.tenantId, goCardlessMandateId: me.goCardlessMandateId, id: { not: me.id } }, select: { id: true, name: true, address: true }, orderBy: { name: "asc" } })
+    : [];
+  const options = await prisma.customer.findMany({
+    where: { tenantId: actor.tenantId, id: { not: me.id }, goCardlessMandateId: { not: null }, OR: [{ goCardlessMandateStatus: null }, { goCardlessMandateStatus: { in: [...GC_MANDATE_USABLE] } }] },
+    select: { id: true, name: true, address: true, goCardlessMandateId: true },
+    orderBy: { name: "asc" },
+  });
+  return { sharedWith, options };
+}
+
+/** This customer's cleans are paid by another customer's Direct Debit. */
+export async function shareDirectDebit(customerId: number, fromCustomerId: number) {
+  const actor = await owner();
+  try {
+    const tenantId = actor.tenantId;
+    const [me, from] = await Promise.all([
+      prisma.customer.findFirst({ where: { id: Number(customerId), tenantId }, select: { id: true, goCardlessMandateId: true, goCardlessMandateStatus: true } }),
+      prisma.customer.findFirst({ where: { id: Number(fromCustomerId), tenantId }, select: { id: true, name: true, goCardlessMandateId: true, goCardlessMandateStatus: true, goCardlessCustomerId: true } }),
+    ]);
+    if (!me || !from) throw new Error("Customer not found.");
+    if (me.id === from.id) throw new Error("Choose a different customer.");
+    if (!from.goCardlessMandateId || (from.goCardlessMandateStatus && !GC_MANDATE_USABLE.has(from.goCardlessMandateStatus))) throw new Error(`${from.name} hasn't got a working Direct Debit.`);
+    if (me.goCardlessMandateId === from.goCardlessMandateId) return { ok: true as const };
+    if (me.goCardlessMandateId && (!me.goCardlessMandateStatus || GC_MANDATE_USABLE.has(me.goCardlessMandateStatus))) {
+      throw new Error("This customer already has their own Direct Debit. Stop using it first (Stop using this Direct Debit), then choose the other one.");
+    }
+    // Cleans already being collected on an old Direct Debit carry on; new ones use the shared one.
+    await prisma.customer.update({ where: { id: me.id }, data: {
+      goCardlessMandateId: from.goCardlessMandateId, goCardlessMandateStatus: from.goCardlessMandateStatus ?? "active",
+      goCardlessCustomerId: from.goCardlessCustomerId, goCardlessBillingRequestId: null,
+      // Payments the payer made before now are already accounted for: only new ones are matched.
+      goCardlessLinkedAt: new Date(), preferredPaymentMethod: "DD",
+    } });
+    revalidatePath(`/customers/${me.id}`);
+    revalidatePath(`/customers/${from.id}`);
+    revalidatePath("/payments/direct-debit");
+    return { ok: true as const };
+  } catch (issue) {
+    return { ok: false as const, error: message(issue) };
+  }
+}
+
+/**
+ * Stop this customer using a Direct Debit (theirs or a shared one). Only Wyndos changes: the
+ * Direct Debit itself stays in GoCardless, and anyone else using it carries on.
+ */
+export async function stopUsingDirectDebit(customerId: number) {
+  const actor = await owner();
+  try {
+    const me = await prisma.customer.findFirst({ where: { id: Number(customerId), tenantId: actor.tenantId }, select: { id: true, goCardlessMandateId: true } });
+    if (!me?.goCardlessMandateId) throw new Error("No Direct Debit to stop.");
+    await prisma.customer.update({ where: { id: me.id }, data: { goCardlessMandateId: null, goCardlessMandateStatus: null, goCardlessCustomerId: null, goCardlessBillingRequestId: null, goCardlessPlan: null } });
+    revalidatePath(`/customers/${me.id}`);
+    revalidatePath("/payments/direct-debit");
+    return { ok: true as const };
+  } catch (issue) {
+    return { ok: false as const, error: message(issue) };
+  }
+}

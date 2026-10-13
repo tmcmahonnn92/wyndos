@@ -6618,8 +6618,10 @@ async function movePaymentToCustomerImpl(paymentId: number, toCustomerId: number
   if (payment.voidedAt) throw new Error("This payment has been undone.");
   if (payment.amount < 0) throw new Error("A refund can't be moved.");
   if (payment.customerId === Number(toCustomerId)) return;
-  if (await prisma.payment.count({ where: { tenantId, refundOfId: payment.id, voidedAt: null } })) throw new Error("This payment has a refund on it, so it can't be moved.");
+  // A refund on its cleans stays with those cleans, so it can't move; credit removed from it moves with it.
+  if (await prisma.payment.count({ where: { tenantId, refundOfId: payment.id, voidedAt: null, allocations: { some: {} } } })) throw new Error("This payment has a refund on its cleans, so it can't be moved. Undo the refund first.");
   await prisma.$transaction([
+    prisma.payment.updateMany({ where: { tenantId, refundOfId: payment.id }, data: { customerId: Number(toCustomerId) } }),
     prisma.paymentAllocation.deleteMany({ where: { tenantId, paymentId: payment.id } }),
     prisma.payment.update({ where: { id: payment.id }, data: { customerId: Number(toCustomerId), notes: [payment.notes, "Moved from another customer"].filter(Boolean).join(" · ").slice(0, 500) } }),
   ]);
@@ -6699,9 +6701,10 @@ async function writeOffDebtImpl(customerId: number, amount: number | null, reaso
 }
 
 /**
- * Credit that shouldn't be there (money recorded that was never actually received, e.g. a wrong
- * import): the spare part of their payments is reduced, newest first. A payment left at £0 is undone.
- * Money you did receive and are giving back is a refund instead (Refund credit).
+ * Credit that shouldn't be there (a wrong import, money matched to the wrong customer…): always
+ * removable. Recorded today as a "credit removed" entry against the payment(s) it came from, newest
+ * first, so nothing earlier changes (submitted quarters, GoCardless payments). Credit that came from
+ * money in (not added by hand) comes off money in today; undo it to put the credit back.
  */
 async function removeCreditImpl(customerId: number, amount: number, reason?: string) {
   const actor = await requirePerm("payments");
@@ -6711,23 +6714,20 @@ async function removeCreditImpl(customerId: number, amount: number, reason?: str
   const total = round2(spare.reduce((s, p) => s + p.spare, 0));
   let rest = round2(Math.min(Number(amount) || 0, total));
   if (rest <= 0.005) throw new Error("No credit to remove.");
-  const ids = [...spare].reverse();
-  const payments = await prisma.payment.findMany({ where: { tenantId, id: { in: ids.map((p) => p.id) } }, select: { id: true, amount: true, paidAt: true, notes: true, goCardlessPaymentId: true } });
-  const byId = new Map(payments.map((p) => [p.id, p]));
-  for (const s of ids) {
+  await assertPaymentNotLocked(tenantId, new Date());
+  const sources = await prisma.payment.findMany({ where: { tenantId, id: { in: spare.map((p) => p.id) } }, select: { id: true, method: true, broughtForward: true } });
+  const byId = new Map(sources.map((p) => [p.id, p]));
+  const note = `Credit removed${reason?.trim() ? `: ${reason.trim().slice(0, 120)}` : ""}`;
+  for (const s of [...spare].reverse()) {
     if (rest <= 0.005) break;
-    const p = byId.get(s.id)!;
-    if (p.goCardlessPaymentId) continue; // A real Direct Debit payment: money did come in. Use it for another customer or refund it.
-    await assertPaymentNotLocked(tenantId, p.paidAt);
+    const src = byId.get(s.id)!;
     const take = round2(Math.min(s.spare, rest));
-    const left = round2(p.amount - take);
-    const note = `£${take.toFixed(2)} credit removed${reason?.trim() ? `: ${reason.trim().slice(0, 120)}` : ""}`;
-    await prisma.payment.update({ where: { id: p.id }, data: left <= 0.005
-      ? { voidedAt: new Date(), voidReason: note }
-      : { amount: left, notes: [p.notes, note].filter(Boolean).join(" · ").slice(0, 500) } });
+    await prisma.payment.create({ data: {
+      tenantId, customerId: Number(customerId), amount: -take, method: src.method, paidAt: new Date(),
+      refundOfId: src.id, broughtForward: src.broughtForward, collectedByUserId: actor.userId, notes: note,
+    } });
     rest = round2(rest - take);
   }
-  if (rest > 0.005) throw new Error(`£${rest.toFixed(2)} of the credit is from Direct Debit payments that really came in. Use it for another customer or refund it instead.`);
   revalidatePath("/payments");
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/accounting");
