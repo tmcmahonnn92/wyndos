@@ -114,7 +114,7 @@ export async function importCpCustomers(rows: CpImportRow[], source = "CleanerPl
       const already = await prisma.customer.findFirst({ where: { tenantId, name, address, jobName }, select: { id: true, goCardlessMandateId: true, goCardlessCustomerId: true } });
       if (already) {
         // Importing again: only fill in Direct Debit details they don't have yet; everything else is left alone.
-        const mandate = typeof r.goCardlessMandateId === "string" && /^MD[A-Z0-9]{6,40}$/.test(r.goCardlessMandateId) ? r.goCardlessMandateId : null;
+        const mandate = typeof r.goCardlessMandateId === "string" && /^(?=.*\d)[A-Z0-9]{6,40}$/.test(r.goCardlessMandateId) ? r.goCardlessMandateId : null;
         const gcCustomer = typeof r.goCardlessCustomerId === "string" && /^CU[A-Z0-9]{6,40}$/.test(r.goCardlessCustomerId) ? r.goCardlessCustomerId : null;
         const fill = {
           ...(mandate && !already.goCardlessMandateId ? { goCardlessMandateId: mandate, goCardlessMandateStatus: text(r.goCardlessMandateStatus, 40) || "active", goCardlessLinkedAt: new Date(), preferredPaymentMethod: "DD" } : {}),
@@ -152,7 +152,7 @@ export async function importCpCustomers(rows: CpImportRow[], source = "CleanerPl
           active: r.active !== false,
           nextDueDate: next,
           lastCompletedDate: last,
-          ...(typeof r.goCardlessMandateId === "string" && /^MD[A-Z0-9]{6,40}$/.test(r.goCardlessMandateId) ? {
+          ...(typeof r.goCardlessMandateId === "string" && /^(?=.*\d)[A-Z0-9]{6,40}$/.test(r.goCardlessMandateId) ? {
             goCardlessMandateId: r.goCardlessMandateId,
             ...(typeof r.goCardlessCustomerId === "string" && /^CU[A-Z0-9]{6,40}$/.test(r.goCardlessCustomerId) ? { goCardlessCustomerId: r.goCardlessCustomerId } : {}),
             goCardlessMandateStatus: text(r.goCardlessMandateStatus, 40) || "active",

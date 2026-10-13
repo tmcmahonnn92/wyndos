@@ -75,7 +75,11 @@ export function readAworka(entries: Array<{ name: string; text: string }>, gcCho
   const warnings: string[] = [];
   // GoCardless columns: guessed from the column names and values, shown with an example so the owner can confirm or change them.
   const headers = Object.keys(jobs[0] ?? {});
-  const sampleOf = (col: string) => jobs.map((r) => String(r[col] ?? "").trim()).find(Boolean) ?? "";
+  // Example for each column: one with a GoCardless ID in it if there is one, else the first value.
+  const sampleOf = (col: string) => {
+    const vals = jobs.map((r) => String(r[col] ?? "").trim()).filter(Boolean);
+    return vals.find((v) => /\b(MD|CU)[A-Z0-9]{6,}\b/i.test(v)) ?? vals[0] ?? "";
+  };
   const gcNamed = headers.filter((k) => /gocardless|go cardless|\bgc\b|mandate|direct debit|\bdd\b/i.test(k));
   const holding = (re: RegExp) => gcNamed.map((k) => ({ k, n: jobs.filter((r) => re.test(String(r[k] ?? "").trim())).length })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n)[0]?.k ?? null;
   const gc: GcColumnChoice = gcChoice ?? {
@@ -110,8 +114,12 @@ export function readAworka(entries: Array<{ name: string; text: string }>, gcCho
     const method = j["Payment Method"] ?? "";
     // GoCardless IDs (MD… = Direct Debit mandate, CU… = GoCardless customer) from the chosen columns.
     const cell = (col: string | null) => (col ? String(j[col] ?? "").trim() : "");
-    const mandate = /^MD[A-Z0-9]{6,}$/i.test(cell(gc.mandate)) ? cell(gc.mandate).toUpperCase() : "";
-    const gcCustomer = /^CU[A-Z0-9]{6,}$/i.test(cell(gc.customer)) ? cell(gc.customer).toUpperCase() : "";
+    // The ID can be the whole cell or inside text (e.g. a note "GoCardless MD000ABC123").
+    // GoCardless: mandate IDs begin "MD", except some made before 2016, so a whole cell of
+    // letters and numbers in the mandate column is taken too. Customer IDs begin "CU".
+    const mandateCell = cell(gc.mandate);
+    const mandate = (/^(?=.*\d)[A-Z0-9]{6,40}$/i.test(mandateCell) ? mandateCell : mandateCell.match(/\bMD[A-Z0-9]{6,}\b/i)?.[0] ?? "").toUpperCase();
+    const gcCustomer = (cell(gc.customer).match(/\bCU[A-Z0-9]{6,}\b/i)?.[0] ?? "").toUpperCase();
     const mandateStatus = cell(gc.status);
     const allowed = j["Allowed Days"] ?? "";
     const notes = [

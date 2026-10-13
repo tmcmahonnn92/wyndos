@@ -293,6 +293,7 @@ export function MoveImport({ source }: { source: Source }) {
                 try { setBackup(readAworka(entries, next)); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't read that file."); }
               };
               const linked = backup.customers.filter((c) => c.goCardlessMandateId).length;
+              const withCu = backup.customers.filter((c) => c.goCardlessCustomerId).length;
               const rows: Array<["mandate" | "customer" | "status", string, string]> = [
                 ["mandate", "Direct Debit mandate ID", "starts MD"],
                 ["customer", "GoCardless customer ID", "starts CU"],
@@ -301,7 +302,7 @@ export function MoveImport({ source }: { source: Source }) {
               return (
                 <div className="space-y-2 rounded-xl border border-slate-200 p-3">
                   <p className="text-sm font-semibold text-slate-800">Direct Debit (GoCardless) columns</p>
-                  <p className="text-xs text-slate-500">Check these are the right columns in your file. The example is the first value in that column. {linked} customer{linked === 1 ? "" : "s"} will come in linked to their Direct Debit.</p>
+                  <p className="text-xs text-slate-500">Check these are the right columns in your file. The example is the first value in that column. {linked} customer{linked === 1 ? "" : "s"} will come in linked to their Direct Debit{g.customer ? `, ${withCu} with a GoCardless customer ID` : ""}. IDs inside text (like a note) are found too.</p>
                   {rows.map(([field, label, hint]) => (
                     <label key={field} className="grid gap-1 text-xs sm:grid-cols-[180px_1fr] sm:items-center">
                       <span className="font-medium text-slate-700">{label} <span className="text-slate-400">({hint})</span></span>
