@@ -26,15 +26,9 @@ export function DirectDebitPanel({ customerId, mandateId, mandateStatus, waiting
   const status = mandateId ? STATUS[mandateStatus ?? ""] ?? (mandateStatus || "Linked") : waitingForSignup ? "Sign-up link sent, not filled in yet" : "Not set up";
   const ok = mandateId && USABLE.has(mandateStatus ?? "");
   const router = useRouter();
-  type Brief = { id: number; name: string; address: string | null };
   const [sharing, setSharing] = useState<{ sharedWith: Brief[]; options: Brief[] } | null>(null);
   const [picking, setPicking] = useState(false);
-  const [q, setQ] = useState("");
   useEffect(() => { getDirectDebitSharing(customerId).then(setSharing).catch(() => setSharing(null)); }, [customerId, mandateId]);
-  const shownOptions = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    return (sharing?.options ?? []).filter((o) => !t || `${o.name} ${o.address ?? ""}`.toLowerCase().includes(t)).slice(0, 20);
-  }, [sharing, q]);
 
   return (
     <section className="mx-auto max-w-lg px-4 pb-4">
@@ -69,27 +63,7 @@ export function DirectDebitPanel({ customerId, mandateId, mandateStatus, waiting
             Someone else pays? Use another customer&apos;s Direct Debit
           </button>
         )}
-        {picking && (
-          <div className="space-y-2 rounded-lg border border-slate-200 p-2">
-            <p className="text-xs text-slate-600">Who pays for this customer? Their Direct Debit will also pay this customer&apos;s cleans (each collected separately).</p>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or address" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-            <ul className="max-h-48 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-100">
-              {shownOptions.map((o) => (
-                <li key={o.id}>
-                  <button type="button" disabled={pending} onClick={() => start(async () => {
-                    setError("");
-                    const res = await shareDirectDebit(customerId, o.id);
-                    if (res.ok) { setPicking(false); router.refresh(); } else setError(res.error);
-                  })} className="w-full px-2 py-1.5 text-left text-sm hover:bg-slate-50">
-                    {o.name}<span className="block truncate text-xs text-slate-500">{o.address}</span>
-                  </button>
-                </li>
-              ))}
-              {shownOptions.length === 0 && <li className="px-2 py-1.5 text-xs text-slate-500">No customers with a Direct Debit match.</li>}
-            </ul>
-            <button type="button" onClick={() => setPicking(false)} className="text-xs text-slate-500 hover:underline">Cancel</button>
-          </div>
-        )}
+        {picking && <ShareDirectDebitPicker customerId={customerId} options={sharing?.options ?? []} onDone={() => { setPicking(false); router.refresh(); }} onCancel={() => setPicking(false)} />}
         {mandateId && (
           <button type="button" disabled={pending} onClick={() => {
             if (!window.confirm(sharing?.sharedWith.length
@@ -116,4 +90,58 @@ export function DirectDebitPanel({ customerId, mandateId, mandateStatus, waiting
       </div>
     </section>
   );
+}
+
+type Brief = { id: number; name: string; address: string | null };
+
+/** Pick the customer whose Direct Debit also pays for this one. Saves straight away. */
+export function ShareDirectDebitPicker({ customerId, options, onDone, onCancel }: {
+  customerId: number; options: Brief[]; onDone: (shared: { mandateId: string; gcCustomerId: string }) => void; onCancel: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [error, setError] = useState("");
+  const [pending, start] = useTransition();
+  const shown = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    return options.filter((o) => !t || `${o.name} ${o.address ?? ""}`.toLowerCase().includes(t)).slice(0, 20);
+  }, [options, q]);
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 p-2">
+      <p className="text-xs text-slate-600">Who pays for this customer? Their Direct Debit will also pay this customer&apos;s cleans (each collected separately).</p>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or address" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+      <ul className="max-h-48 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-100">
+        {shown.map((o) => (
+          <li key={o.id}>
+            <button type="button" disabled={pending} onClick={() => start(async () => {
+              setError("");
+              const res = await shareDirectDebit(customerId, o.id);
+              if (res.ok) onDone(res); else setError(res.error);
+            })} className="w-full px-2 py-1.5 text-left text-sm hover:bg-slate-50">
+              {o.name}<span className="block truncate text-xs text-slate-500">{o.address}</span>
+            </button>
+          </li>
+        ))}
+        {shown.length === 0 && <li className="px-2 py-1.5 text-xs text-slate-500">No customers with a Direct Debit match.</li>}
+      </ul>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <button type="button" onClick={onCancel} className="text-xs text-slate-500 hover:underline">Cancel</button>
+    </div>
+  );
+}
+
+/** In Edit customer: "Pays through someone else's Direct Debit". */
+export function EditShareDirectDebit({ customerId, onShared }: { customerId: number; onShared: (shared: { mandateId: string; gcCustomerId: string }) => void }) {
+  const router = useRouter();
+  const [data, setData] = useState<{ sharedWith: Brief[]; options: Brief[]; hasOwn: boolean } | null>(null);
+  const [picking, setPicking] = useState(false);
+  const load = () => getDirectDebitSharing(customerId).then(setData).catch(() => setData(null));
+  useEffect(() => { void load(); }, [customerId]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!data) return null;
+  if (data.sharedWith.length > 0) {
+    return <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900"><b>Shared Direct Debit</b> with {data.sharedWith.map((c) => c.name).join(", ")}. Change it under Direct Debit on their page.</p>;
+  }
+  if (data.hasOwn || data.options.length === 0) return null;
+  return picking
+    ? <ShareDirectDebitPicker customerId={customerId} options={data.options} onDone={(shared) => { setPicking(false); onShared(shared); void load(); router.refresh(); }} onCancel={() => setPicking(false)} />
+    : <button type="button" onClick={() => setPicking(true)} className="text-sm font-semibold text-blue-700 hover:underline">Someone else pays? Use another customer&apos;s Direct Debit</button>;
 }

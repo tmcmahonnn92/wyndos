@@ -26,6 +26,7 @@ import { logPhoneText } from "@/lib/text-actions";
 import { ukMobile } from "@/lib/text-format";
 import { INVOICE_EMAIL_ENABLED } from "@/lib/features";
 import { addressPartsOf, type AddressParts } from "@/lib/address";
+import { EditShareDirectDebit } from "./direct-debit-panel";
 
 type Customer = NonNullable<Awaited<ReturnType<typeof getCustomer>>> & {
   goCardlessCustomerReference: string;
@@ -59,6 +60,8 @@ interface Props {
   goCardlessReferencePrefix?: string;
   /** Direct Debit switched on for this business (Admin trial or server flag). */
   goCardlessOn?: boolean;
+  /** Owner, with GoCardless set up: can put this customer on someone else's Direct Debit. */
+  canShareDirectDebit?: boolean;
   /** Invoice emails switched on for this business (Admin trial). */
   invoiceEmailOn?: boolean;
   /** The business has its own email set up (invoices are sent from it). */
@@ -94,7 +97,7 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", goCardlessOn = false, invoiceEmailOn = false, invoiceEmailReady = false, autoInvoiceOn = false, texts = [] }: Props) {
+export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", goCardlessOn = false, canShareDirectDebit = false, invoiceEmailOn = false, invoiceEmailReady = false, autoInvoiceOn = false, texts = [] }: Props) {
   const [showAllTexts, setShowAllTexts] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [bookDate, setBookDate] = useState("");
@@ -899,6 +902,8 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
             </div>
           </div>
           {goCardlessOn && <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 space-y-3">
+            {canShareDirectDebit && <EditShareDirectDebit customerId={customer.id} onShared={({ mandateId, gcCustomerId }) =>
+              setForm(f => ({ ...f, goCardlessMandateId: mandateId, goCardlessCustomerId: gcCustomerId, preferredPaymentMethod: "DD" }))} />}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">GoCardless customer reference</label>
               <input type="text" value={form.goCardlessCustomerReference} onChange={(e) => setForm(f => ({ ...f, goCardlessCustomerReference: e.target.value }))}

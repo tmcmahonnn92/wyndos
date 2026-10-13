@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CloudOff, RefreshCw, Wifi } from "lucide-react";
 import { completeJob, recordPayment, skipJob, updateJobNotes, updateJobPrice } from "@/lib/actions";
-import { flushQueue, getQueue, onQueueChange } from "@/lib/offline-queue";
+import { flushQueue, getQueue, isOutOfDate, onQueueChange, reloadForUpdate } from "@/lib/offline-queue";
 
 type OfflineSnapshotMeta = {
   syncedAt: number;
@@ -148,6 +148,9 @@ export function OfflineStatus() {
     window.addEventListener("focus", onVisible);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+    // Any other button pressed on a page from before an update: load the new version.
+    const onRejection = (e: PromiseRejectionEvent) => { if (isOutOfDate(e.reason)) reloadForUpdate(); };
+    window.addEventListener("unhandledrejection", onRejection);
 
     return () => {
       window.clearInterval(interval);
@@ -156,6 +159,7 @@ export function OfflineStatus() {
       window.removeEventListener("focus", onVisible);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("unhandledrejection", onRejection);
     };
   }, [router]);
 
