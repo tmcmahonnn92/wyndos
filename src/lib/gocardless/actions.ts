@@ -44,7 +44,7 @@ export async function testGoCardless() {
   try {
     const res = await testConnection(actor.tenantId);
     revalidatePath("/settings");
-    return { ok: true as const, name: res.name };
+    return { ok: true as const, name: res.name, verification: res.verification };
   } catch (issue) {
     return { ok: false as const, error: message(issue) };
   }

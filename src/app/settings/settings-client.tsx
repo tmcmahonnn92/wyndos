@@ -1638,6 +1638,12 @@ export function SettingsClient({
 function GoCardlessConnect({ available, connected, environment }: { available: boolean; connected: boolean; environment: string }) {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [account, setAccount] = useState<{ name?: string; verification?: string | null } | null>(null);
+  // Connected: show the GoCardless account and whether GoCardless has finished checking it.
+  useEffect(() => {
+    if (!connected) return;
+    testGoCardless().then((r) => { if (r.ok) setAccount({ name: r.name, verification: r.verification }); }).catch(() => undefined);
+  }, [connected]);
   useEffect(() => {
     const gc = new URLSearchParams(window.location.search).get("gc");
     if (gc) { setMsg(gc); window.history.replaceState(null, "", window.location.pathname); }
@@ -1650,7 +1656,13 @@ function GoCardlessConnect({ available, connected, environment }: { available: b
         : msg ? <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{msg}</p> : null}
       {connected ? (
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-semibold text-green-700">Connected to GoCardless{environment === "sandbox" ? " (sandbox)" : ""}</span>
+          <span className="text-sm font-semibold text-green-700">Connected to GoCardless{environment === "sandbox" ? " (sandbox)" : ""}{account?.name ? `: ${account.name}` : ""}</span>
+          {account?.verification && (
+            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold",
+              account.verification === "successful" ? "bg-green-100 text-green-800" : account.verification === "in_review" ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800")}>
+              {account.verification === "successful" ? "Account verified" : account.verification === "in_review" ? "GoCardless is checking your account" : "GoCardless needs more details: finish setting up in GoCardless"}
+            </span>
+          )}
           <button type="button" disabled={busy} onClick={async () => {
             if (!window.confirm("Disconnect GoCardless? Wyndos won't be able to collect or sync until you connect again. Your customers' Direct Debits aren't cancelled.")) return;
             setBusy(true); await disconnectGoCardless().catch(() => undefined); window.location.reload();
@@ -1658,8 +1670,11 @@ function GoCardlessConnect({ available, connected, environment }: { available: b
         </div>
       ) : available ? (
         <div className="space-y-1">
-          <a href="/api/gocardless/oauth/start" className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Connect GoCardless</a>
-          <p className="text-xs text-slate-500">You log in to GoCardless (or create an account) and allow Wyndos. No tokens to copy.</p>
+          <div className="flex flex-wrap gap-2">
+            <a href="/api/gocardless/oauth/start" className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Connect my GoCardless account</a>
+            <a href="/api/gocardless/oauth/start?signup=1" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Create a GoCardless account</a>
+          </div>
+          <p className="text-xs text-slate-500">You log in to GoCardless (or sign up) and allow Wyndos. No tokens to copy.</p>
         </div>
       ) : null}
     </div>

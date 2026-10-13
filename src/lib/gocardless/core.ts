@@ -111,10 +111,12 @@ export type GcCustomer = { id: string; email?: string | null; given_name?: strin
 
 export async function testConnection(tenantId: number) {
   const conn = await requireConnection(tenantId);
-  const res = await gc<{ creditors?: Array<{ name?: string }> }>(conn, "GET", "/creditors", { params: { limit: "1" } });
+  const res = await gc<{ creditors?: Array<{ name?: string; verification_status?: string }> }>(conn, "GET", "/creditors", { params: { limit: "1" } });
   const name = res.creditors?.[0]?.name?.trim() || "GoCardless account";
+  // GoCardless account check: successful, in_review or action_required (payouts wait until it's done).
+  const verification = res.creditors?.[0]?.verification_status ?? null;
   await prisma.tenantSettings.update({ where: { tenantId }, data: { goCardlessCreditorName: name, goCardlessLastError: "" } });
-  return { name };
+  return { name, verification };
 }
 
 // ── Linking customers ───────────────────────────────────────────────────────

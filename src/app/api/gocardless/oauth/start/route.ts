@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   url.searchParams.set("scope", "read_write");
   url.searchParams.set("redirect_uri", redirectUri(origin));
   url.searchParams.set("state", state);
-  url.searchParams.set("initial_view", "login");
+  url.searchParams.set("initial_view", req.nextUrl.searchParams.get("signup") === "1" ? "signup" : "login");
   url.searchParams.set("prefill[country_code]", "GB");
   if (s?.email) url.searchParams.set("prefill[email]", s.email);
   if (s?.businessName) url.searchParams.set("prefill[organisation_name]", s.businessName);
