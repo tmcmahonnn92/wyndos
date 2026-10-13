@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 import { CustomerFilters } from "./customer-filters";
 import { AddCustomerModal } from "./add-customer-modal";
 import { CustomerActiveToggle } from "./customer-active-toggle";
+import { expectsPaymentAtDoor, preferenceLabel } from "@/lib/payment-preference";
+import { paysByDirectDebit } from "@/lib/gocardless/status";
 
 export const dynamic = "force-dynamic";
 
@@ -239,6 +241,16 @@ function CustomerRow({
             </span>
           )}
           <span className="text-slate-400">every {customer.frequencyWeeks}w</span>
+          {(() => {
+            const dd = paysByDirectDebit(customer);
+            const label = dd ? "Direct Debit" : preferenceLabel(customer.preferredPaymentMethod).replace(" / pays later", "");
+            if (!label) return null;
+            return (
+              <span className={cn("rounded-full px-2 py-0.5 font-semibold", !dd && expectsPaymentAtDoor(customer.preferredPaymentMethod) ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800")}>
+                Pays by {label}
+              </span>
+            );
+          })()}
           {!hidePrices && outstandingDebt > 0 && (
             <span className="rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-600 ring-1 ring-red-200">
               Owes {fmtCurrency(outstandingDebt)}
