@@ -274,7 +274,7 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
         if (!conflict) throw issue;
         payment = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${conflict}`)).payments;
       }
-      await prisma.job.update({ where: { id: j.id }, data: { goCardlessPaymentId: payment.id, goCardlessStatus: payment.status } });
+      await prisma.job.update({ where: { id: j.id }, data: { goCardlessPaymentId: payment.id, goCardlessStatus: payment.status, goCardlessChargeDate: payment.charge_date ? new Date(`${payment.charge_date}T00:00:00Z`) : null } });
       collected.push({ jobId: j.id, amount: j.due, paymentId: payment.id });
     } catch (issue) {
       skipped.push({ jobId: j.id, reason: issue instanceof Error ? issue.message : "GoCardless said no" });
@@ -360,8 +360,9 @@ export async function syncTenant(tenantId: number) {
     // made for, so it's linked to them whatever details were typed in.
     try {
       const done = await gcList<{ id: string; status: string; metadata?: Record<string, string | null | undefined>; links?: { customer?: string; mandate_request_mandate?: string } }>(
-        conn, "/billing_requests", "billing_requests", { status: "fulfilled", "created_at[gte]": new Date(Date.now() - 90 * 86400000).toISOString() }, 3);
-      for (const br of done) {
+        conn, "/billing_requests", "billing_requests", { "created_at[gte]": new Date(Date.now() - 90 * 86400000).toISOString() }, 5);
+      // GoCardless won't take the status and date filters together, so only completed ones are used here.
+      for (const br of done.filter((x) => x.status === "fulfilled")) {
         const cid = Number(br.metadata?.wyndosCustomerId);
         const mandateId = br.links?.mandate_request_mandate;
         if (!cid || !mandateId) continue;
@@ -433,7 +434,7 @@ export async function syncTenant(tenantId: number) {
       if (!p) {
         try { p = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${job.goCardlessPaymentId}`)).payments; } catch { continue; }
       }
-      if (p.status !== job.goCardlessStatus) await prisma.job.update({ where: { id: job.id }, data: { goCardlessStatus: p.status } });
+      if (p.status !== job.goCardlessStatus || p.charge_date) await prisma.job.update({ where: { id: job.id }, data: { goCardlessStatus: p.status, ...(p.charge_date ? { goCardlessChargeDate: new Date(`${p.charge_date}T00:00:00Z`) } : {}) } });
       const existing = recorded.get(p.id);
       if (GC_RECEIVED.has(p.status) && !existing) {
         await recordReceived(tenantId, job.customerId, p, job.id);

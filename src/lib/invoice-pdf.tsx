@@ -141,8 +141,8 @@ export interface InvoiceData {
   vat?: { rate: number; net: number; vat: number } | null;
   paymentTerms?: string;
   note?: string;
-  /** A stamp by the totals, e.g. "PAID BY DIRECT DEBIT". */
-  stamp?: string;
+  /** Direct Debit stamp by the totals: PAID or PENDING, the amount and the collection date. */
+  stamp?: { title: string; lines: string[] };
 }
 
 function fmt(n: number) {
@@ -267,10 +267,13 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
         </View>
 
         {data.stamp ? (
-          <View style={{ alignItems: "flex-end", marginTop: -6, marginBottom: 16 }}>
-            <Text style={{ borderWidth: 2.5, borderColor: "#16a34a", borderRadius: 6, color: "#16a34a", fontFamily: "Helvetica-Bold", fontSize: 14, letterSpacing: 1.5, paddingVertical: 6, paddingHorizontal: 12, transform: "rotate(-6deg)" }}>
-              {data.stamp}
-            </Text>
+          <View style={{ alignItems: "flex-end", marginTop: 4, marginBottom: 16 }}>
+            <View style={{ borderWidth: 2.5, borderColor: "#dc2626", paddingVertical: 6, paddingHorizontal: 14, alignItems: "center", minWidth: 130 }}>
+              <Text style={{ color: "#dc2626", fontFamily: "Courier-Bold", fontSize: 18, letterSpacing: 1 }}>{data.stamp.title}</Text>
+              {data.stamp.lines.map((line) => (
+                <Text key={line} style={{ color: "#dc2626", fontFamily: "Courier", fontSize: 10, marginTop: 2 }}>{line}</Text>
+              ))}
+            </View>
           </View>
         ) : null}
 
