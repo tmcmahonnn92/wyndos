@@ -6732,3 +6732,21 @@ export async function removeCredit(customerId: number, amount: number, reason?: 
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/accounting");
 }
+
+/** Credit given that isn't money received (goodwill, a correction). Not counted as income. */
+export async function addCreditAdjustment(customerId: number, amount: number, reason?: string) {
+  const actor = await requirePerm("payments");
+  const tenantId = actor.tenantId;
+  await requireTenantCustomer(tenantId, Number(customerId));
+  const value = round2(Number(amount));
+  if (!(value > 0) || value > 100000) throw new Error("Enter an amount above zero.");
+  await prisma.payment.create({ data: {
+    tenantId, customerId: Number(customerId), amount: value, method: "BACS", paidAt: new Date(),
+    // broughtForward: kept out of income, like credit carried over from another program.
+    broughtForward: true, collectedByUserId: actor.userId,
+    notes: `Credit added (not money received)${reason?.trim() ? `: ${reason.trim().slice(0, 120)}` : ""}`,
+  } });
+  await applyCredit(tenantId, [Number(customerId)]);
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${customerId}`);
+}

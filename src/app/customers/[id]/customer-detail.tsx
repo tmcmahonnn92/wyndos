@@ -478,13 +478,14 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               )}
               {!hidePrices && canPay && credit > 0.005 && <div className="mt-1 flex flex-wrap gap-1.5"><RefundCreditButton customerId={customer.id} credit={credit} /><UseCreditButton customerId={customer.id} credit={credit} /><BalanceFixButton customerId={customer.id} kind="credit" max={credit} /></div>}
               {!hidePrices && canPay && allowCredit && (
-                <div className="mt-1.5">
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   <AddCreditForm
                     customers={[{ id: customer.id, name: customer.name, address: customer.address, credit }]}
                     initialCustomerId={customer.id}
                     buttonLabel="Paid in advance"
                     buttonClassName="h-7 px-2 text-xs"
                   />
+                  <BalanceFixButton customerId={customer.id} kind="add" max={0} />
                 </div>
               )}
             </CardContent>

@@ -32,6 +32,13 @@ async function main() {
   check("remove credit: H2 still paid", (await owed(h2.id)) === 0);
   await act.writeOffDebt(h1.id, null, "wrong import");
   check("write off: H1 owes 0", (await owed(h1.id)) === 0, String(await owed(h1.id)));
+  const inBefore = r2((await prisma.payment.aggregate({ where: { tenantId, voidedAt: null, broughtForward: false }, _sum: { amount: true } }))._sum.amount ?? 0);
+  await act.addCreditAdjustment(h2.id, 15, "goodwill");
+  check("add credit: H2 credit 15", (await credit(h2.id)) === 15, String(await credit(h2.id)));
+  const inAfter = r2((await prisma.payment.aggregate({ where: { tenantId, voidedAt: null, broughtForward: false }, _sum: { amount: true } }))._sum.amount ?? 0);
+  check("add credit: not counted as income", inBefore === inAfter, `${inBefore} → ${inAfter}`);
+  await act.removeCredit(h2.id, 15);
+  check("remove it again", (await credit(h2.id)) === 0);
   console.log(fails ? `${fails} failed` : "all passed");
 }
 main().then(() => process.exit(fails ? 1 : 0), (e) => { console.error(e); process.exit(1); });
