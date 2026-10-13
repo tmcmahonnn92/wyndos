@@ -24,7 +24,9 @@ async function session(email, viewport, fn) {
   await page.fill("input[type=email]", email);
   await page.fill("input[type=password]", "GuideDemo123!");
   await page.click("button[type=submit]");
-  await page.waitForURL((u) => !u.pathname.startsWith("/auth"), { timeout: 20000 });
+  // Sign-in can redirect to a different host name locally: open the app again on ours.
+  await page.waitForTimeout(3000);
+  await page.goto(B + "/");
   await page.waitForTimeout(1200);
   try { await fn(page); } catch (e) { console.log("FAILED", String(e).split("\n")[0]); }
   await browser.close();
