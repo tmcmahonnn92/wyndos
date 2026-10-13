@@ -75,12 +75,22 @@ async function main() {
   check("write off nothing → refused", (await err(() => act.writeOffDebt(c3.id, null))).includes("Nothing owed"));
 
   // Move C1's payment to C3: C1's cleans owe again, C3 gets the money (its cleans already settled → credit).
-  const p1 = (await prisma.payment.findFirst({ where: { tenantId, customerId: c1.id, voidedAt: null } }))!;
+  const p1 = (await prisma.payment.findFirst({ where: { tenantId, customerId: c1.id, voidedAt: null, amount: { gt: 0 } } }))!;
   await act.movePaymentToCustomer(p1.id, c3.id);
   check("move: C1 owes £30 again", (await owed(c1.id)) === 30, String(await owed(c1.id)));
   check("move: C2's cleans (paid from C1's credit) owe again", (await owed(c2.id)) === 30, String(await owed(c2.id)));
-  check("move: C3 holds the money as credit", (await credit(c3.id)) === r2(p1.amount + 0), `${await credit(c3.id)} vs ${p1.amount}`);
+  check("move: C3 holds the money (less the £10 removed) as credit", (await credit(c3.id)) === 60, String(await credit(c3.id)));
   check("move: income unchanged (60)", (await income()) === 60, String(await income()));
+
+  // Removing credit always works, even from a GoCardless payment, and can be put back.
+  const gcPay = await prisma.payment.create({ data: { tenantId, customerId: c2.id, amount: 12, method: "BACS", paidAt: new Date("2026-10-01T10:00:00Z"), goCardlessPaymentId: `PMTEST${tenantId}`, goCardlessStatus: "paid_out" } });
+  const c2before = await credit(c2.id);
+  await act.removeCredit(c2.id, 12, "matched to wrong house");
+  check("remove credit from a GoCardless payment", (await credit(c2.id)) === r2(c2before - 12), `${await credit(c2.id)}`);
+  check("GoCardless payment itself unchanged", (await prisma.payment.findUnique({ where: { id: gcPay.id } }))!.amount === 12);
+  const removal = (await prisma.payment.findFirst({ where: { tenantId, refundOfId: gcPay.id } }))!;
+  await act.voidPayment(removal.id, "put back");
+  check("undo removal puts the credit back", (await credit(c2.id)) === c2before, `${await credit(c2.id)}`);
 
   // Credit added by hand can't be "refunded" as if it were money in.
   const adj = (await prisma.payment.findFirst({ where: { tenantId, customerId: c3.id, broughtForward: true } }))!;

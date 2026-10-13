@@ -31,7 +31,7 @@ export function BalanceFixButton({ customerId, kind, max }: { customerId: number
               ? "Credit you're giving them that isn't money received (goodwill, a correction). It isn't counted as income. If they paid you in advance, use Paid in advance instead. Any unpaid cleans are paid from it first."
               : debt
               ? "For money that isn't really owed (a wrong import, goodwill, a bad debt). It comes off the unpaid cleans' prices, newest first, and they stop showing as owing."
-              : "For credit that isn't real (money recorded that you never actually got, e.g. a wrong import). It comes off their payments, so your money-in figures go down too. If you did get the money and are giving it back, use Refund credit; if it belongs to another customer, use Use for another customer."}
+              : "Takes the credit off, whatever it came from. It's recorded today as \"Credit removed\" (undo it on their payments to put it back). Credit from money you received comes off today's money in. Tip: if it belongs to another customer, Use for another customer keeps your figures right."}
           </p>
           <label className="block"><span className="mb-1 block font-medium text-slate-700">Amount{add ? "" : ` (up to ${fmtCurrency(max)})`}</span>
             <input type="number" min="0.01" step="0.01" max={add ? undefined : max} value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2" />
