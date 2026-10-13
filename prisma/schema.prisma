@@ -110,6 +110,8 @@ model TenantSettings {
   goCardlessAutoCollect     Boolean  @default(false)
   goCardlessAutoCollectFrom DateTime?
   goCardlessLastError       String   @default("")
+  /// The GoCardless account connected with "Connect GoCardless" (OAuth); null for a pasted token.
+  goCardlessOrganisationId  String?
   /// Accounts: CASH (money in/out when paid; default for sole traders) or ACCRUALS (income when the clean is done).
   accountingBasis           String   @default("CASH")
   /// MTD quarterly periods: STANDARD (6 Apr–5 Jul…) or CALENDAR (1 Apr–30 Jun…).

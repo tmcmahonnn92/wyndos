@@ -7,7 +7,7 @@ import {
   Loader2, CheckCircle2, AlertCircle, FileText,
   ExternalLink, ShieldCheck, ChevronDown, ChevronUp,
   Users, UserX, Link2, RefreshCw, KeyRound, Database } from "lucide-react";
-import { updateBusinessSettings, createTag, deleteTag, sendTestEmail } from "@/lib/actions";
+import { updateBusinessSettings, createTag, deleteTag, sendTestEmail, disconnectGoCardless } from "@/lib/actions";
 import { runPaymentRemindersNow } from "@/lib/text-actions";
 import Link from "next/link";
 import { testGoCardless } from "@/lib/gocardless/actions";
@@ -31,7 +31,7 @@ interface Settings {
   invoicePrefix: string; nextInvoiceNum: number; invoiceNumbersStarted: boolean;
   invoiceVatEnabled: boolean; invoiceVatRate: number; allowCustomerCredit?: boolean; keepWorkerOnNextRun?: boolean; invoicePaymentTerms: string; autoInvoiceEmail?: boolean; autoInvoiceDelayMinutes?: number; autoInvoiceTrial?: boolean; goCardlessOn?: boolean; logoBase64: string | null;
   goCardlessEnvironment: string; goCardlessReferencePrefix: string;
-  goCardlessAccessTokenConfigured: boolean; goCardlessLastSyncedAt: string | null;
+  goCardlessAccessTokenConfigured: boolean; goCardlessLastSyncedAt: string | null; goCardlessConnectAvailable?: boolean; goCardlessConnected?: boolean;
   smtpProvider: string; smtpHost: string; smtpPort: number;
   smtpUser: string; smtpFromName: string; smtpPassConfigured: boolean;
   voodooSender: string; voodooApiKeyConfigured: boolean;
@@ -727,6 +727,9 @@ export function SettingsClient({
           {settings.goCardlessOn && <Card>
             <CardHeader><CardTitle><Link2 size={16} className="inline mr-2 text-blue-600" />GoCardless (Direct Debit)</CardTitle></CardHeader>
             <CardContent className="space-y-4">
+              <GoCardlessConnect available={Boolean(settings.goCardlessConnectAvailable)} connected={Boolean(settings.goCardlessConnected)} environment={settings.goCardlessEnvironment} />
+              <details className="group space-y-3" open={!settings.goCardlessConnectAvailable}>
+              {settings.goCardlessConnectAvailable && <summary className="cursor-pointer text-xs font-semibold text-slate-500">Or paste an access token instead</summary>}
               <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 space-y-1">
                 <p className="font-semibold">Connect your GoCardless account</p>
                 <ol className="list-decimal space-y-0.5 pl-4">
@@ -777,6 +780,7 @@ export function SettingsClient({
                   {settings.goCardlessAccessTokenConfigured ? "A token is already stored. Leave this blank to keep the current token." : "Use a GoCardless access token for the relevant live or sandbox account."}
                 </p>
               </div>
+              </details>
               <GoCardlessTest configured={settings.goCardlessAccessTokenConfigured} lastSyncedAt={settings.goCardlessLastSyncedAt} />
             </CardContent>
           </Card>}
@@ -1626,6 +1630,38 @@ export function SettingsClient({
           </Card>
         </div>
       )}
+    </div>
+  );
+}
+
+/** One-click "Connect GoCardless" (OAuth). Shows what came back from GoCardless (?gc=…). */
+function GoCardlessConnect({ available, connected, environment }: { available: boolean; connected: boolean; environment: string }) {
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const gc = new URLSearchParams(window.location.search).get("gc");
+    if (gc) { setMsg(gc); window.history.replaceState(null, "", window.location.pathname); }
+  }, []);
+  if (!available && !msg) return null;
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 p-3">
+      {msg === "connected"
+        ? <p className="rounded-lg bg-green-50 px-3 py-2 text-xs font-semibold text-green-800">GoCardless connected. Press Test connection, then link your customers on Payments → Direct Debit.</p>
+        : msg ? <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{msg}</p> : null}
+      {connected ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-semibold text-green-700">Connected to GoCardless{environment === "sandbox" ? " (sandbox)" : ""}</span>
+          <button type="button" disabled={busy} onClick={async () => {
+            if (!window.confirm("Disconnect GoCardless? Wyndos won't be able to collect or sync until you connect again. Your customers' Direct Debits aren't cancelled.")) return;
+            setBusy(true); await disconnectGoCardless().catch(() => undefined); window.location.reload();
+          }} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Disconnect</button>
+        </div>
+      ) : available ? (
+        <div className="space-y-1">
+          <a href="/api/gocardless/oauth/start" className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Connect GoCardless</a>
+          <p className="text-xs text-slate-500">You log in to GoCardless (or create an account) and allow Wyndos. No tokens to copy.</p>
+        </div>
+      ) : null}
     </div>
   );
 }

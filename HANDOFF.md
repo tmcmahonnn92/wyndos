@@ -270,3 +270,9 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - `broughtForward` on Payment/Job: balances/credit carried over from another program are never income.
 - Checks: `scripts/sim/mtd-calc-check.ts` (pure sums) and `scripts/sim/mtd-actions-check.ts` (actions, needs DB).
 - Known limits: no VAT registration date/Flat Rate Scheme; refunds (roadmap); calendar quarters 1–5 April edge; balancing charge on AIA items sold uses sale price × business %.
+
+## GoCardless Connect (OAuth, Oct 2026)
+- Wyndos is a GoCardless partner app. Env (server only, never git): `GOCARDLESS_CLIENT_ID`, `GOCARDLESS_CLIENT_SECRET`, `GOCARDLESS_OAUTH_ENV` (sandbox | live), optional `GOCARDLESS_REDIRECT_URI`. Site address from `APP_URL`/`NEXTAUTH_URL`.
+- Redirect URL to register in the GoCardless app (exact): `<site>/api/gocardless/oauth/callback`.
+- Settings → Business → GoCardless: "Connect GoCardless" (`/api/gocardless/oauth/start` → GoCardless → `/api/gocardless/oauth/callback`, state cookie checked), Disconnect revokes the token. Pasting a token still works (under "Or paste an access token").
+- `TenantSettings.goCardlessOrganisationId` (migration `20261013140000_gc_oauth`) = connected via OAuth; needed later for partner webhooks (`links.organisation`).

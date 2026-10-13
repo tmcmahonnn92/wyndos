@@ -5502,6 +5502,9 @@ export async function getBusinessSettingsForClient() {
     goCardlessReferencePrefix: settings.goCardlessReferencePrefix,
     goCardlessAccessTokenConfigured: Boolean(settings.goCardlessAccessToken) || Boolean(process.env.NODE_ENV !== "production" && process.env.GOCARDLESS_DEV_TOKEN?.trim().startsWith("sandbox_")),
     goCardlessLastSyncedAt: settings.goCardlessLastSyncedAt?.toISOString() ?? null,
+    // "Connect GoCardless" button: the server has Wyndos's GoCardless app details.
+    goCardlessConnectAvailable: Boolean(process.env.GOCARDLESS_CLIENT_ID?.trim() && process.env.GOCARDLESS_CLIENT_SECRET?.trim()),
+    goCardlessConnected: Boolean(settings.goCardlessOrganisationId && settings.goCardlessAccessToken),
     smtpProvider: settings.smtpProvider,
     smtpHost: settings.smtpHost,
     smtpPort: settings.smtpPort,
@@ -6483,4 +6486,13 @@ export async function sendTestEmail(): Promise<{ ok: true; to: string } | { ok: 
     if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ESOCKET/i.test(msg)) return { ok: false, error: "Couldn't reach your email provider. Check the host and port." };
     return { ok: false, error: `Couldn't send: ${msg.slice(0, 200)}` };
   }
+}
+
+
+/** Settings → GoCardless → Disconnect. */
+export async function disconnectGoCardless() {
+  const actor = await requireOwner();
+  const { disconnect } = await import("@/lib/gocardless/oauth");
+  await disconnect(actor.tenantId);
+  revalidatePath("/settings");
 }
