@@ -837,15 +837,11 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               placeholder="Window Cleaning"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-          {invoiceEmailOn && <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2">
+          {/* Only when it would actually do something: your email set up, automatic invoices on, and they have an email. */}
+          {invoiceEmailOn && invoiceEmailReady && autoInvoiceOn && form.email.trim() && <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2">
             <input type="checkbox" checked={form.emailInvoices} onChange={(e) => setForm(f => ({ ...f, emailInvoices: e.target.checked }))} className="mt-0.5" />
-            <span className="text-sm text-slate-700">Email invoices to this customer
-              <span className="block text-xs text-slate-400">
-                {!form.email.trim() ? "Add their email address above first."
-                  : !invoiceEmailReady ? "Set up your own email in Settings → Email first: invoices are sent from it."
-                  : autoInvoiceOn ? `Sent to ${form.email.trim()} when a day is finished, and from the Invoice section.`
-                  : `Lets you email invoices to ${form.email.trim()} from the Invoice section. Sending automatically when a day is finished is off (Settings → Business).`}
-              </span>
+            <span className="text-sm text-slate-700">Email their invoice when a day is finished
+              <span className="block text-xs text-slate-400">Sent to {form.email.trim()} for anything still unpaid.</span>
             </span>
           </label>}
           <div className="grid grid-cols-2 gap-3">
@@ -1401,14 +1397,14 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               <Download size={14} />
               {invoiceStatus === "loading" ? "Generating…" : "Download PDF"}
             </Button>
-            {(INVOICE_EMAIL_ENABLED || invoiceEmailOn) && <Button
+            {(INVOICE_EMAIL_ENABLED || invoiceEmailOn) && invoiceEmailReady && customer.email?.trim() && <Button
               onClick={() => handleInvoiceAction("email")}
-              disabled={invoiceStatus === "loading" || selectedJobIds.size === 0 || !customer.email || !customer.emailInvoices || !invoiceEmailReady}
+              disabled={invoiceStatus === "loading" || selectedJobIds.size === 0}
               variant="outline"
               className="flex-1"
-              title={!invoiceEmailReady ? "Set up your own email in Settings → Email first" : !customer.email ? "Add an email address to this customer first" : !customer.emailInvoices ? "Tick \"Email invoices to this customer\" in their details first" : `Send to ${customer.email}`}>
+              title={`Send to ${customer.email}`}>
               <Mail size={14} />
-              {!invoiceEmailReady ? "Set up your email" : !customer.email ? "No email" : !customer.emailInvoices ? "Email off for them" : "Send email"}
+              Send email
             </Button>}
           </div>
         </div>
