@@ -381,13 +381,22 @@ export async function syncTenant(tenantId: number) {
     }
 
     // 2. Mandate statuses (cancelled, expired, …).
-    const linked = await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true, goCardlessMandateStatus: true } });
+    const linked = await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true, goCardlessMandateStatus: true, goCardlessCustomerId: true } });
     const mandateById = new Map<string, GcMandate>();
     if (linked.length) for (const m of await gcList<GcMandate>(conn, "/mandates", "mandates")) mandateById.set(m.id, m);
     for (const c of linked) {
-      const m = mandateById.get(c.goCardlessMandateId!);
-      if (m && m.status !== c.goCardlessMandateStatus) {
-        await prisma.customer.update({ where: { id: c.id }, data: { goCardlessMandateStatus: m.status, ...(m.links?.customer ? { goCardlessCustomerId: m.links.customer } : {}) } });
+      let m = mandateById.get(c.goCardlessMandateId!);
+      // A customer can have more than one mandate over time (e.g. new bank account: GoCardless
+      // cancels the old one and makes a new one for the same customer). Move to the working one.
+      if (m && !GC_MANDATE_USABLE.has(m.status) && m.links?.customer) {
+        const mine = [...mandateById.values()].filter((x) => x.links?.customer === m!.links!.customer && GC_MANDATE_USABLE.has(x.status));
+        const better = mine.find((x) => x.status === "active") ?? mine[0];
+        if (better) m = better;
+      }
+      if (!m) continue;
+      const custId = m.links?.customer ?? null;
+      if (m.id !== c.goCardlessMandateId || m.status !== c.goCardlessMandateStatus || (custId && custId !== c.goCardlessCustomerId)) {
+        await prisma.customer.update({ where: { id: c.id }, data: { goCardlessMandateId: m.id, goCardlessMandateStatus: m.status, ...(custId ? { goCardlessCustomerId: custId } : {}) } });
         summary.mandatesUpdated++;
       }
     }
