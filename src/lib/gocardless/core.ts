@@ -243,7 +243,7 @@ export async function cleansToCollect(tenantId: number, opts: { since?: Date | n
     select: {
       id: true, name: true, price: true, completedAt: true, goCardlessPaymentId: true, goCardlessStatus: true, isOneOff: true,
       workDay: { select: { date: true } },
-      customer: { select: { id: true, name: true, goCardlessMandateId: true, goCardlessMandateStatus: true, goCardlessPlan: true, jobName: true } },
+      customer: { select: { id: true, name: true, address: true, houseNameNumber: true, street: true, goCardlessMandateId: true, goCardlessMandateStatus: true, goCardlessPlan: true, jobName: true } },
       allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
     },
     orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
@@ -265,6 +265,10 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
   const collected: Array<{ jobId: number; amount: number; paymentId: string }> = [];
   const skipped: Array<{ jobId: number; reason: string }> = [];
   for (const id of jobIds) if (!due.some((j) => j.id === id)) skipped.push({ jobId: id, reason: "Not owing, already being collected, or no Direct Debit" });
+  // A Direct Debit that pays for several customers (one person, several houses): name the house on each payment.
+  const mandates = [...new Set(due.map((j) => j.customer.goCardlessMandateId!).filter(Boolean))];
+  const sharers = mandates.length ? await prisma.customer.groupBy({ by: ["goCardlessMandateId"], where: { tenantId, goCardlessMandateId: { in: mandates } }, _count: { _all: true } }) : [];
+  const shared = new Set(sharers.filter((g) => g._count._all > 1).map((g) => g.goCardlessMandateId!));
   for (const j of due.filter((d) => wanted.has(d.id))) {
     const mandate = j.customer.goCardlessMandateId!;
     if (j.customer.goCardlessMandateStatus && !GC_MANDATE_USABLE.has(j.customer.goCardlessMandateStatus)) {
@@ -282,7 +286,7 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
           body: { payments: {
             amount: pence, currency: "GBP",
             // Shown to the customer in GoCardless's payment emails: "Window Cleaning on 12 Oct 2026".
-            description: `${j.name || "Window cleaning"} on ${j.workDay.date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}`.slice(0, 100),
+            description: `${j.name || "Window cleaning"}${shared.has(mandate) ? `, ${[j.customer.houseNameNumber, j.customer.street].filter(Boolean).join(" ") || j.customer.address?.split(",")[0] || j.customer.name},` : ""} on ${j.workDay.date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}`.slice(0, 100),
             metadata: { wyndosCustomerId: String(j.customer.id), wyndosJobId: String(j.id) },
             links: { mandate },
           } },
@@ -486,7 +490,9 @@ export async function syncTenant(tenantId: number) {
     const linkedRows = await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true, goCardlessLinkedAt: true } });
     // Several customers can share one Direct Debit (two properties, a landlord): keep them all.
     const customersByMandate = new Map<string, number[]>();
-    for (const c of linkedRows) customersByMandate.set(c.goCardlessMandateId!, [...(customersByMandate.get(c.goCardlessMandateId!) ?? []), c.id]);
+    // The one linked first (the payer) comes first: outside payments are recorded on them.
+    const byLinked = [...linkedRows].sort((a, b) => (a.goCardlessLinkedAt?.getTime() ?? 0) - (b.goCardlessLinkedAt?.getTime() ?? 0) || a.id - b.id);
+    for (const c of byLinked) customersByMandate.set(c.goCardlessMandateId!, [...(customersByMandate.get(c.goCardlessMandateId!) ?? []), c.id]);
     const linkedAtById = new Map(linkedRows.map((c) => [c.id, c.goCardlessLinkedAt]));
     for (const p of payments) {
       if (!GC_RECEIVED.has(p.status) || recorded.has(p.id) || collectingIds.has(p.id) || p.metadata?.wyndosJobId) continue;

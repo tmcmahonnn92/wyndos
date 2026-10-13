@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { Check, Copy, Landmark, Loader2 } from "lucide-react";
-import { sendDirectDebitLink } from "@/lib/gocardless/actions";
+import { getDirectDebitSharing, sendDirectDebitLink, shareDirectDebit, stopUsingDirectDebit } from "@/lib/gocardless/actions";
+import { useRouter } from "next/navigation";
 
 const STATUS: Record<string, string> = {
   pending_customer_approval: "Waiting for the customer", pending_submission: "Being set up", submitted: "Submitted to the bank",
@@ -24,6 +25,16 @@ export function DirectDebitPanel({ customerId, mandateId, mandateStatus, waiting
   const [pending, start] = useTransition();
   const status = mandateId ? STATUS[mandateStatus ?? ""] ?? (mandateStatus || "Linked") : waitingForSignup ? "Sign-up link sent, not filled in yet" : "Not set up";
   const ok = mandateId && USABLE.has(mandateStatus ?? "");
+  const router = useRouter();
+  type Brief = { id: number; name: string; address: string | null };
+  const [sharing, setSharing] = useState<{ sharedWith: Brief[]; options: Brief[] } | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [q, setQ] = useState("");
+  useEffect(() => { getDirectDebitSharing(customerId).then(setSharing).catch(() => setSharing(null)); }, [customerId, mandateId]);
+  const shownOptions = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    return (sharing?.options ?? []).filter((o) => !t || `${o.name} ${o.address ?? ""}`.toLowerCase().includes(t)).slice(0, 20);
+  }, [sharing, q]);
 
   return (
     <section className="mx-auto max-w-lg px-4 pb-4">
@@ -33,6 +44,13 @@ export function DirectDebitPanel({ customerId, mandateId, mandateStatus, waiting
           <span className={ok ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800" : mandateId ? "rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700" : "rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600"}>{status}</span>
         </div>
         {mandateId && <p className="text-xs text-slate-500">Mandate {mandateId}{reference ? ` · reference ${reference}` : ""}</p>}
+        {sharing && sharing.sharedWith.length > 0 && (
+          <p className="rounded-lg bg-blue-50 px-2 py-1.5 text-xs text-blue-900">
+            <b>Shared Direct Debit</b>: also used by {sharing.sharedWith.map((c, i) => (
+              <span key={c.id}>{i > 0 ? ", " : ""}<Link href={`/customers/${c.id}`} className="font-semibold underline">{c.name}</Link></span>
+            ))}. Each customer&apos;s cleans are collected separately, with the address on each payment.
+          </p>
+        )}
         {plan && <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-900">On a GoCardless plan ({plan}). The plan pays their regular cleans (GoCardless takes it, Wyndos records it). Extra jobs, like gutters, are collected separately on the same Direct Debit. To switch to paying per clean, cancel the plan in GoCardless.</p>}
         {!ok && (
           <div className="flex flex-wrap items-center gap-2">
@@ -45,6 +63,44 @@ export function DirectDebitPanel({ customerId, mandateId, mandateStatus, waiting
             </button>
             <span className="text-xs text-slate-500">Send it to the customer: they fill in their bank details with GoCardless.</span>
           </div>
+        )}
+        {!ok && sharing && sharing.options.length > 0 && !picking && (
+          <button type="button" onClick={() => setPicking(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            Someone else pays? Use another customer&apos;s Direct Debit
+          </button>
+        )}
+        {picking && (
+          <div className="space-y-2 rounded-lg border border-slate-200 p-2">
+            <p className="text-xs text-slate-600">Who pays for this customer? Their Direct Debit will also pay this customer&apos;s cleans (each collected separately).</p>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or address" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+            <ul className="max-h-48 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-100">
+              {shownOptions.map((o) => (
+                <li key={o.id}>
+                  <button type="button" disabled={pending} onClick={() => start(async () => {
+                    setError("");
+                    const res = await shareDirectDebit(customerId, o.id);
+                    if (res.ok) { setPicking(false); router.refresh(); } else setError(res.error);
+                  })} className="w-full px-2 py-1.5 text-left text-sm hover:bg-slate-50">
+                    {o.name}<span className="block truncate text-xs text-slate-500">{o.address}</span>
+                  </button>
+                </li>
+              ))}
+              {shownOptions.length === 0 && <li className="px-2 py-1.5 text-xs text-slate-500">No customers with a Direct Debit match.</li>}
+            </ul>
+            <button type="button" onClick={() => setPicking(false)} className="text-xs text-slate-500 hover:underline">Cancel</button>
+          </div>
+        )}
+        {mandateId && (
+          <button type="button" disabled={pending} onClick={() => {
+            if (!window.confirm(sharing?.sharedWith.length
+              ? "Stop this customer using the shared Direct Debit? The others carry on using it. Nothing changes in GoCardless."
+              : "Stop using this Direct Debit in Wyndos? Nothing more will be collected for this customer. The Direct Debit itself isn't cancelled in GoCardless.")) return;
+            start(async () => {
+              setError("");
+              const res = await stopUsingDirectDebit(customerId);
+              if (res.ok) router.refresh(); else setError(res.error);
+            });
+          }} className="block text-xs text-slate-400 hover:text-red-600 hover:underline">Stop using this Direct Debit</button>
         )}
         {url && (
           <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-xs dark:bg-slate-800">

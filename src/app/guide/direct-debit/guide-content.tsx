@@ -16,6 +16,7 @@ const SECTIONS = [
   { id: "problems", title: "Failed payments and charge-backs" },
   { id: "changes", title: "Undo, cancelled Direct Debits and payments made in GoCardless" },
   { id: "refunds", title: "Refunds" },
+  { id: "shared", title: "One person paying for several houses" },
   { id: "disconnect", title: "Disconnecting" },
 ];
 
@@ -169,7 +170,22 @@ export function DirectDebitGuide({ publicView = false }: { publicView?: boolean 
           </ul>
         </Section>
 
-        <Section n={10} id="disconnect" title="Disconnecting">
+        <Section n={10} id="shared" title="One person paying for several houses">
+          <p>A landlord, or someone paying for a relative&apos;s house, can pay for several customers from one Direct Debit. Keep each house as its own customer, then:</p>
+          <ol>
+            <li>Make sure the person paying has an active Direct Debit on one of the houses.</li>
+            <li>Open each other house. Under <strong>Direct Debit</strong>, press <strong>Someone else pays? Use another customer&apos;s Direct Debit</strong> and pick the house that has it.</li>
+          </ol>
+          <ul>
+            <li>Each house shows <strong>Shared Direct Debit: also used by …</strong>.</li>
+            <li>Each clean is still collected on its own, with the house&apos;s address on the payment, so the payer can see what each one was for. A failed or charged-back payment only affects that one clean.</li>
+            <li>A payment the payer makes in GoCardless itself pays the oldest unpaid cleans across all the houses, oldest first. Anything left over is kept as credit on the house that set up the Direct Debit.</li>
+            <li>If the Direct Debit is cancelled or replaced, every house sharing it updates together.</li>
+            <li>To stop, open the house and press <strong>Stop using this Direct Debit</strong>. The other houses keep it.</li>
+          </ul>
+        </Section>
+
+        <Section n={11} id="disconnect" title="Disconnecting">
           <p>
             Press <strong>Disconnect</strong> in <strong>Settings → GoCardless</strong> (or remove Wyndos in your GoCardless dashboard). Wyndos then stops
             collecting and syncing. Customers&apos; Direct Debits stay set up in GoCardless, and everything already recorded in Wyndos stays.

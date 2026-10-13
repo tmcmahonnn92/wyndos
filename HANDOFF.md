@@ -239,6 +239,7 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 ## GoCardless per business (new75)
 - Switched on per business: Admin → Billing → "Trial: GoCardless" (`Tenant.trialFeatures` contains `gocardless`), or server-wide with the build flag. `goCardlessOn(tenantId)` in `lib/trial-features.ts` gates actions, the Direct Debit page, the cron, Settings (card and saving the token), Payments buttons and the customer page.
 - Customer page: Direct Debit panel (status, mandate, "Get sign-up link" with copy) for owners when switched on and a token is saved.
+- Shared Direct Debit: several customers can hold the same mandate id (`shareDirectDebit` copies mandate/status/CU id; `stopUsingDirectDebit` clears). Cleans are still collected per customer, with the address in the payment description. Mandate status updates and replacements apply to everyone sharing. Outside payments (step 3b) pay oldest unpaid cleans across all sharers; leftover credit goes to the earliest-linked customer (the payer). Tests: `scripts/sim/shared-dd-check.ts` (needs `gc-mock.cjs` on :4600).
 - Testing steps: `deploy/GOCARDLESS-TESTING.md`.
 
 ## Invoice emails per customer + import credit fix (new78)
