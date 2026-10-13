@@ -98,6 +98,12 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
     const scheduled = weeks !== null && status !== "done";
     if (!scheduled) unscheduled++;
     const method = j["Payment Method"] ?? "";
+    // GoCardless IDs: Aworka's column names vary between exports, so look in every column
+    // for GoCardless-shaped IDs (MD… = Direct Debit mandate, CU… = GoCardless customer).
+    const gcCells = Object.entries(j).map(([k, v]) => [k, String(v ?? "").trim()] as const);
+    const mandate = (gcCells.find(([, v]) => /^MD[A-Z0-9]{6,}$/i.test(v))?.[1] ?? "").toUpperCase();
+    const gcCustomer = (gcCells.find(([, v]) => /^CU[A-Z0-9]{6,}$/i.test(v))?.[1] ?? "").toUpperCase();
+    const mandateStatus = j["GoCardless Status"] ?? gcCells.find(([k]) => /gocardless|mandate|direct debit|\bdd\b/i.test(k) && /status/i.test(k))?.[1] ?? "";
     const allowed = j["Allowed Days"] ?? "";
     const notes = [
       j["Customer Notes"], j.Notes,
@@ -128,10 +134,11 @@ export function readAworka(entries: Array<{ name: string; text: string }>): CpBa
       scheduled,
       price: num(j.Price),
       jobName: (j.Task ?? "").trim() || "Window Cleaning",
-      preferredPaymentMethod: /gocardless|direct debit/i.test(method) || /^MD[A-Z0-9]{6,}$/i.test((j["GoCardless Mandate"] ?? "").trim()) ? "DD" : mapPaymentMethod(method),
+      preferredPaymentMethod: /gocardless|direct debit/i.test(method) || mandate ? "DD" : mapPaymentMethod(method),
       // The Direct Debit itself (it's in the business's own GoCardless account), linked straight away.
-      goCardlessMandateId: /^MD[A-Z0-9]{6,}$/i.test((j["GoCardless Mandate"] ?? "").trim()) ? (j["GoCardless Mandate"] ?? "").trim().toUpperCase() : undefined,
-      goCardlessMandateStatus: /^MD[A-Z0-9]{6,}$/i.test((j["GoCardless Mandate"] ?? "").trim()) ? gcStatus(j["GoCardless Status"] ?? "") : undefined,
+      goCardlessMandateId: mandate || undefined,
+      goCardlessMandateStatus: mandate ? gcStatus(mandateStatus) : undefined,
+      goCardlessCustomerId: gcCustomer || undefined,
       notes: [...new Set(notes)].join("\n"),
       nextDueDate: scheduled ? iso(j["Next Due"]) : "",
       lastCompletedDate: iso(j["Last Done/Skipped"]),

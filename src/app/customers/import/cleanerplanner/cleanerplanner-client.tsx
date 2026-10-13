@@ -136,7 +136,7 @@ export function MoveImport({ source }: { source: Source }) {
           preferredPaymentMethod: c.preferredPaymentMethod, notes: c.notes, nextDueDate: c.nextDueDate,
           lastCompletedDate: c.lastCompletedDate, sortOrder: c.sortOrder, active: c.active, scheduled: repeats(c),
           openingBalance: Math.round(opening * 100) / 100, openingDate: openingDate || "",
-          goCardlessMandateId: c.goCardlessMandateId, goCardlessMandateStatus: c.goCardlessMandateStatus,
+          goCardlessMandateId: c.goCardlessMandateId, goCardlessMandateStatus: c.goCardlessMandateStatus, goCardlessCustomerId: c.goCardlessCustomerId,
         };
       });
       const ids: Record<string, number> = {};

@@ -115,6 +115,8 @@ export type CpCustomer = {
   /** Their Direct Debit in the business's own GoCardless account (Aworka export), e.g. MD01… */
   goCardlessMandateId?: string;
   goCardlessMandateStatus?: string;
+  /** GoCardless customer (CU…). */
+  goCardlessCustomerId?: string;
 };
 
 /** charge = a clean; payment; tip = extra paid on top (other income); writeoff = bad debt cleared off what they owe. */
