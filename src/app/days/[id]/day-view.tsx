@@ -987,7 +987,8 @@ export function DayView({
         {/* Whole-date actions */}
         {days.length > 0 && (
           <div className="flex gap-2">
-            {plannedDays.length > 0 && (
+            {/* One main button: Start until something's begun, then Complete. */}
+            {plannedDays.length > 0 && !openDays.some((d) => d.status === "IN_PROGRESS") && (
               <Button onClick={() => handleStart(plannedDays)} disabled={isPending} className="flex-1" size="lg">
                 <Play size={16} />
                 {multi ? "Start day" : "Start Area"}
