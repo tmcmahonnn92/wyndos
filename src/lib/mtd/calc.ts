@@ -17,8 +17,9 @@
  *  - Use of home: £10 / £18 / £26 a month for 25–50 / 51–100 / 101+ hours. Goes in premisesRunningCosts.
  *  - Assets: on the cash basis, equipment and vans are an expense when bought (otherExpenses) and
  *    sale proceeds are income; cars always get capital allowances. On accruals, equipment and vans
- *    get the Annual Investment Allowance. Cars: electric 100%, ≤50g/km 18% a year, >50g/km 6% a year,
- *    reducing balance; private use = its own pool, claim reduced by the business %.
+ *    get the Annual Investment Allowance. Cars: new electric 100% (bought by 5 Apr 2027), ≤50g/km main
+ *    pool (18% a year to 2025/26, 14% from 2026/27), >50g/km 6% a year, reducing balance; private use =
+ *    its own pool, claim reduced by the business %.
  */
 
 export const HMRC_EXPENSE_FIELDS = [
@@ -30,8 +31,12 @@ export type HmrcExpenseField = (typeof HMRC_EXPENSE_FIELDS)[number];
 const ALWAYS_DISALLOWED = new Set<string>(["businessEntertainmentCosts", "depreciation"]);
 const MILEAGE_REPLACES = new Set(["FUEL", "VEHICLE_MAINTENANCE", "VEHICLE_COSTS"]);
 /** Other-income categories that are really sales (turnover), not "other business income". */
-const TURNOVER_INCOME = new Set(["COMMERCIAL", "BONUS", "OPENING", "PAST_CUSTOMER"]);
+export const TURNOVER_INCOME = new Set(["COMMERCIAL", "BONUS", "OPENING", "PAST_CUSTOMER"]);
 export const CONSOLIDATED_LIMIT = 90000;
+/** Last day a new zero-emission car gets the 100% first-year allowance (Income Tax). */
+export const ZERO_EMISSION_FYA_END = "2027-04-05";
+/** Main pool writing-down allowance: 18% to 2025/26, 14% from 6 April 2026. */
+export const mainPoolRate = (taxYear: number) => (taxYear >= 2026 ? 0.14 : 0.18);
 
 export type Basis = "CASH" | "ACCRUALS";
 export type PeriodType = "STANDARD" | "CALENDAR";
@@ -175,13 +180,19 @@ export function capitalAllowancesFor(input: MtdInputs, taxYear: number, type: Pe
     const pct = Math.min(100, Math.max(0, a.businessPct)) / 100;
     const boughtYear = taxYearOf(a.boughtAt);
     const soldYear = a.disposedAt ? taxYearOf(a.disposedAt) : null;
-    if (boughtYear > taxYear || (soldYear !== null && soldYear < taxYear)) continue;
     // Cash basis: equipment and vans are expenses, not allowances.
     if (input.basis === "CASH" && a.kind !== "CAR") continue;
+    const pct0 = Math.min(100, Math.max(0, a.businessPct)) / 100;
+    // A car in the main or special rate pool keeps its leftover value in the pool after it's sold.
+    const pooledCar = a.kind === "CAR" && pct0 >= 1 && !(a.carEmissions === "ZERO" && a.boughtAt <= ZERO_EMISSION_FYA_END);
+    if (boughtYear > taxYear || (!pooledCar && soldYear !== null && soldYear < taxYear)) continue;
 
-    if (a.kind !== "CAR" || a.carEmissions === "ZERO") {
+    // Zero-emission cars: 100% first-year allowance for new cars bought up to 5 Apr 2027 (Income Tax).
+    // After that date they go in the main pool like any other low-emission car.
+    const zeroFya = a.kind === "CAR" && a.carEmissions === "ZERO" && a.boughtAt <= ZERO_EMISSION_FYA_END;
+    if (a.kind !== "CAR" || zeroFya) {
       // 100% in the year bought (AIA, or first-year allowance for an electric car).
-      const pool = a.kind === "CAR" ? "Zero-emission car (100%)" : "Annual Investment Allowance";
+      const pool = a.kind === "CAR" ? "Zero-emission car (100%, new cars only)" : "Annual Investment Allowance";
       const additions = boughtYear === taxYear ? a.cost : 0;
       const claim = additions * pct;
       let balancing = 0;
@@ -193,24 +204,34 @@ export function capitalAllowancesFor(input: MtdInputs, taxYear: number, type: Pe
     }
 
     // Cars with CO2: writing-down allowance on a reducing balance, year by year from purchase.
-    const rate = a.carEmissions === "HIGH" ? 0.06 : 0.18;
+    // Main pool: 18% a year up to 2025/26, 14% from 2026/27. Special rate pool: 6%.
+    const rateFor = (y: number) => (a.carEmissions === "HIGH" ? 0.06 : mainPoolRate(y));
     const single = pct < 1;
-    const pool = single ? "Single asset pool (private use)" : a.carEmissions === "HIGH" ? "Special rate pool (6%)" : "Main pool (18%)";
+    const pool = single ? "Single asset pool (private use)" : a.carEmissions === "HIGH" ? "Special rate pool (6%)" : `Main pool (${Math.round(mainPoolRate(taxYear) * 100)}%)`;
     let value = a.cost;
     let opening = a.cost, claim = 0, balancing = 0, additions = 0;
     for (let y = boughtYear; y <= taxYear; y++) {
       opening = y === boughtYear ? 0 : value;
       additions = y === boughtYear ? a.cost : 0;
+      balancing = 0;
       if (soldYear === y) {
-        const diff = value - (a.disposalValue ?? 0);
-        balancing = diff;
-        claim = 0;
-        value = 0;
-        break;
+        if (single) {
+          // Single asset pool: the pool closes, so any difference is settled now.
+          balancing = value - (a.disposalValue ?? 0);
+          claim = 0;
+          value = 0;
+          break;
+        }
+        // Pooled: the sale price comes off the pool. Only a sale above the pool value gives a charge;
+        // anything left keeps getting the writing-down allowance (no balancing allowance while trading).
+        value -= a.disposalValue ?? 0;
+        if (value < 0) { balancing = value; value = 0; }
       }
-      claim = value * rate;
+      if (soldYear !== null && y > soldYear && value <= 0) { claim = 0; break; }
+      claim = value * rateFor(y);
       value -= claim;
     }
+    if (pooledCar && soldYear !== null && soldYear < taxYear && claim === 0 && balancing === 0) continue;
     const businessClaim = claim * pct;
     if (single) out.capitalAllowanceSingleAssetPool += businessClaim;
     else if (a.carEmissions === "HIGH") out.capitalAllowanceSpecialRatePool += businessClaim;

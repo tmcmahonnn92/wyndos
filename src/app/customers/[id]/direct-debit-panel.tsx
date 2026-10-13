@@ -33,7 +33,7 @@ export function DirectDebitPanel({ customerId, mandateId, mandateStatus, waiting
           <span className={ok ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800" : mandateId ? "rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700" : "rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600"}>{status}</span>
         </div>
         {mandateId && <p className="text-xs text-slate-500">Mandate {mandateId}{reference ? ` · reference ${reference}` : ""}</p>}
-        {plan && <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-900">On a GoCardless plan ({plan}). GoCardless takes those payments itself and Wyndos records them, so nothing is collected per clean. To switch to paying per clean, cancel the plan in GoCardless.</p>}
+        {plan && <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-900">On a GoCardless plan ({plan}). The plan pays their regular cleans (GoCardless takes it, Wyndos records it). Extra jobs, like gutters, are collected separately on the same Direct Debit. To switch to paying per clean, cancel the plan in GoCardless.</p>}
         {!ok && (
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" disabled={pending} onClick={() => start(async () => {

@@ -10,6 +10,7 @@ import {
   type FieldTotals,
 } from "@/lib/mtd/calc";
 import { assertNotLocked, loadMtdInputs, mtdSettings } from "@/lib/mtd/data";
+import { materialiseRecurring } from "@/lib/recurring";
 
 const iso = (x: Date) => x.toISOString().slice(0, 10);
 const day = (s: string) => {
@@ -22,6 +23,8 @@ const refresh = () => { revalidatePath("/accounting"); revalidatePath("/accounti
 export async function getMtdOverview(taxYearArg?: number) {
   const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
+  // Repeat expenses/income due up to today first, so the quarters are complete.
+  await materialiseRecurring(tenantId);
   const settings = await mtdSettings(tenantId);
   const taxYear = Number.isInteger(taxYearArg) ? Number(taxYearArg) : taxYearOf(iso(new Date()));
   const span = yearSpan(taxYear, settings.periodType);
@@ -36,7 +39,7 @@ export async function getMtdOverview(taxYearArg?: number) {
     if (lock) {
       try {
         const sent = JSON.parse(lock.snapshot) as FieldTotals;
-        changedSinceLock = JSON.stringify(sent.expenses) !== JSON.stringify(cumulative.expenses) || sent.turnover !== cumulative.turnover || sent.other !== cumulative.other;
+        changedSinceLock = JSON.stringify(sent.expenses) !== JSON.stringify(cumulative.expenses) || JSON.stringify(sent.disallowable ?? {}) !== JSON.stringify(cumulative.disallowable) || sent.turnover !== cumulative.turnover || sent.other !== cumulative.other;
       } catch { changedSinceLock = true; }
     }
     return {
@@ -51,13 +54,24 @@ export async function getMtdOverview(taxYearArg?: number) {
   const [vehicles, trips, home, assets] = await Promise.all([
     prisma.vehicle.findMany({ where: { tenantId }, orderBy: [{ archived: "asc" }, { name: "asc" }] }),
     prisma.mileageTrip.findMany({ where: { tenantId, date: { gte: new Date(`${span.start}T00:00:00Z`), lte: new Date(`${span.end}T23:59:59Z`) } }, orderBy: { date: "desc" }, take: 500 }),
-    prisma.homeUseMonth.findMany({ where: { tenantId, month: { gte: new Date(`${span.start}T00:00:00Z`), lte: new Date(`${span.end}T23:59:59Z`) } }, orderBy: { month: "asc" } }),
+    prisma.homeUseMonth.findMany({ where: { tenantId, month: { gte: new Date(`${span.start.slice(0, 7)}-01T00:00:00Z`), lt: new Date(`${span.end.slice(0, 7)}-01T00:00:00Z`) } }, orderBy: { month: "asc" } }),
     prisma.businessAsset.findMany({ where: { tenantId }, orderBy: { boughtAt: "desc" } }),
   ]);
   const current = taxYearOf(today);
+  // Things worth a second look. Wyndos can't know the answer, so these are prompts, not errors.
+  const checks: string[] = [];
+  const onMileage = vehicles.filter((v) => v.method === "MILEAGE" && !v.archived);
+  if (onMileage.length) {
+    const loose = input.expenses.filter((e) => !e.vehicleMethod && ["FUEL", "VEHICLE_MAINTENANCE", "VEHICLE_COSTS"].includes(e.category));
+    if (loose.length) checks.push(`${loose.length} fuel or vehicle cost${loose.length === 1 ? " isn't" : "s aren't"} linked to a vehicle, and ${onMileage.map((v) => v.name).join(", ")} ${onMileage.length === 1 ? "is" : "are"} on the mileage rate. Costs for a vehicle on the mileage rate can't be claimed as well, so link each one to its vehicle (Edit the expense).`);
+    if (assets.some((a) => a.kind === "CAR" || a.kind === "VAN")) checks.push("You have a vehicle on the mileage rate and a car or van under Assets. A vehicle on the mileage rate can't also get capital allowances, so remove it from Assets if it's the same vehicle.");
+  }
+  if (input.expenses.some((e) => e.businessPct === 0)) checks.push("Some expenses are set to 0% business use, so none of them is claimed. Check that's right.");
   return {
+    checks,
     taxYear, taxYearLabel: taxYearLabel(taxYear), span, settings, periods, year, allowances,
-    consolidatedAllowed: year.turnover + year.other < CONSOLIDATED_LIMIT,
+    // HMRC's test is turnover below the VAT threshold.
+    consolidatedAllowed: year.turnover < CONSOLIDATED_LIMIT,
     taxYears: Array.from({ length: 5 }, (_, i) => current + 1 - i).filter((y) => y <= current + (today >= `${current + 1}-03-01` ? 1 : 0)).map((y) => ({ value: y, label: taxYearLabel(y) })),
     vehicles: vehicles.map((v) => ({ id: v.id, name: v.name, registration: v.registration, kind: v.kind, method: v.method, businessPct: v.businessPct, archived: v.archived })),
     trips: trips.map((t) => ({ id: t.id, vehicleId: t.vehicleId, date: iso(t.date), miles: t.miles, notes: t.notes ?? "" })),
@@ -70,18 +84,19 @@ export async function getMtdOverview(taxYearArg?: number) {
 export async function getMtdTransactions(taxYear: number) {
   const actor = await requirePerm("accounting");
   const tenantId = actor.tenantId;
+  await materialiseRecurring(tenantId);
   const settings = await mtdSettings(tenantId);
   const span = yearSpan(Number(taxYear), settings.periodType);
   const from = new Date(`${span.start}T00:00:00Z`), to = new Date(`${span.end}T23:59:59Z`);
   const [payments, other, expenses, vehicles] = await Promise.all([
-    prisma.payment.findMany({ where: { tenantId, voidedAt: null, paidAt: { gte: from, lte: to } }, select: { id: true, paidAt: true, amount: true, method: true, customer: { select: { name: true } } }, orderBy: { paidAt: "asc" } }),
+    prisma.payment.findMany({ where: { tenantId, voidedAt: null, broughtForward: false, paidAt: { gte: new Date(+from - 3600_000), lte: to } }, select: { id: true, paidAt: true, amount: true, method: true, customer: { select: { name: true } } }, orderBy: { paidAt: "asc" } }),
     prisma.otherIncome.findMany({ where: { tenantId, receivedAt: { gte: from, lte: to } }, orderBy: { receivedAt: "asc" } }),
     prisma.expense.findMany({ where: { tenantId, expenseDate: { gte: from, lte: to } }, orderBy: { expenseDate: "asc" } }),
     prisma.vehicle.findMany({ where: { tenantId }, select: { id: true, name: true } }),
   ]);
   const vName = new Map(vehicles.map((v) => [v.id, v.name]));
   return {
-    payments: payments.map((p) => ({ id: p.id, date: iso(p.paidAt), customer: p.customer.name, method: p.method, amount: p.amount })),
+    payments: payments.filter((p) => { const day = p.paidAt.toLocaleDateString("en-CA", { timeZone: "Europe/London" }); return day >= span.start && day <= span.end; }).map((p) => ({ id: p.id, date: p.paidAt.toLocaleDateString("en-CA", { timeZone: "Europe/London" }), customer: p.customer.name, method: p.method, amount: p.amount })),
     otherIncome: other.map((o) => ({ id: o.id, date: iso(o.receivedAt), source: o.source, category: o.category, amount: o.amount, net: o.netAmount, vat: o.vatAmount })),
     expenses: expenses.map((e) => ({ id: e.id, date: iso(e.expenseDate), supplier: e.supplier, category: e.category, hmrcCategory: e.hmrcCategory, amount: e.amount, net: e.netAmount, vat: e.vatAmount, businessPct: e.businessPct, vehicle: e.vehicleId ? vName.get(e.vehicleId) ?? "" : "", notes: e.notes ?? "" })),
   };
@@ -89,6 +104,12 @@ export async function getMtdTransactions(taxYear: number) {
 
 async function setAccountsSettingsImpl(data: { basis?: string; periodType?: string }) {
   const actor = await requireOwner();
+  // Changing the basis or the quarters would rewrite figures already sent to HMRC.
+  const current = await mtdSettings(actor.tenantId);
+  const changing = (data.basis && data.basis !== current.basis) || (data.periodType && data.periodType !== current.periodType);
+  if (changing && await prisma.mtdQuarterLock.count({ where: { tenantId: actor.tenantId, periodEnd: { gte: new Date(`${yearSpan(taxYearOf(iso(new Date())) - 1, current.periodType).start}T00:00:00Z`) } } })) {
+    throw new Error("You've marked quarters as submitted, so the basis and quarters can't change now (it would change figures HMRC already has). Unlock those quarters first if you really need to.");
+  }
   await prisma.tenantSettings.update({
     where: { tenantId: actor.tenantId },
     data: {
@@ -113,6 +134,18 @@ async function saveVehicleImpl(data: { id?: number; name: string; registration?:
     archived: data.archived === true,
   };
   if (data.id) {
+    // HMRC: once a vehicle is on the mileage rate it stays on it; and a vehicle whose costs have
+    // been claimed can't move to the mileage rate. Only a vehicle with nothing recorded can switch.
+    const before = await prisma.vehicle.findFirst({ where: { id: Number(data.id), tenantId }, select: { method: true } });
+    if (before && before.method !== fields.method) {
+      const [trips, costs] = await Promise.all([
+        prisma.mileageTrip.count({ where: { tenantId, vehicleId: Number(data.id) } }),
+        prisma.expense.count({ where: { tenantId, vehicleId: Number(data.id) } }),
+      ]);
+      if (trips || costs) throw new Error(before.method === "MILEAGE"
+        ? "This vehicle has miles logged at the mileage rate. HMRC says you keep using the mileage rate for as long as you use it for the business."
+        : "This vehicle already has costs claimed against it, so it can't move to the mileage rate. If you've changed vehicle, add the new one.");
+    }
     const res = await prisma.vehicle.updateMany({ where: { id: Number(data.id), tenantId }, data: fields });
     if (!res.count) throw new Error("Vehicle not found");
   } else {
@@ -151,7 +184,8 @@ async function setHomeHoursImpl(month: string, hours: number) {
   const tenantId = actor.tenantId;
   if (!/^\d{4}-\d{2}$/.test(String(month))) throw new Error("Choose a month");
   const start = new Date(`${month}-01T00:00:00Z`);
-  await assertNotLocked(tenantId, start);
+  // A month counts in the quarter it mostly falls in (April is in the new tax year).
+  await assertNotLocked(tenantId, `${month}-15`);
   const h = Math.max(0, Math.min(744, Math.round(Number(hours) || 0)));
   if (h === 0) await prisma.homeUseMonth.deleteMany({ where: { tenantId, month: start } });
   else await prisma.homeUseMonth.upsert({ where: { tenantId_month: { tenantId, month: start } }, create: { tenantId, month: start, hours: h }, update: { hours: h } });

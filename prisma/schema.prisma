@@ -465,6 +465,8 @@ model Job {
   /// A quote visit rather than a clean. Price stays 0; the quote is in quotedPrice.
   isQuote              Boolean   @default(false)
   /// Direct Debit taken for this clean through GoCardless, and its latest status.
+  /// What they owed in another program when moving to Wyndos: not a sale in Wyndos's accounts.
+  broughtForward       Boolean   @default(false)
   goCardlessPaymentId  String?   @unique
   goCardlessStatus     String?
   /// TO_VISIT | QUOTED | WON | LOST
@@ -504,6 +506,8 @@ model Payment {
   updatedAt   DateTime            @updatedAt
   voidedAt    DateTime?
   voidReason  String?
+  /// Money carried over from another program (credit they already had): not income in Wyndos's accounts.
+  broughtForward      Boolean   @default(false)
   goCardlessPaymentId String?     @unique
   goCardlessStatus    String?
   goCardlessReference String?

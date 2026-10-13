@@ -101,7 +101,7 @@ async function gcList<T>(conn: Conn, path: string, key: string, params: Record<s
 type GcPayment = {
   id: string; amount: number; status: string; charge_date?: string | null; created_at?: string | null;
   reference?: string | null; description?: string | null;
-  metadata?: Record<string, string | null | undefined>; links?: { mandate?: string | null };
+  metadata?: Record<string, string | null | undefined>; links?: { mandate?: string | null; subscription?: string | null };
 };
 type GcSubscription = { id: string; amount: number; interval?: number | null; interval_unit?: string | null; status: string; links?: { mandate?: string | null } };
 type GcMandate = { id: string; status: string; reference?: string | null; created_at?: string | null; metadata?: Record<string, string | null | undefined>; links?: { customer?: string | null } };
@@ -216,14 +216,13 @@ export async function cleansToCollect(tenantId: number, opts: { since?: Date | n
   const jobs = await prisma.job.findMany({
     where: {
       tenantId, status: "COMPLETE", isQuote: false, price: { gt: 0 },
-      // Customers on a GoCardless plan pay through the plan, never per clean.
-      customer: { goCardlessMandateId: { not: null }, goCardlessPlan: null, ...(opts.customerIds ? { id: { in: opts.customerIds } } : {}) },
+      customer: { goCardlessMandateId: { not: null }, ...(opts.customerIds ? { id: { in: opts.customerIds } } : {}) },
       ...(opts.since ? { completedAt: { gte: opts.since } } : {}),
     },
     select: {
-      id: true, name: true, price: true, completedAt: true, goCardlessPaymentId: true, goCardlessStatus: true,
+      id: true, name: true, price: true, completedAt: true, goCardlessPaymentId: true, goCardlessStatus: true, isOneOff: true,
       workDay: { select: { date: true } },
-      customer: { select: { id: true, name: true, goCardlessMandateId: true, goCardlessMandateStatus: true } },
+      customer: { select: { id: true, name: true, goCardlessMandateId: true, goCardlessMandateStatus: true, goCardlessPlan: true, jobName: true } },
       allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
     },
     orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
@@ -231,7 +230,14 @@ export async function cleansToCollect(tenantId: number, opts: { since?: Date | n
   });
   return jobs
     .map((j) => ({ ...j, due: round2(j.price - j.allocations.reduce((s, a) => s + a.amount, 0)) }))
-    .filter((j) => j.due > 0.005 && (!j.goCardlessPaymentId || GC_FAILED.has(j.goCardlessStatus ?? "")));
+    .filter((j) => j.due > 0.005 && (!j.goCardlessPaymentId || GC_FAILED.has(j.goCardlessStatus ?? "")))
+    // Customers on a GoCardless plan: the plan pays their regular cleans; only extra jobs are collected.
+    .filter((j) => !j.customer.goCardlessPlan || isExtraJob(j, j.customer));
+}
+
+/** An extra job (gutters, a conservatory…): a one-off that isn't their regular service. */
+export function isExtraJob(job: { isOneOff: boolean; name: string }, customer: { jobName?: string | null }) {
+  return job.isOneOff && job.name !== (customer.jobName || "Window Cleaning");
 }
 
 /** Take a Direct Debit for each of these cleans (what's still owed on it). */
@@ -251,7 +257,6 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
     const pence = Math.round(j.due * 100);
     // One key per attempt: retrying the same clean after a failure needs a new key.
     const key = `wyndos-t${tenantId}-job${j.id}-${j.goCardlessPaymentId ?? "first"}`;
-    const date = j.workDay.date.toISOString().slice(0, 10);
     try {
       let payment: GcPayment;
       try {
@@ -259,7 +264,8 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
           idempotencyKey: key,
           body: { payments: {
             amount: pence, currency: "GBP",
-            description: `${j.name || "Window cleaning"} ${date}`.slice(0, 100),
+            // Shown to the customer in GoCardless's payment emails: "Window Cleaning on 12 Oct 2026".
+            description: `${j.name || "Window cleaning"} on ${j.workDay.date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}`.slice(0, 100),
             metadata: { wyndosCustomerId: String(j.customer.id), wyndosJobId: String(j.id) },
             links: { mandate },
           } },
@@ -284,7 +290,7 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
 // ── Sync ────────────────────────────────────────────────────────────────────
 
 /** Record money GoCardless received against a clean (or as credit when there's no clean). */
-async function recordReceived(tenantId: number, customerId: number, p: GcPayment, jobId: number | null) {
+async function recordReceived(tenantId: number, customerId: number, p: GcPayment, jobId: number | null, opts: { regularOnly?: boolean } = {}) {
   const amount = round2(p.amount / 100);
   const paidAt = p.charge_date ? new Date(`${p.charge_date}T00:00:00.000Z`) : new Date();
   let onJob = 0;
@@ -303,13 +309,17 @@ async function recordReceived(tenantId: number, customerId: number, p: GcPayment
     // Anything left pays their other done-but-unpaid cleans, oldest first; the rest stays as credit.
     let left = round2(amount - onJob);
     if (left > 0.005) {
+      const regularName = opts.regularOnly ? ((await tx.customer.findUnique({ where: { id: customerId }, select: { jobName: true } }))?.jobName || "Window Cleaning") : "";
       const unpaid = await tx.job.findMany({
-        where: { tenantId, customerId, status: "COMPLETE", isQuote: false, ...(jobId ? { id: { not: jobId } } : {}) },
+        // Not ones being collected by their own Direct Debit (that money is on its way).
+        where: { tenantId, customerId, status: "COMPLETE", isQuote: false, ...(jobId ? { id: { not: jobId } } : {}), OR: [{ goCardlessPaymentId: null }, { goCardlessStatus: { in: [...GC_FAILED] } }] },
         orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
-        select: { id: true, price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
+        select: { id: true, price: true, isOneOff: true, name: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
       });
       for (const j of unpaid) {
         if (left <= 0.005) break;
+        // A plan (subscription) payment pays regular cleans only, never extra jobs.
+        if (opts.regularOnly && isExtraJob(j, { jobName: regularName })) continue;
         const due = round2(j.price - j.allocations.reduce((s, a) => s + a.amount, 0));
         if (due <= 0.005) continue;
         const take = round2(Math.min(due, left));
@@ -347,6 +357,30 @@ export async function syncTenant(tenantId: number) {
       } catch (issue) {
         summary.problems.push(`Sign-up link: ${issue instanceof Error ? issue.message : issue}`);
       }
+    }
+
+    // 1b. A sign-up link filled in after a newer one was made (or by someone else for this
+    // customer, under another name or address): every link carries the Wyndos customer it was
+    // made for, so it's linked to them whatever details were typed in.
+    try {
+      const done = await gcList<{ id: string; status: string; metadata?: Record<string, string | null | undefined>; links?: { customer?: string; mandate_request_mandate?: string } }>(
+        conn, "/billing_requests", "billing_requests", { status: "fulfilled", "created_at[gte]": new Date(Date.now() - 90 * 86400000).toISOString() }, 3);
+      for (const br of done) {
+        const cid = Number(br.metadata?.wyndosCustomerId);
+        const mandateId = br.links?.mandate_request_mandate;
+        if (!cid || !mandateId) continue;
+        const c = await prisma.customer.findFirst({ where: { id: cid, tenantId }, select: { id: true, goCardlessMandateId: true, goCardlessMandateStatus: true } });
+        if (!c || c.goCardlessMandateId === mandateId) continue;
+        // Never replace a working Direct Debit; only fill a gap or a dead one.
+        if (c.goCardlessMandateId && (!c.goCardlessMandateStatus || GC_MANDATE_USABLE.has(c.goCardlessMandateStatus))) continue;
+        await prisma.customer.update({ where: { id: c.id }, data: {
+          goCardlessMandateId: mandateId, goCardlessMandateStatus: "pending_submission", preferredPaymentMethod: "DD", goCardlessBillingRequestId: null,
+          ...(br.links?.customer ? { goCardlessCustomerId: br.links.customer } : {}),
+        } });
+        summary.mandatesLinked++;
+      }
+    } catch (issue) {
+      summary.problems.push(`Sign-up links: ${issue instanceof Error ? issue.message : issue}`);
     }
 
     // 2. Mandate statuses (cancelled, expired, …).
@@ -438,12 +472,14 @@ export async function syncTenant(tenantId: number) {
       const open = await prisma.job.findMany({
         // Cleans not being collected: never sent to GoCardless, or their collection failed.
         where: { tenantId, customerId, status: "COMPLETE", isQuote: false, OR: [{ goCardlessPaymentId: null }, { goCardlessStatus: { in: [...GC_FAILED] } }] },
-        select: { id: true, price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
+        select: { id: true, price: true, isOneOff: true, name: true, customer: { select: { jobName: true } }, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
         orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
         take: 200,
       });
-      const oldest = open.find((j) => j.price - j.allocations.reduce((s, a) => s + a.amount, 0) > 0.005);
-      await recordReceived(tenantId, customerId, p, oldest?.id ?? null);
+      // A payment from a GoCardless plan (subscription) pays regular cleans only; extra jobs are collected separately.
+      const fromPlan = Boolean(p.links?.subscription);
+      const oldest = open.find((j) => (!fromPlan || !isExtraJob(j, j.customer)) && j.price - j.allocations.reduce((s, a) => s + a.amount, 0) > 0.005);
+      await recordReceived(tenantId, customerId, p, oldest?.id ?? null, { regularOnly: fromPlan });
       summary.imported++;
     }
 

@@ -65,12 +65,12 @@ export async function getDashboardInsights() {
     }),
     // Cleans done this year (by the day they were done).
     prisma.job.findMany({
-      where: { tenantId, status: "COMPLETE", isQuote: false, workDay: { date: { gte: yearStart, lt: yearEnd } } },
+      where: { tenantId, status: "COMPLETE", isQuote: false, broughtForward: false, workDay: { date: { gte: yearStart, lt: yearEnd } } },
       select: { price: true, workDay: { select: { date: true } } },
     }),
     // Cleans in the last 90 days, with who did them.
     prisma.job.findMany({
-      where: { tenantId, status: "COMPLETE", isQuote: false, workDay: { date: { gte: last90, lte: today } } },
+      where: { tenantId, status: "COMPLETE", isQuote: false, broughtForward: false, workDay: { date: { gte: last90, lte: today } } },
       select: {
         price: true, completedByUserId: true, assignedUserId: true,
         workDay: { select: { date: true, assignedUserId: true } },
@@ -90,7 +90,7 @@ export async function getDashboardInsights() {
       orderBy: { date: "asc" },
     }),
     prisma.payment.findMany({
-      where: { tenantId, voidedAt: null, paidAt: { gte: yearStart < last90 ? yearStart : last90 } },
+      where: { tenantId, voidedAt: null, broughtForward: false, paidAt: { gte: yearStart < last90 ? yearStart : last90 } },
       select: { amount: true, method: true, paidAt: true, collectedByUserId: true },
     }),
     prisma.job.findMany({

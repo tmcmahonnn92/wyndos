@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { materialiseRecurring } from "@/lib/recurring";
 import prisma from "@/lib/db";
 import { AccessDeniedError, requireOwner } from "@/lib/guards";
 
@@ -81,13 +82,15 @@ async function build(kind: Kind, tenantId: number) {
     ]);
   }
 
+  // Repeat expenses/income due up to today, so the export is complete.
+  await materialiseRecurring(tenantId);
   const [payments, expenses, income] = await Promise.all([
     prisma.payment.findMany({ where: { tenantId }, include: { customer: { select: { name: true } } }, orderBy: { paidAt: "desc" } }),
     prisma.expense.findMany({ where: { tenantId }, orderBy: { expenseDate: "desc" } }),
     prisma.otherIncome.findMany({ where: { tenantId }, orderBy: { receivedAt: "desc" } }),
   ]);
   const rows: Array<{ date: Date; row: Array<string | number | null> }> = [
-    ...payments.map((p) => ({ date: p.paidAt, row: [day(p.paidAt), "Customer payment", p.customer.name, "", p.method, gbp(p.amount), "", "", p.voidedAt ? "Yes" : "No", p.notes] })),
+    ...payments.map((p) => ({ date: p.paidAt, row: [day(p.paidAt), p.broughtForward ? "Credit brought forward (not income)" : "Customer payment", p.customer.name, "", p.method, gbp(p.amount), "", "", p.voidedAt ? "Yes" : "No", p.notes] })),
     ...expenses.map((e) => ({ date: e.expenseDate, row: [day(e.expenseDate), "Expense", e.supplier, e.category, "", gbp(-e.amount), gbp(-e.netAmount), gbp(-e.vatAmount), "No", e.notes] })),
     ...income.map((i) => ({ date: i.receivedAt, row: [day(i.receivedAt), "Other income", i.source, i.category, "", gbp(i.amount), gbp(i.netAmount), gbp(i.vatAmount), "No", i.notes] })),
   ].sort((a, b) => b.date.getTime() - a.date.getTime());

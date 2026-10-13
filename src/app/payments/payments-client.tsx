@@ -57,7 +57,7 @@ export function PaymentsToolbar({
   goCardlessLastSyncedAt?: string | null;
 }) {
   // One row, all the same size: the main action (Log payment) stands out; the rest are plain.
-  // Direct Debit syncing lives on its own page (and runs every night).
+  // Direct Debit syncing lives on its own page (Sync now; the server cron can also run it).
   const secondary = "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200";
   return (
     <div className="flex flex-wrap items-center gap-2">

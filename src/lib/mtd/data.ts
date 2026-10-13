@@ -3,7 +3,10 @@
 import prisma from "@/lib/db";
 import type { Basis, MtdInputs, PeriodType } from "@/lib/mtd/calc";
 
+/** Date-only fields (expense date, run date, quarter ends) are stored as UTC dates. */
 const d = (x: Date) => x.toISOString().slice(0, 10);
+/** A payment's time is a real moment: use the UK date (00:30 BST on 6 July is 6 July, not 5 July). */
+const ukDate = (x: Date) => x.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
 
 export async function mtdSettings(tenantId: number) {
   const s = await prisma.tenantSettings.findFirst({ where: { tenantId }, select: { accountingBasis: true, mtdPeriodType: true, vatNumber: true, invoiceVatEnabled: true, invoiceVatRate: true } });
@@ -21,21 +24,22 @@ export async function loadMtdInputs(tenantId: number, start: string, end: string
   const from = new Date(`${start}T00:00:00Z`);
   const to = new Date(`${end}T23:59:59.999Z`);
   const [payments, jobs, other, expenses, vehicles, trips, home, assets] = await Promise.all([
-    prisma.payment.findMany({ where: { tenantId, voidedAt: null, paidAt: { gte: from, lte: to } }, select: { paidAt: true, amount: true } }),
+    // Credit carried over from another program isn't income here (it was in the old program's year).
+    prisma.payment.findMany({ where: { tenantId, voidedAt: null, broughtForward: false, paidAt: { gte: new Date(+from - 3600_000), lte: to } }, select: { paidAt: true, amount: true } }),
     settings.basis === "ACCRUALS"
-      ? prisma.job.findMany({ where: { tenantId, status: "COMPLETE", isQuote: false, workDay: { date: { gte: from, lte: to } } }, select: { price: true, workDay: { select: { date: true } } } })
+      ? prisma.job.findMany({ where: { tenantId, status: "COMPLETE", isQuote: false, broughtForward: false, workDay: { date: { gte: from, lte: to } } }, select: { price: true, workDay: { select: { date: true } } } })
       : Promise.resolve([] as Array<{ price: number; workDay: { date: Date } }>),
     prisma.otherIncome.findMany({ where: { tenantId, receivedAt: { gte: from, lte: to } }, select: { receivedAt: true, amount: true, netAmount: true, category: true } }),
     prisma.expense.findMany({ where: { tenantId, expenseDate: { gte: from, lte: to } }, select: { id: true, expenseDate: true, amount: true, netAmount: true, hmrcCategory: true, category: true, businessPct: true, vehicleId: true } }),
     prisma.vehicle.findMany({ where: { tenantId }, select: { id: true, kind: true, method: true } }),
     prisma.mileageTrip.findMany({ where: { tenantId, date: { gte: from, lte: to } }, select: { date: true, miles: true, vehicleId: true } }),
-    prisma.homeUseMonth.findMany({ where: { tenantId, month: { gte: from, lte: to } }, select: { month: true, hours: true } }),
+    prisma.homeUseMonth.findMany({ where: { tenantId, month: { gte: new Date(`${start.slice(0, 7)}-01T00:00:00Z`), lte: to } }, select: { month: true, hours: true } }),
     prisma.businessAsset.findMany({ where: { tenantId } }),
   ]);
   const vehicleById = new Map(vehicles.map((v) => [v.id, v]));
   return {
     ...settings,
-    payments: payments.map((p) => ({ date: d(p.paidAt), amount: p.amount })),
+    payments: payments.map((p) => ({ date: ukDate(p.paidAt), amount: p.amount })),
     completedJobs: jobs.map((j) => ({ date: d(j.workDay.date), amount: j.price })),
     otherIncome: other.map((o) => ({ date: d(o.receivedAt), amount: o.amount, netAmount: o.netAmount, category: o.category })),
     expenses: expenses.map((e) => ({
@@ -43,7 +47,8 @@ export async function loadMtdInputs(tenantId: number, start: string, end: string
       vehicleMethod: e.vehicleId ? ((vehicleById.get(e.vehicleId)?.method as "MILEAGE" | "ACTUAL" | undefined) ?? null) : null,
     })),
     trips: trips.map((t) => ({ date: d(t.date), miles: t.miles, vehicleKind: vehicleById.get(t.vehicleId)?.kind ?? "VAN" })),
-    homeMonths: home.map((h) => ({ month: d(h.month), hours: h.hours })),
+    // Each month counts in the quarter it mostly falls in (mid-month), so April is in the new tax year.
+    homeMonths: home.map((h) => ({ month: `${h.month.toISOString().slice(0, 7)}-15`, hours: h.hours })),
     assets: assets.map((a) => ({
       id: a.id, description: a.description, boughtAt: d(a.boughtAt), cost: a.cost, kind: a.kind, carEmissions: a.carEmissions, businessPct: a.businessPct,
       disposedAt: a.disposedAt ? d(a.disposedAt) : null, disposalValue: a.disposalValue,
@@ -53,7 +58,7 @@ export async function loadMtdInputs(tenantId: number, start: string, end: string
 
 /** Throws if the date falls in a quarter marked as submitted to HMRC. */
 export async function assertNotLocked(tenantId: number, ...dates: Array<Date | string | null | undefined>) {
-  const days = dates.filter(Boolean).map((x) => (typeof x === "string" ? x.slice(0, 10) : d(x as Date)));
+  const days = dates.filter(Boolean).map((x) => (typeof x === "string" ? x.slice(0, 10) : ukDate(x as Date)));
   if (!days.length) return;
   const locks = await prisma.mtdQuarterLock.findMany({ where: { tenantId }, select: { periodStart: true, periodEnd: true } });
   for (const day of days) {

@@ -6,7 +6,7 @@ import { Download, Loader2, Pencil, Plus, Receipt, TrendingDown, TrendingUp, Tra
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Lock } from "lucide-react";
 import { lockedReason } from "@/lib/mtd/actions";
-import { updateOtherIncome, type getAccountingMonth, createExpense, createOtherIncome, deleteExpense, deleteOtherIncome, updateExpense } from "@/lib/actions";
+import { stopRepeating, updateOtherIncome, type getAccountingMonth, createExpense, createOtherIncome, deleteExpense, deleteOtherIncome, updateExpense } from "@/lib/actions";
 import type { ExpenseCategoryDefinition, OtherIncomeCategoryDefinition, TaxTreatmentDefinition } from "@/lib/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn, fmtCurrency } from "@/lib/utils";
@@ -157,14 +157,11 @@ function RecurringFields({
               {REPEAT_UNIT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">Anchor date</label>
-            <input type="date" value={form.repeatAnchorDate} onChange={(event) => onChange({ repeatAnchorDate: event.target.value })} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
-          </div>
-          <div>
+          <div className="sm:col-span-2">
             <label className="mb-1 block text-xs font-medium text-slate-700">Optional end date</label>
             <input type="date" value={form.repeatEndsAt} onChange={(event) => onChange({ repeatEndsAt: event.target.value })} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
           </div>
+          <p className="text-[11px] text-slate-500 sm:col-span-2">Repeats from the date above. A copy is added on each due date (when you next open Accounting or MTD), including any dates that have already passed.</p>
         </div>
       )}
     </>
@@ -344,7 +341,7 @@ export function AccountingClient({
           category: expenseForm.category,
           supplier: expenseForm.supplier,
           amount,
-          businessPct: Number(expenseForm.businessPct) || 0,
+          businessPct: String(expenseForm.businessPct).trim() === "" ? 100 : Number(expenseForm.businessPct) || 0,
           vehicleId: expenseForm.vehicleId && ["FUEL", "VEHICLE_MAINTENANCE", "VEHICLE_COSTS", "PARKING"].includes(expenseForm.category) ? Number(expenseForm.vehicleId) : null,
           taxTreatment: expenseForm.taxTreatment,
           expenseDate: new Date(expenseForm.expenseDate),
@@ -352,7 +349,7 @@ export function AccountingClient({
           isRecurring: expenseForm.isRecurring,
           repeatEvery: expenseForm.isRecurring ? Number(expenseForm.repeatEvery) : null,
           repeatUnit: expenseForm.isRecurring ? expenseForm.repeatUnit : null,
-          repeatAnchorDate: expenseForm.isRecurring ? new Date(expenseForm.repeatAnchorDate) : null,
+          repeatAnchorDate: null,
           repeatEndsAt: expenseForm.isRecurring && expenseForm.repeatEndsAt ? new Date(expenseForm.repeatEndsAt) : null,
         });
         setExpenseForm(blankExpense());
@@ -385,7 +382,7 @@ export function AccountingClient({
           isRecurring: incomeForm.isRecurring,
           repeatEvery: incomeForm.isRecurring ? Number(incomeForm.repeatEvery) : null,
           repeatUnit: incomeForm.isRecurring ? incomeForm.repeatUnit : null,
-          repeatAnchorDate: incomeForm.isRecurring ? new Date(incomeForm.repeatAnchorDate) : null,
+          repeatAnchorDate: null,
           repeatEndsAt: incomeForm.isRecurring && incomeForm.repeatEndsAt ? new Date(incomeForm.repeatEndsAt) : null,
         });
         setIncomeForm({
@@ -407,6 +404,14 @@ export function AccountingClient({
       } catch (error) {
         setFormError(error instanceof Error ? error.message : "Could not save the income entry.");
       }
+    });
+  };
+
+  const stopRepeat = (kind: "expense" | "income", id: number) => {
+    if (!window.confirm("Stop repeating? Copies already added stay.")) return;
+    startTransition(async () => {
+      try { await stopRepeating(kind, id); router.refresh(); }
+      catch (error) { setFormError(error instanceof Error ? error.message : "Could not stop the repeat."); }
     });
   };
 
@@ -488,7 +493,7 @@ export function AccountingClient({
           category: expenseForm.category,
           supplier: expenseForm.supplier,
           amount,
-          businessPct: Number(expenseForm.businessPct) || 0,
+          businessPct: String(expenseForm.businessPct).trim() === "" ? 100 : Number(expenseForm.businessPct) || 0,
           vehicleId: expenseForm.vehicleId && ["FUEL", "VEHICLE_MAINTENANCE", "VEHICLE_COSTS", "PARKING"].includes(expenseForm.category) ? Number(expenseForm.vehicleId) : null,
           taxTreatment: expenseForm.taxTreatment,
           expenseDate: new Date(expenseForm.expenseDate),
@@ -760,6 +765,7 @@ export function AccountingClient({
                         <p className="truncate text-sm font-medium text-slate-800">{label}</p>
                         <p className="text-xs text-slate-500">{new Date(date).toLocaleDateString("en-GB")} · {subtitle}</p>
                         {isOtherIncome && entry.notes && <p className="mt-1 text-xs text-slate-500">{entry.notes}</p>}
+                        {isOtherIncome && formatRepeatSummary(entry) && <button type="button" onClick={() => stopRepeat("income", entry.id)} className="mt-1 text-[11px] text-blue-700 underline hover:text-red-600">Stop repeating</button>}
                         {isOtherIncome && entry.vatAmount > 0 && <p className="mt-1 text-[11px] text-slate-500">VAT {fmtCurrency(entry.vatAmount)} on {fmtCurrency(entry.netAmount)} net</p>}
                       </div>
                       <div className="flex flex-col items-end gap-2">
@@ -789,7 +795,7 @@ export function AccountingClient({
                         <p className="text-sm font-medium text-slate-800">{expense.supplier || expense.categoryLabel}</p>
                         <p className="text-xs text-slate-500">{new Date(expense.expenseDate).toLocaleDateString("en-GB")} · {expense.categoryLabel} · {expense.hmrcLabel}</p>
                         {expense.notes && <p className="mt-1 text-xs text-slate-500">{expense.notes}</p>}
-                        {repeatSummary && <p className="mt-1 text-[11px] font-medium text-blue-700">{repeatSummary}</p>}
+                        {repeatSummary && <p className="mt-1 text-[11px] font-medium text-blue-700">{repeatSummary} · <button type="button" onClick={() => stopRepeat("expense", expense.id)} className="underline hover:text-red-600">Stop repeating</button></p>}
                         <p className="mt-1 text-[11px] text-slate-500">{expense.taxTreatmentLabel}{expense.vatAmount > 0 ? ` · VAT ${fmtCurrency(expense.vatAmount)} on ${fmtCurrency(expense.netAmount)} net` : ""}</p>
                       </div>
                       <div className="flex flex-col items-end gap-2">
