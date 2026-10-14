@@ -1,8 +1,9 @@
 import { LegalPage } from "@/components/legal-page";
+import { AdsConsentChoice } from "@/components/meta-pixel";
 
 export const metadata = {
   title: "Cookie Policy | Wyndos",
-  description: "The cookies Wyndos uses. Only what's needed to sign in and stay secure.",
+  description: "The cookies Wyndos uses: what's needed to sign in and stay secure, and (only if you agree) Facebook advert measurement on our website.",
 };
 
 const COOKIES: Array<[string, string, string]> = [
@@ -18,10 +19,15 @@ export default function CookiesPage() {
   return (
     <LegalPage title="Cookie Policy">
       <p>
-        Wyndos only uses <strong>strictly necessary</strong> cookies: the ones needed to sign you in, keep your account secure and remember which business
-        you are working in. Because they are essential, the law doesn&apos;t require us to ask for consent, so you won&apos;t see a cookie banner.
+        Inside the Wyndos app we only use <strong>strictly necessary</strong> cookies: the ones needed to sign you in, keep your account secure and
+        remember which business you are working in. They don&apos;t need consent.
       </p>
-      <p><strong>We don&apos;t use analytics, advertising or tracking cookies, and we don&apos;t let other companies set cookies through Wyndos.</strong></p>
+      <p>
+        On our <strong>public website</strong> (the home page, sign-up and guides), and <strong>only if you click Allow</strong>, Meta (Facebook) sets
+        cookies so we can see whether our Facebook adverts lead to people trying Wyndos. They are never used inside the app, and nothing about your
+        customers or your round is ever sent to Meta.
+      </p>
+      <AdsConsentChoice />
 
       <h2>Cookies we set</h2>
       <table>
@@ -34,6 +40,16 @@ export default function CookiesPage() {
       </table>
       <p className="text-xs text-slate-500">On secure connections the sign-in cookies start with &quot;__Secure-&quot; or &quot;__Host-&quot;.</p>
 
+      <h2>Facebook advert cookies (only if you allow them, public website only)</h2>
+      <table>
+        <thead><tr><th>Name</th><th>What it does</th><th>How long</th></tr></thead>
+        <tbody>
+          <tr><td className="font-mono text-xs">_fbp</td><td>Set by Meta: tells Meta a visit came from the same browser, to measure our adverts</td><td>90 days</td></tr>
+          <tr><td className="font-mono text-xs">_fbc</td><td>Set by Meta when you arrive from one of our Facebook adverts</td><td>90 days</td></tr>
+        </tbody>
+      </table>
+      <p>Meta uses this under its own privacy policy (<a href="https://www.facebook.com/privacy/policy">facebook.com/privacy/policy</a>). Your choice is remembered on this device (<span className="font-mono text-xs">wyndos-ads-consent</span>).</p>
+
       <h2>Stored on your device</h2>
       <ul>
         <li><strong>Light or dark mode</strong> (<span className="font-mono text-xs">wyndos-theme</span>): remembers your choice.</li>
@@ -42,7 +58,7 @@ export default function CookiesPage() {
       </ul>
 
       <h2>Changes</h2>
-      <p>If we ever want to add non-essential cookies (for example analytics), we will update this page and ask for your consent first.</p>
+      <p>If we add any other non-essential cookies, we will update this page and ask for your consent first.</p>
     </LegalPage>
   );
 }
