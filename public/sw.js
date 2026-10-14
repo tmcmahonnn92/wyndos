@@ -12,7 +12,7 @@ const STATIC = `wyndos-static-${VERSION}`;
 const OFFLINE_URL = "/offline.html";
 const PRECACHE = [OFFLINE_URL, "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png"];
 const NETWORK_TIMEOUT = 6000;
-const MAX_PAGES = 100;
+const MAX_PAGES = 150;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

@@ -20,6 +20,18 @@ const SECTIONS = [
   { id: "disconnect", title: "Disconnecting" },
 ];
 
+/** A screenshot from the guide demo business (public/screens/guide). */
+function Shot({ src, alt, caption, phone = false }: { src: string; alt: string; caption?: string; phone?: boolean }) {
+  return (
+    <figure className={phone ? "mx-auto w-full max-w-[280px]" : "w-full"}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={`/screens/guide/${src}.webp`} alt={alt} loading="lazy" width={phone ? 600 : 1280} height={phone ? 1299 : 800}
+        className={phone ? "h-auto w-full rounded-[1.6rem] border-[6px] border-slate-900 bg-slate-900 shadow-lg" : "h-auto w-full rounded-xl border border-slate-200 shadow-md"} />
+      {caption && <figcaption className="mt-2 text-center text-xs text-slate-500">{caption}</figcaption>}
+    </figure>
+  );
+}
+
 function Section({ n, id, title, children }: { n: number; id: string; title: string; children: ReactNode }) {
   return (
     <section id={id} className="scroll-mt-20 space-y-3 border-t border-slate-200 pt-8">
@@ -124,6 +136,7 @@ export function DirectDebitGuide({ publicView = false }: { publicView?: boolean 
             <li><strong>Collect yourself:</strong> open <strong>Payments → Direct Debit</strong>. Cleans owing for Direct Debit customers are under <strong>To collect</strong>. Choose them and press <strong>Collect</strong>.</li>
             <li><strong>Let Wyndos do it:</strong> tick <strong>Collect automatically when a clean is done</strong> on the same page. From then on, every clean you tick off for a Direct Debit customer is collected straight away. Cleans done before you turned it on are left for you to collect.</li>
           </ul>
+          <Shot src="d-dd-collect" alt="Payments, Direct Debit, To collect: cleans ticked with names, addresses and amounts, and a Collect button" caption="Payments → Direct Debit → To collect" />
           <p>Only what&apos;s still owed is collected: if they had credit, or paid part in cash, the rest is taken.</p>
           <Tip>Don&apos;t press <strong>Done &amp; Paid</strong> for a Direct Debit customer: that records cash or a transfer, and nothing is collected. Just press <strong>Done</strong>.</Tip>
         </Section>
@@ -180,6 +193,11 @@ export function DirectDebitGuide({ publicView = false }: { publicView?: boolean 
             Or do it from <strong>Payments → Direct Debit → Customers</strong>: press <strong>Use another&apos;s</strong> next to the house.
             That list shows who shares: the paying house says <strong>Also pays for …</strong>, the others <strong>Shared with … (pays)</strong>.
           </p>
+          <Shot src="d-dd-customers" alt="Payments, Direct Debit, Customers: one customer Also pays for another, that one Shared with the payer, and Use another's next to a customer not set up" caption="Who shares, and who pays" />
+          <div className="grid items-start gap-6 sm:grid-cols-[1fr_280px]">
+            <Shot src="d-dd-share" alt="Use another's opened: search for the customer who pays and pick them" caption="Use another's: search and pick who pays" />
+            <Shot phone src="p-customer-dd" alt="A customer's Direct Debit section: Active, shared with another customer" caption="On the customer's page" />
+          </div>
           <ul>
             <li>Each house shows <strong>Shared Direct Debit: also used by …</strong>.</li>
             <li>Each clean is still collected on its own, with the house&apos;s address on the payment, so the payer can see what each one was for. <strong>To collect</strong>, <strong>In progress</strong> and <strong>Failed</strong> show the address under each name. A failed or charged-back payment only affects that one clean.</li>

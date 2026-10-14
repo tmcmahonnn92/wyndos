@@ -24,7 +24,10 @@ async function login(page, email) {
   await page.fill("input[type=email]", email);
   await page.fill("input[type=password]", "GuideDemo123!");
   await page.click("button[type=submit]");
-  await page.waitForURL((u) => !u.pathname.startsWith("/auth"), { timeout: 20000 });
+  // Sign-in can redirect to a different host name locally: open the app again on ours.
+  await page.waitForTimeout(3000);
+  await page.goto(B + "/");
+  if (new URL(page.url()).pathname.startsWith("/auth")) throw new Error("Couldn't sign in as " + email);
   await page.waitForTimeout(1200);
 }
 async function go(page, path, wait = 1800) { await page.goto(B + path); await page.waitForTimeout(wait); }

@@ -11,6 +11,8 @@ export const metadata = {
  * Getting started guide. Screenshots come from a made-up demo business:
  * scripts/seed-guide-demo.ts → scripts/guide-screenshots.mjs → scripts/guide-compress.py
  * (they land in public/screens/guide/). Re-run those when the screens change.
+ * Also scripts/guide-day-order-shots.mjs, and scripts/seed-guide-dd.ts → scripts/guide-extra-shots.mjs
+ * (Direct Debit, money buttons, no signal).
  */
 
 const IMG = "/screens/guide";
@@ -224,6 +226,10 @@ export default async function GuidePage() {
             <li>If something can&apos;t be saved when it&apos;s sent (say the house was deleted in the meantime), it shows under <strong>offline changes need checking</strong>, with what it was and why. Press <strong>Try again</strong> or <strong>Remove</strong>.</li>
             <li>Don&apos;t sign out while changes are waiting: Wyndos warns you, because signing out deletes them.</li>
           </ul>
+          <Pair>
+            <Shot phone src="p-offline" alt="A day with no signal: a bar at the top says 2 changes saved on this phone" caption="No signal: taps are saved on the phone" />
+            <Shot phone src="p-needs-checking" alt="A red bar: 1 offline change needs checking, with what it was, why it wasn't saved, Try again and Remove" caption="If one can't be saved, it's listed to check" />
+          </Pair>
           <Tip>Add Wyndos to your home screen (see <a href="#help" className="underline">Help and the app</a>). Phones keep saved changes safer for apps on the home screen.</Tip>
         </Step>
 
@@ -314,6 +320,10 @@ export default async function GuidePage() {
             <li><strong>Use credit for another customer</strong>: one person paying for two houses. It pays the other customer&apos;s oldest unpaid cleans and isn&apos;t counted as new money.</li>
             <li><strong>Write off what they owe</strong>, <strong>Remove credit</strong> or <strong>Add credit</strong> (credit that isn&apos;t money received, such as carried over from your old system). <strong>Refund credit</strong> gives spare credit back.</li>
           </ul>
+          <div className="mx-auto grid max-w-xl items-start gap-6 sm:grid-cols-2">
+            <Shot src="d-customer-money" alt="A customer's balance showing £10 credit, with Refund credit, Use for another customer, Remove credit and Add credit" caption="Credit and what you can do with it" />
+            <Shot src="d-customer-payments" alt="A customer's payments, each with a Refund button and buttons to move, edit or delete it" caption="Each payment: refund, move, edit" />
+          </div>
         </Step>
 
         <Step n={10} id="direct-debit" title="Direct Debit (GoCardless)">
@@ -326,10 +336,14 @@ export default async function GuidePage() {
             <li>Open a customer and press <strong>Get sign-up link</strong> under <strong>Direct Debit</strong>. Send them the link.</li>
             <li>Collect from <strong>Payments → Direct Debit</strong>, or tick <strong>Collect automatically</strong>.</li>
           </ol>
-          <p>
-            One person paying for several houses? Keep each house as its own customer and choose
-            <strong> Use another customer&apos;s Direct Debit</strong>. Each clean is still collected separately, with the address on it.
-          </p>
+          <Shot src="d-dd-collect" alt="Payments, Direct Debit, To collect: three cleans ticked with names, addresses and amounts, and a Collect button" caption="Payments → Direct Debit: collect for finished cleans" />
+          <div className="grid items-start gap-6 sm:grid-cols-[1fr_280px]">
+            <p>
+              One person paying for several houses? Keep each house as its own customer and choose
+              <strong> Use another customer&apos;s Direct Debit</strong>. Each clean is still collected separately, with the address on it.
+            </p>
+            <Shot phone src="p-customer-dd" alt="A customer's Direct Debit section: Active, shared with another customer, each clean collected separately" caption="A house on someone else's Direct Debit" />
+          </div>
           <p>
             <Link href="/guide/direct-debit" className="font-semibold text-blue-700 underline">Read the full Direct Debit guide →</Link>{" "}
             (failed payments, refunds, moving from another program, sharing).

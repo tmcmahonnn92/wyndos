@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { CloudOff, RefreshCw, Wifi } from "lucide-react";
 import { dismissProblem, flushQueue, getProblems, getQueue, isOutOfDate, onQueueChange, reloadForUpdate, retryProblem, type OfflineProblem } from "@/lib/offline-queue";
 
@@ -25,7 +25,7 @@ function warmPages(workDays: Array<{ id: number; date: string }>) {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const from = today.getTime() - 86_400_000;
-  const to = today.getTime() + 8 * 86_400_000; // the coming week
+  const to = today.getTime() + 15 * 86_400_000; // the next two weeks
   const soon = workDays.filter((d) => {
     const t = new Date(d.date).getTime();
     return t >= from && t < to;
@@ -42,7 +42,28 @@ function warmPages(workDays: Array<{ id: number; date: string }>) {
     .catch(() => {});
 }
 
+/**
+ * Save the page being looked at. Opening a page by tapping through the app doesn't load it
+ * in full, so the phone wouldn't keep it for no signal: ask the service worker to fetch it.
+ */
+const savedAt = new Map<string, number>();
+function savePage(path: string) {
+  if (typeof navigator === "undefined" || !navigator.onLine || !("serviceWorker" in navigator)) return;
+  if (!/^\/(days|customers)\/[^/]+/.test(path) && path !== "/days" && path !== "/") return;
+  const last = savedAt.get(path) ?? 0;
+  if (Date.now() - last < 2 * 60 * 1000) return;
+  savedAt.set(path, Date.now());
+  // Day pages: their work sheet too.
+  const urls = /^\/days\/(date\/)?[^/]+$/.test(path) ? [path, `${path}/print`] : [path];
+  navigator.serviceWorker.ready
+    .then((registration) => registration.active?.postMessage({ type: "warm", urls }))
+    .catch(() => {});
+}
+
 export function OfflineStatus() {
+  const pathname = usePathname();
+  useEffect(() => { if (pathname) savePage(pathname); }, [pathname]);
+
   // Offline pages: the service worker keeps recent pages on the phone.
   useEffect(() => {
     if (!("serviceWorker" in navigator) || process.env.NODE_ENV !== "production") return;

@@ -65,7 +65,7 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 
 ## Offline
 - Own service worker `public/sw.js` (next-pwa removed). Pages network-first then cached; `/_next/static` cache-first; RSC/API/POST never cached. `public/offline.html` fallback.
-- `OfflineStatus` registers it and pre-saves today's and the next few days' day pages. Sign-out clears saved pages.
+- `OfflineStatus` registers it and pre-saves day pages (and work sheets) from yesterday to two weeks ahead (`/api/work-days` returns that range), plus any day or customer page opened by tapping through the app (client navigations aren't full loads, so the worker is asked to fetch them). Sign-out clears saved pages.
 - Taps (done, skip, pay, note, price) queue in `src/lib/offline-queue.ts`; calls give up after 12s on weak signal and queue.
 - Queue lives in IndexedDB (`wyndos-offline`: stores `queue`, `problems`), with `navigator.storage.persist()`; falls back to localStorage. Old localStorage queues are moved across on load.
 - Sent to the fixed route `POST /api/offline/sync` (not server actions, whose names change every deploy). Per item: ok / rejected (→ "Needs checking" list with Try again / Remove) / retry (signed out, database busy). Payments use the item id as clientRequestId, paidAt = when tapped.
