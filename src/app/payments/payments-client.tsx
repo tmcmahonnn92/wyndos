@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { fmtCurrency, fmtDate } from "@/lib/utils";
 import { LogPaymentForm, type PaymentCustomerOption } from "./log-payment-form";
 import { AddCreditForm, type CreditCustomerOption } from "./add-credit-form";
+import { ExportPaymentsButton } from "./export-payments";
 import { smsHref } from "@/components/phone-send-queue";
 import { fillTemplate } from "@/components/text-placeholders";
 import { greetingName } from "@/lib/text-format";
@@ -74,6 +75,7 @@ export function PaymentsToolbar({
       <Link href="/payments/import" className={secondary} title="Match payments from a bank statement or spreadsheet">
         <FileUp size={15} /> Bank statement
       </Link>
+      <ExportPaymentsButton className={secondary} />
       {allowCredit && <AddCreditForm customers={allCustomers} buttonClassName="whitespace-nowrap rounded-md border-slate-200 bg-white text-slate-700 hover:bg-slate-50" />}
       <LogPaymentForm customers={customers} buttonClassName="whitespace-nowrap" allowCredit={allowCredit} size="sm" />
     </div>
