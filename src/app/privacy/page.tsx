@@ -44,7 +44,9 @@ export default function PrivacyPage() {
       </ul>
       <p>
         We send service emails only: sign-up, password reset, receipts, important changes and the notifications you choose in your account.
-        <strong> We don&apos;t send marketing emails, we don&apos;t use advertising or tracking cookies, and we never sell personal data.</strong>
+        <strong> We don&apos;t send marketing emails and we never sell personal data.</strong> On our public website only, and only if you click
+        Allow, Meta (Facebook) cookies measure whether our adverts lead to sign-ups (see the <a href="/cookies">Cookie Policy</a>); nothing from inside
+        the app is ever sent to Meta.
         If we ever want to send marketing, we will ask first.
       </p>
 
@@ -88,7 +90,7 @@ export default function PrivacyPage() {
       </p>
 
       <h2>Cookies</h2>
-      <p>We only use cookies needed to sign you in and keep you secure. See our <a href="/cookies">Cookie Policy</a>.</p>
+      <p>Inside the app we only use cookies needed to sign you in and keep you secure. On our public website, Facebook advert cookies are used only if you allow them. See our <a href="/cookies">Cookie Policy</a>.</p>
 
       <h2>Changes</h2>
       <p>If we change this policy in a way that matters, we will tell account holders before it applies.</p>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { trackMeta } from "@/components/meta-pixel";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { registerOwner } from "@/lib/auth-actions";
@@ -76,6 +77,8 @@ export function SignUpForm({ googleEnabled }: { googleEnabled: boolean }) {
         return;
       }
 
+      // A free trial started (counted for Facebook adverts only if they agreed to those cookies).
+      trackMeta("CompleteRegistration", { content_name: "Free trial" });
       router.push("/auth/onboarding");
     } finally {
       setLoading(false);

@@ -293,3 +293,7 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - GoCardless: `createGcRefund` (`POST /refunds`, total_amount_confirmation, idempotency key). Sync step 3d: status updates; cancelled/bounced/funds_returned → undone; dashboard refunds recorded as write-offs.
 - UI: customer page payment rows (refund button, refunds shown as "Refund −£"), "Refund credit". Guide section 9 rewritten. Checks: `scripts/sim/refund-check.ts`.
 - Partner review answers + demo script: `docs/GOCARDLESS-PARTNER-REVIEW.md`. Guide content is `src/app/guide/direct-debit/guide-content.tsx` (public at /guide/direct-debit; app links only for businesses with Direct Debit on).
+
+## Meta (Facebook) Pixel
+- `src/components/meta-pixel.tsx`, pixel 274026224259554. Only for signed-out visitors on public pages (/auth/signin landing, /auth/signup, /guide*, /cookies, /privacy, /terms), only after "Allow" on the consent box (stored in localStorage `wyndos-ads-consent`). Never loads inside the app.
+- Events: PageView per public page; CompleteRegistration on sign-up (`trackMeta`). Cookie Policy lists _fbp/_fbc and has "Turn them off / Allow them"; Privacy Policy mentions it.

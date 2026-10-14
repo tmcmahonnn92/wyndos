@@ -18,6 +18,7 @@ import { billingStateForTenant, type BillingState } from "@/lib/billing";
 import { legalAccepted } from "@/lib/legal-state";
 import { LegalAcceptGate } from "@/components/legal-accept-gate";
 import { PageGate } from "@/components/page-gate";
+import { MetaPixel } from "@/components/meta-pixel";
 
 // Fonts are bundled in the repo (src/app/fonts) so builds never depend on reaching Google Fonts.
 const syne = localFont({
@@ -151,6 +152,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('wyndos-theme');if(t==='dark'){document.documentElement.classList.add('dark')}}catch(e){}})()` }} />
       </head>
       <body className="antialiased">
+        {/* Facebook advert measurement: public pages, signed-out visitors, with consent only. */}
+        {!session?.user && <MetaPixel />}
         {session?.user && (
           <Nav
             user={session.user}
