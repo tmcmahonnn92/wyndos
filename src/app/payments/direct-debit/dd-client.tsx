@@ -210,7 +210,9 @@ export function DirectDebitClient({ overview, board, customers }: { overview: Ov
                     <td className="px-2 py-2 text-right font-semibold tabular-nums">{fmtCurrency(d.amount)}</td>
                     {tab === "failed" && (
                       <td className="w-24 px-3 py-2 text-right">
-                        <button type="button" disabled={busy === "collect"} onClick={() => collect([d.jobId])} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Try again</button>
+                        {d.status === "failed" || d.status === "cancelled"
+                          ? <button type="button" disabled={busy === "collect"} onClick={() => collect([d.jobId])} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Try again</button>
+                          : <span className="text-[11px] text-slate-500" title="The customer disputed or refused this payment. Check with them before taking it again; record it here if they pay another way.">Ask the customer</span>}
                       </td>
                     )}
                   </tr>

@@ -84,7 +84,9 @@ async function deleteUnpaidJobs(tenantId: number, jobIds: number[]): Promise<num
   });
   // A clean that's been done is never deleted, paid or not: it's history and money owed.
   const done = await prisma.job.findMany({ where: { tenantId, id: { in: jobIds }, status: "COMPLETE" }, select: { id: true } });
-  const keep = new Set([...paid.map((p) => p.jobId), ...done.map((j) => j.id)]);
+  // Nor one with a Direct Debit still on its way: the money arriving needs its clean.
+  const collecting = await prisma.job.findMany({ where: { tenantId, id: { in: jobIds }, goCardlessPaymentId: { not: null }, NOT: { goCardlessStatus: { in: ["failed", "cancelled", "customer_approval_denied", "charged_back"] } } }, select: { id: true } });
+  const keep = new Set([...paid.map((p) => p.jobId), ...done.map((j) => j.id), ...collecting.map((j) => j.id)]);
   const toDelete = jobIds.filter((id) => !keep.has(id));
   if (toDelete.length) await prisma.job.deleteMany({ where: { tenantId, id: { in: toDelete } } });
   return [...keep];
@@ -460,6 +462,8 @@ async function applyCredit(tenantId: number, payerIds: Array<number | null | und
       where: {
         tenantId, status: "COMPLETE", isQuote: false,
         customerId: payerId,
+        // Not a clean whose Direct Debit is already on its way (that money pays it).
+        NOT: { goCardlessPaymentId: { not: null }, goCardlessStatus: { in: ["pending_customer_approval", "pending_submission", "submitted"] } },
       },
       select: { id: true, price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
       orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
@@ -914,7 +918,7 @@ export async function deleteArea(id: number) {
     const keep = await getOrCreateInactiveArea(tenantId);
     // Anything still waiting on an unfinished day for them goes; done work stays as history.
     await prisma.job.deleteMany({
-      where: { tenantId, customerId: { in: ids }, status: "PENDING", workDay: { status: { not: "COMPLETE" } }, allocations: { none: {} } },
+      where: { tenantId, customerId: { in: ids }, status: "PENDING", workDay: { status: { not: "COMPLETE" } }, allocations: { none: {} }, goCardlessPaymentId: null },
     });
     await prisma.customer.updateMany({ where: { tenantId, id: { in: ids } }, data: { areaId: keep.id, nextDueDate: null } });
   }
@@ -3431,7 +3435,8 @@ export async function uncompleteJob(jobId: number, opts: { payment?: "auto" | "k
       const payment = allocation.payment;
       const sinceTick = tickedAt === null ? Infinity : payment.createdAt.getTime() - tickedAt;
       const onlyThisJob = payment.allocations.every((a) => a.jobId === job.id);
-      const takenWhenTicked = sinceTick >= -5000 && sinceTick <= 120_000 && onlyThisJob;
+      // Money that came by Direct Debit is real money received, never "taken by mistake".
+      const takenWhenTicked = sinceTick >= -5000 && sinceTick <= 120_000 && onlyThisJob && !payment.goCardlessPaymentId;
       const cancel = mode === "keep" ? false
         : mode === "cancel" ? !payment.goCardlessPaymentId && sinceTick >= -5000
         : takenWhenTicked;
@@ -3452,6 +3457,15 @@ export async function uncompleteJob(jobId: number, opts: { payment?: "auto" | "k
       data: { status: "PENDING", completedAt: null },
     });
   });
+  // A Direct Debit for this clean made while it was being undone (auto-collect at the same
+  // moment): cancel it now too.
+  if (directDebit === "none") {
+    const fresh = await prisma.job.findFirst({ where: { id: jobId, tenantId }, select: { goCardlessPaymentId: true, goCardlessStatus: true, status: true } });
+    if (fresh?.status === "PENDING" && fresh.goCardlessPaymentId && ["pending_customer_approval", "pending_submission"].includes(fresh.goCardlessStatus ?? "")) {
+      const { cancelCollectionForJob } = await import("@/lib/gocardless/core");
+      directDebit = await cancelCollectionForJob(tenantId, job.id);
+    }
+  }
   // Money released from this clean pays their other unpaid cleans first.
   await applyCredit(tenantId, [job.customerId]);
 
@@ -4253,6 +4267,21 @@ export async function recordPayment(data: {
     extra: typeof data.extra === "number" ? data.extra : undefined,
     collectedByUserId: actor.userId,
   });
+  // Paid another way (cash, card, bank) for a clean whose Direct Debit is on its way: stop the
+  // Direct Debit while GoCardless still allows it, so they aren't charged twice. Too late:
+  // when it arrives it's kept as credit.
+  const paidIds = (Array.isArray(data.allocations) ? data.allocations : []).map((a) => Number(a.jobId)).filter(Number.isInteger);
+  if (paidIds.length) {
+    const collecting = await prisma.job.findMany({
+      where: { tenantId, id: { in: paidIds }, goCardlessPaymentId: { not: null }, goCardlessStatus: { in: ["pending_customer_approval", "pending_submission"] } },
+      select: { id: true, price: true, allocations: { where: { payment: { voidedAt: null, goCardlessPaymentId: null } }, select: { amount: true } } },
+    });
+    const fullyPaid = collecting.filter((j) => j.price - j.allocations.reduce((s, a) => s + a.amount, 0) <= 0.005);
+    if (fullyPaid.length) {
+      const { cancelCollectionForJob } = await import("@/lib/gocardless/core");
+      for (const j of fullyPaid) await cancelCollectionForJob(tenantId, j.id);
+    }
+  }
 
   revalidatePath("/payments");
   revalidatePath(`/customers/${data.customerId}`);
@@ -6575,8 +6604,12 @@ async function refundPaymentImpl(paymentId: number, data: { amount: number; outc
     if (!payment.goCardlessPaymentId) throw new Error("This payment wasn't taken by Direct Debit.");
     if (!["confirmed", "paid_out"].includes(payment.goCardlessStatus ?? "")) throw new Error("GoCardless can only refund a payment once it has been collected. Wait for it, or cancel the collection instead.");
     const { createGcRefund } = await import("@/lib/gocardless/core");
-    gcRefund = await createGcRefund(tenantId, { gcPaymentId: payment.goCardlessPaymentId, amount, alreadyRefunded: refundedByGc, wyndosPaymentId: payment.id });
+    // Refunds tried before on this payment (including cancelled ones), so a new refund gets a new key.
+    const attempt = await prisma.payment.count({ where: { tenantId, refundOfId: payment.id, goCardlessRefundId: { not: null } } });
+    gcRefund = await createGcRefund(tenantId, { gcPaymentId: payment.goCardlessPaymentId, amount, alreadyRefunded: refundedByGc, wyndosPaymentId: payment.id, attempt });
   }
+  // Pressed twice: GoCardless gave back the refund already made, and it's recorded. Nothing more to do.
+  if (gcRefund && await prisma.payment.count({ where: { goCardlessRefundId: gcRefund.id } })) return;
   await recordRefund(tenantId, {
     paymentId: payment.id, amount, outcome,
     method: data.how === "GOCARDLESS" ? "BACS" : data.how,
