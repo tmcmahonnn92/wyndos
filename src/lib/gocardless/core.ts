@@ -15,6 +15,8 @@ import { decryptSettingsSecrets } from "@/lib/secrets";
 
 export const GC_RECEIVED = new Set(["confirmed", "paid_out"]);
 export const GC_FAILED = new Set(["failed", "cancelled", "customer_approval_denied", "charged_back"]);
+/** Failed collections Wyndos may try again ("Try again"). */
+export const GC_RETRYABLE = new Set(["failed", "cancelled"]);
 import { GC_MANDATE_USABLE, isExtraJob } from "@/lib/gocardless/status";
 export { GC_MANDATE_USABLE, isExtraJob };
 
@@ -120,7 +122,7 @@ export async function testConnection(tenantId: number) {
 }
 
 /** Send money back to a customer through GoCardless (refunds must be switched on for the GoCardless account). */
-export async function createGcRefund(tenantId: number, input: { gcPaymentId: string; amount: number; alreadyRefunded: number; wyndosPaymentId: number }) {
+export async function createGcRefund(tenantId: number, input: { gcPaymentId: string; amount: number; alreadyRefunded: number; wyndosPaymentId: number; attempt?: number }) {
   const conn = await requireConnection(tenantId);
   const pence = Math.round(input.amount * 100);
   // GoCardless asks for the running total refunded on this payment, so a retry can't refund twice.
@@ -128,10 +130,16 @@ export async function createGcRefund(tenantId: number, input: { gcPaymentId: str
   try {
     const res = await gc<{ refunds: { id: string; status: string } }>(conn, "POST", "/refunds", {
       body: { refunds: { amount: pence, total_amount_confirmation: total, links: { payment: input.gcPaymentId }, metadata: { wyndosPaymentId: String(input.wyndosPaymentId) } } },
-      idempotencyKey: `wyndos-refund-${input.wyndosPaymentId}-${total}`,
+      // Same refund sent twice → one refund. A new key after an earlier refund was cancelled/bounced.
+      idempotencyKey: `wyndos-refund-${input.wyndosPaymentId}-${total}-${input.attempt ?? 0}`,
     });
     return res.refunds;
   } catch (issue) {
+    // Already made with this key (the answer was lost, e.g. connection dropped): use that refund.
+    const conflictId = issue instanceof GoCardlessError && issue.status === 409
+      ? ((issue.body.error as { errors?: Array<{ links?: { conflicting_resource_id?: string } }> })?.errors?.[0]?.links?.conflicting_resource_id)
+      : null;
+    if (conflictId) return (await gc<{ refunds: { id: string; status: string } }>(conn, "GET", `/refunds/${conflictId}`)).refunds;
     const msg = issue instanceof Error ? issue.message : String(issue);
     if (/refund.*(disabled|not enabled|not allowed)|forbidden/i.test(msg)) throw new Error("Refunds aren't switched on for your GoCardless account yet. Ask GoCardless to turn them on, or refund by bank transfer and record it here.");
     throw issue;
@@ -251,7 +259,9 @@ export async function cleansToCollect(tenantId: number, opts: { since?: Date | n
   });
   return jobs
     .map((j) => ({ ...j, due: round2(j.price - j.allocations.reduce((s, a) => s + a.amount, 0)) }))
-    .filter((j) => j.due > 0.005 && (!j.goCardlessPaymentId || GC_FAILED.has(j.goCardlessStatus ?? "")))
+    // A failed or cancelled collection can be tried again. Not a charge-back or a payment the
+    // customer refused: collecting again needs their agreement (Direct Debit Guarantee).
+    .filter((j) => j.due > 0.005 && (!j.goCardlessPaymentId || GC_RETRYABLE.has(j.goCardlessStatus ?? "")))
     // Customers on a GoCardless plan: the plan pays their regular cleans; only extra jobs are collected.
     .filter((j) => !j.customer.goCardlessPlan || isExtraJob(j, j.customer));
 }
@@ -269,16 +279,49 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
   const mandates = [...new Set(due.map((j) => j.customer.goCardlessMandateId!).filter(Boolean))];
   const sharers = mandates.length ? await prisma.customer.groupBy({ by: ["goCardlessMandateId"], where: { tenantId, goCardlessMandateId: { in: mandates } }, _count: { _all: true } }) : [];
   const shared = new Set(sharers.filter((g) => g._count._all > 1).map((g) => g.goCardlessMandateId!));
+  // A Direct Debit with a GoCardless plan (subscription): the plan pays regular cleans. Checked
+  // now as well as at sync, so a plan set up since the last sync is never charged on top of.
+  let planMandates = new Set<string>();
+  // The plan belongs to the payer (linked first) of a shared Direct Debit, as at sync.
+  const payerOf = new Map<string, number>();
+  if (mandates.length) for (const c of await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { in: mandates } }, select: { id: true, goCardlessMandateId: true }, orderBy: [{ goCardlessLinkedAt: "asc" }, { id: "asc" }] })) {
+    if (!payerOf.has(c.goCardlessMandateId!)) payerOf.set(c.goCardlessMandateId!, c.id);
+  }
+  if (mandates.length) {
+    try {
+      const subs = await gcList<GcSubscription>(conn, "/subscriptions", "subscriptions", { status: "active" });
+      planMandates = new Set(subs.map((sub) => sub.links?.mandate).filter((m): m is string => Boolean(m)));
+    } catch { /* plans can't be checked: fall back to what the last sync saw */ }
+  }
   for (const j of due.filter((d) => wanted.has(d.id))) {
     const mandate = j.customer.goCardlessMandateId!;
+    if (planMandates.has(mandate) && payerOf.get(mandate) === j.customer.id && !isExtraJob(j, j.customer)) {
+      skipped.push({ jobId: j.id, reason: "On a GoCardless plan: the plan pays regular cleans" });
+      continue;
+    }
     if (j.customer.goCardlessMandateStatus && !GC_MANDATE_USABLE.has(j.customer.goCardlessMandateStatus)) {
       skipped.push({ jobId: j.id, reason: `Direct Debit is ${j.customer.goCardlessMandateStatus.replace(/_/g, " ")}` });
       continue;
     }
     const pence = Math.round(j.due * 100);
-    // One key per attempt: retrying the same clean after a failure needs a new key.
-    const key = `wyndos-t${tenantId}-job${j.id}-${j.goCardlessPaymentId ?? "first"}`;
+    // One key per attempt, so a repeated request (double tap, retry, two senders at once) can
+    // never create a second payment:
+    // - after a failure ("Try again"): keyed on the failed payment;
+    // - otherwise keyed on this tick of the clean, so a clean that was undone (its collection
+    //   cancelled) and ticked again gets a new payment rather than the cancelled one back.
+    const tick = j.completedAt ? j.completedAt.getTime() : 0;
+    const key = `wyndos-t${tenantId}-job${j.id}-${j.goCardlessPaymentId ? `after-${j.goCardlessPaymentId}` : `tick-${tick}`}`;
     try {
+      // "Try again" on a failed payment: if GoCardless is already retrying it (its status has
+      // moved on), don't make a second one.
+      if (j.goCardlessPaymentId) {
+        const before = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${j.goCardlessPaymentId}`)).payments;
+        if (!GC_FAILED.has(before.status)) {
+          await prisma.job.update({ where: { id: j.id }, data: { goCardlessStatus: before.status } });
+          skipped.push({ jobId: j.id, reason: `The earlier payment is ${before.status.replace(/_/g, " ")} again, so it wasn't taken twice` });
+          continue;
+        }
+      }
       let payment: GcPayment;
       try {
         payment = (await gc<{ payments: GcPayment }>(conn, "POST", "/payments", {
@@ -299,7 +342,24 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
         if (!conflict) throw issue;
         payment = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${conflict}`)).payments;
       }
-      await prisma.job.update({ where: { id: j.id }, data: { goCardlessPaymentId: payment.id, goCardlessStatus: payment.status, goCardlessChargeDate: payment.charge_date ? new Date(`${payment.charge_date}T00:00:00Z`) : null } });
+      // Only onto the clean as it was when we started: if it was un-ticked (or ticked again) in the
+      // meantime, this payment isn't wanted, so cancel it straight away.
+      const saved = await prisma.job.updateMany({
+        where: { id: j.id, tenantId, status: "COMPLETE", completedAt: j.completedAt, goCardlessPaymentId: j.goCardlessPaymentId },
+        data: { goCardlessPaymentId: payment.id, goCardlessStatus: payment.status, goCardlessChargeDate: payment.charge_date ? new Date(`${payment.charge_date}T00:00:00Z`) : null },
+      });
+      // Checked again after saving: un-ticked at the same moment means it isn't wanted either.
+      const mine = await prisma.job.findFirst({ where: { id: j.id, tenantId }, select: { goCardlessPaymentId: true, status: true } });
+      if (saved.count === 0 || mine?.status !== "COMPLETE") {
+        if (mine?.goCardlessPaymentId !== payment.id || mine?.status !== "COMPLETE") {
+          try {
+            if (["pending_customer_approval", "pending_submission"].includes(payment.status)) await gc(conn, "POST", `/payments/${payment.id}/actions/cancel`, { body: {} });
+          } catch (issue) { console.error("[gocardless] couldn't cancel an unwanted payment", payment.id, issue); }
+          if (mine?.goCardlessPaymentId === payment.id) await prisma.job.update({ where: { id: j.id }, data: { goCardlessPaymentId: null, goCardlessStatus: null } });
+          skipped.push({ jobId: j.id, reason: "The clean changed while collecting, so the payment was cancelled" });
+          continue;
+        }
+      }
       collected.push({ jobId: j.id, amount: j.due, paymentId: payment.id });
     } catch (issue) {
       skipped.push({ jobId: j.id, reason: issue instanceof Error ? issue.message : "GoCardless said no" });
@@ -320,6 +380,7 @@ async function recordReceived(tenantId: number, customerId: number, p: GcPayment
     const job = await prisma.job.findFirst({ where: { id: jobId, tenantId, status: "COMPLETE" }, select: { price: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } } });
     if (job) onJob = Math.max(0, Math.min(amount, round2(job.price - job.allocations.reduce((s, a) => s + a.amount, 0))));
   }
+  if (await prisma.payment.count({ where: { goCardlessPaymentId: p.id } })) return; // already recorded
   await prisma.$transaction(async (tx) => {
     const payment = await tx.payment.create({ data: {
       tenantId, customerId, amount, method: "BACS", paidAt,
@@ -352,7 +413,20 @@ async function recordReceived(tenantId: number, customerId: number, p: GcPayment
   });
 }
 
-export async function syncTenant(tenantId: number) {
+/** One sync per business at a time (cron, webhooks and the Sync button can overlap). */
+const syncRunning = new Map<number, Promise<unknown>>();
+export async function syncTenant(tenantId: number): Promise<Awaited<ReturnType<typeof syncTenantNow>>> {
+  const before = syncRunning.get(tenantId) ?? Promise.resolve();
+  const run = before.catch(() => undefined).then(() => syncTenantNow(tenantId));
+  syncRunning.set(tenantId, run);
+  try {
+    return await run;
+  } finally {
+    if (syncRunning.get(tenantId) === run) syncRunning.delete(tenantId);
+  }
+}
+
+async function syncTenantNow(tenantId: number) {
   const conn = await requireConnection(tenantId);
   const summary = { mandatesLinked: 0, mandatesUpdated: 0, received: 0, failed: 0, imported: 0, autoCollected: 0, problems: [] as string[] };
   try {
@@ -445,9 +519,13 @@ export async function syncTenant(tenantId: number) {
         const n = sub.interval && sub.interval > 1 ? sub.interval : 1;
         planByMandate.set(sub.links.mandate, `£${(sub.amount / 100).toFixed(2)} ${n === 1 ? `a ${unit}` : `every ${n} ${unit}s`}`);
       }
-      const current = await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true, goCardlessPlan: true } });
+      const current = await prisma.customer.findMany({ where: { tenantId, goCardlessMandateId: { not: null } }, select: { id: true, goCardlessMandateId: true, goCardlessPlan: true, goCardlessLinkedAt: true }, orderBy: [{ goCardlessLinkedAt: "asc" }, { id: "asc" }] });
+      // A shared Direct Debit: the plan belongs to the payer (linked first); the other houses'
+      // cleans are still collected per clean.
+      const payerOf = new Map<string, number>();
+      for (const c of current) if (!payerOf.has(c.goCardlessMandateId!)) payerOf.set(c.goCardlessMandateId!, c.id);
       for (const c of current) {
-        const plan = planByMandate.get(c.goCardlessMandateId!) ?? null;
+        const plan = payerOf.get(c.goCardlessMandateId!) === c.id ? planByMandate.get(c.goCardlessMandateId!) ?? null : null;
         if (plan !== c.goCardlessPlan) await prisma.customer.update({ where: { id: c.id }, data: { goCardlessPlan: plan } });
       }
       }
@@ -460,22 +538,30 @@ export async function syncTenant(tenantId: number) {
     const recorded = new Map((await prisma.payment.findMany({ where: { tenantId, goCardlessPaymentId: { not: null } }, select: { id: true, goCardlessPaymentId: true, voidedAt: true } })).map((p) => [p.goCardlessPaymentId!, p]));
 
     // 3a. Cleans we're collecting for.
+    // Every clean with a payment, failed ones too: GoCardless can still take a failed payment
+    // (a retry), and a charge-back can be reversed.
     const collecting = await prisma.job.findMany({
-      where: { tenantId, goCardlessPaymentId: { not: null }, NOT: { goCardlessStatus: { in: ["failed", "cancelled", "customer_approval_denied", "charged_back"] } } },
+      where: { tenantId, goCardlessPaymentId: { not: null } },
       select: { id: true, customerId: true, goCardlessPaymentId: true, goCardlessStatus: true },
     });
     for (const job of collecting) {
       let p = paymentById.get(job.goCardlessPaymentId!);
+      // Older than the payments list: only worth asking about if it could still change.
+      if (!p && (GC_RECEIVED.has(job.goCardlessStatus ?? "") || GC_FAILED.has(job.goCardlessStatus ?? ""))) continue;
       if (!p) {
         try { p = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${job.goCardlessPaymentId}`)).payments; } catch { continue; }
       }
-      if (p.status !== job.goCardlessStatus || p.charge_date) await prisma.job.update({ where: { id: job.id }, data: { goCardlessStatus: p.status, ...(p.charge_date ? { goCardlessChargeDate: new Date(`${p.charge_date}T00:00:00Z`) } : {}) } });
       const existing = recorded.get(p.id);
+      // Money first, then the clean's status (so a crash in between is put right next time).
       if (GC_RECEIVED.has(p.status) && !existing) {
         await recordReceived(tenantId, job.customerId, p, job.id);
         summary.received++;
       } else if (existing && GC_RECEIVED.has(p.status)) {
-        await prisma.payment.update({ where: { id: existing.id }, data: { goCardlessStatus: p.status } });
+        // Received again after being taken back (a charge-back reversed): count it again.
+        if (existing.voidedAt) {
+          await prisma.payment.update({ where: { id: existing.id }, data: { voidedAt: null, voidReason: null, goCardlessStatus: p.status } });
+          summary.received++;
+        } else if (p.status !== job.goCardlessStatus) await prisma.payment.update({ where: { id: existing.id }, data: { goCardlessStatus: p.status } });
       } else if (GC_FAILED.has(p.status) && p.status !== job.goCardlessStatus) {
         summary.failed++;
         // Money taken back (charged back) after it was recorded: undo the payment so the clean owes again.
@@ -483,6 +569,7 @@ export async function syncTenant(tenantId: number) {
           await prisma.payment.update({ where: { id: existing.id }, data: { voidedAt: new Date(), voidReason: `Direct Debit ${p.status.replace(/_/g, " ")}`, goCardlessStatus: p.status } });
         }
       }
+      if (p.status !== job.goCardlessStatus || p.charge_date) await prisma.job.update({ where: { id: job.id }, data: { goCardlessStatus: p.status, ...(p.charge_date ? { goCardlessChargeDate: new Date(`${p.charge_date}T00:00:00Z`) } : {}) } });
     }
 
     // 3b. Money received for payments made outside Wyndos (e.g. set up in GoCardless): match by mandate.
@@ -495,7 +582,28 @@ export async function syncTenant(tenantId: number) {
     for (const c of byLinked) customersByMandate.set(c.goCardlessMandateId!, [...(customersByMandate.get(c.goCardlessMandateId!) ?? []), c.id]);
     const linkedAtById = new Map(linkedRows.map((c) => [c.id, c.goCardlessLinkedAt]));
     for (const p of payments) {
-      if (!GC_RECEIVED.has(p.status) || recorded.has(p.id) || collectingIds.has(p.id) || p.metadata?.wyndosJobId) continue;
+      if (!GC_RECEIVED.has(p.status) || recorded.has(p.id) || collectingIds.has(p.id)) continue;
+      // Made by Wyndos for a clean, but no longer that clean's current payment (e.g. GoCardless
+      // retried a payment that had failed, after a new one was made): money received is always
+      // recorded: on that clean if it still owes, otherwise as credit.
+      const madeForJob = Number(p.metadata?.wyndosJobId) || null;
+      if (madeForJob) {
+        const job = await prisma.job.findFirst({ where: { id: madeForJob, tenantId }, select: { id: true, customerId: true } });
+        if (job) {
+          await recordReceived(tenantId, job.customerId, p, job.id);
+          summary.received++;
+          summary.problems.push(`A Direct Debit payment for a clean was received after a newer one was made: check ${p.id} (kept as credit if paid twice).`);
+          continue;
+        }
+        // The clean has gone (deleted): keep the money as credit on the customer it was for.
+        const forCustomer = Number(p.metadata?.wyndosCustomerId) || null;
+        if (forCustomer && await prisma.customer.count({ where: { id: forCustomer, tenantId } })) {
+          await recordReceived(tenantId, forCustomer, p, null);
+          summary.received++;
+          summary.problems.push(`Direct Debit ${p.id} was received for a clean that's been deleted: kept as credit.`);
+        }
+        continue;
+      }
       const metaId = Number(p.metadata?.wyndosCustomerId) || null;
       const sharing = customersByMandate.get(p.links?.mandate ?? "") ?? [];
       const customerId = (metaId && await prisma.customer.count({ where: { id: metaId, tenantId } }) ? metaId : null) ?? sharing[0] ?? null;
