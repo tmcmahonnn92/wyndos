@@ -297,3 +297,6 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 ## Meta (Facebook) Pixel
 - `src/components/meta-pixel.tsx`, pixel 274026224259554. Only for signed-out visitors on public pages (/auth/signin landing, /auth/signup, /guide*, /cookies, /privacy, /terms), only after "Allow" on the consent box (stored in localStorage `wyndos-ads-consent`). Never loads inside the app.
 - Events: PageView per public page; CompleteRegistration on sign-up (`trackMeta`). Cookie Policy lists _fbp/_fbc and has "Turn them off / Allow them"; Privacy Policy mentions it.
+
+## Payments export
+- Payments → **Export** (`src/app/payments/export-payments.tsx`) → `GET /api/export/payments` (payments permission). Filters: date paid range (presets: last 7 days, this/last month, this/last tax year), how paid (cash / bank / card / Direct Debit), area, taken by, include refunds. Voided and credit-brought-forward rows left out. One row per payment with what it paid for (cleans + credit), total row.
