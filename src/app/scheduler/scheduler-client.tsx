@@ -1757,9 +1757,12 @@ function DayDetailModal({
   };
 
   // Fetch fresh full day data (includes payment info) and update localJobs
+  // Order moves still saving: a fresh copy fetched meanwhile would show the order from before
+  // the later moves (jobs jumping back), so it's ignored until the last one has saved.
+  const orderSavesRef = useRef(0);
   const refreshFromServer = useCallback(async (dayId: number) => {
     const fresh = await getWorkDay(dayId);
-    if (fresh) {
+    if (fresh && orderSavesRef.current === 0) {
       setLocalJobs([...fresh.jobs].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)));
       setRouteOrderingMode((fresh.routeOrderingMode as RouteOrderingMode | undefined) ?? "MANUAL");
       setHasOptimizedRouteSnapshot(Boolean(fresh.optimizedRouteOrder));
@@ -1799,14 +1802,18 @@ function DayDetailModal({
     setRouteOrderingMode("MANUAL");
     setHasManualRouteSnapshot(true);
     setRouteActionError("");
+    orderSavesRef.current += 1;
     startSaving(async () => {
       try {
         await reorderDayJobs(workDay.id, nextJobs.map((job) => job.id));
-        await refreshFromServer(workDay.id);
-        router.refresh();
       } catch (error) {
         setRouteActionError(error instanceof Error ? error.message : "Could not save the manual route order.");
-        await refreshFromServer(workDay.id);
+      } finally {
+        orderSavesRef.current -= 1;
+        if (orderSavesRef.current === 0) {
+          await refreshFromServer(workDay.id);
+          router.refresh();
+        }
       }
     });
   }, [refreshFromServer, router, workDay]);
@@ -2154,9 +2161,9 @@ function DayDetailModal({
             return (
               <div
                 key={job.id}
-                draggable={!isDone && !isSaving}
+                draggable={!isDone}
                 onDragStart={(e) => {
-                  if (isDone || isSaving) { e.preventDefault(); return; }
+                  if (isDone) { e.preventDefault(); return; }
                   setDragSrcIdx(idx);
                   e.dataTransfer.effectAllowed = "move";
                 }}
@@ -2182,7 +2189,7 @@ function DayDetailModal({
                   job.status === "SKIPPED" ? "bg-slate-50 border-slate-200 opacity-60" :
                   "bg-white border-slate-200",
                   isDone && "ring-2 ring-green-400 border-green-300 bg-green-50/60",
-                  !isDone && !isSaving && "cursor-grab active:cursor-grabbing",
+                  !isDone && "cursor-grab active:cursor-grabbing",
                   dragSrcIdx === idx && "opacity-30 scale-[0.98]",
                   dragOverIdx === idx && dragSrcIdx !== idx && "ring-2 ring-blue-400 ring-offset-1"
                 )}
