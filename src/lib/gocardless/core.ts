@@ -81,7 +81,9 @@ async function gc<T>(conn: Conn, method: "GET" | "POST", path: string, opts: { p
     let message = err.message || `GoCardless said no (${response.status})`;
     if (response.status === 401) message = "GoCardless didn't accept the access token. Check it in Settings (and that sandbox/live matches).";
     if (response.status === 403) message = "The GoCardless access token is read-only. Create a read-write token.";
-    throw new GoCardlessError(detail ? `${message}: ${detail}` : message, response.status, json);
+    // GoCardless often repeats the same text in the detail: show it once.
+    const extra = detail && detail !== message && !message.includes(detail) ? `: ${detail}` : "";
+    throw new GoCardlessError(message + extra, response.status, json);
   }
   return json as T;
 }
@@ -459,10 +461,12 @@ async function syncTenantNow(tenantId: number) {
     // customer, under another name or address): every link carries the Wyndos customer it was
     // made for, so it's linked to them whatever details were typed in.
     try {
-      const done = await gcList<{ id: string; status: string; metadata?: Record<string, string | null | undefined>; links?: { customer?: string; mandate_request_mandate?: string } }>(
-        conn, "/billing_requests", "billing_requests", { "created_at[gte]": new Date(Date.now() - 90 * 86400000).toISOString() }, 5);
-      // GoCardless won't take the status and date filters together, so only completed ones are used here.
-      for (const br of done.filter((x) => x.status === "fulfilled")) {
+      const done = await gcList<{ id: string; status: string; created_at?: string | null; metadata?: Record<string, string | null | undefined>; links?: { customer?: string; mandate_request_mandate?: string } }>(
+        conn, "/billing_requests", "billing_requests", { status: "fulfilled" }, 5);
+      // GoCardless refuses the date filter here ("Combination of filters requested is invalid"),
+      // so: completed ones only (newest first), the last 90 days checked here.
+      const since = Date.now() - 90 * 86400000;
+      for (const br of done.filter((x) => x.status === "fulfilled" && (!x.created_at || Date.parse(x.created_at) >= since))) {
         const cid = Number(br.metadata?.wyndosCustomerId);
         const mandateId = br.links?.mandate_request_mandate;
         if (!cid || !mandateId) continue;
