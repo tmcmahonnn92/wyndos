@@ -3347,11 +3347,13 @@ export async function completeJob(jobId: number) {
   if (job.status === "COMPLETE") return;
 
   const now = new Date();
-  await prisma.job.update({
-    where: { id: jobId },
+  // Only the first of several taps arriving together marks it done (one tick time, so one collection).
+  const marked = await prisma.job.updateMany({
+    where: { id: jobId, status: { not: "COMPLETE" } },
     // A job that was re-opened keeps the person who actually did it.
     data: { status: "COMPLETE", completedAt: now, completedByUserId: job.completedByUserId ?? actor.userId },
   });
+  if (marked.count === 0) return;
   // Credit (paid in advance / paid extra) pays this clean straight away, in full or part.
   await applyCredit(tenantId, [job.customerId]);
   // Direct Debit customers: collect now if the business has "collect automatically" on.
@@ -6600,7 +6602,9 @@ async function refundPaymentImpl(paymentId: number, data: { amount: number; outc
   const tenantId = actor.tenantId;
   const { refundable, recordRefund } = await import("@/lib/refunds");
   await assertPaymentNotLocked(tenantId, new Date());
-  const outcome = data.outcome === "OWING" ? "OWING" : "WRITE_OFF";
+  // Back through GoCardless: always taken off the clean. Left owing, it would show unpaid but
+  // never be collected again (that needs the customer's say-so), so it isn't offered.
+  const outcome = data.outcome === "OWING" && data.how !== "GOCARDLESS" ? "OWING" : "WRITE_OFF";
   const amount = round2(Number(data.amount));
   const { payment, left, refundedByGc } = await refundable(tenantId, Number(paymentId));
   if (!(amount > 0) || amount > left + 0.004) throw new Error(`Enter an amount up to £${left.toFixed(2)}.`);
@@ -6615,12 +6619,18 @@ async function refundPaymentImpl(paymentId: number, data: { amount: number; outc
   }
   // Pressed twice: GoCardless gave back the refund already made, and it's recorded. Nothing more to do.
   if (gcRefund && await prisma.payment.count({ where: { goCardlessRefundId: gcRefund.id } })) return;
-  await recordRefund(tenantId, {
-    paymentId: payment.id, amount, outcome,
-    method: data.how === "GOCARDLESS" ? "BACS" : data.how,
-    reason: data.reason, userId: actor.userId,
-    goCardlessRefundId: gcRefund?.id ?? null, goCardlessStatus: gcRefund?.status ?? null,
-  });
+  try {
+    await recordRefund(tenantId, {
+      paymentId: payment.id, amount, outcome,
+      method: data.how === "GOCARDLESS" ? "BACS" : data.how,
+      reason: data.reason, userId: actor.userId,
+      goCardlessRefundId: gcRefund?.id ?? null, goCardlessStatus: gcRefund?.status ?? null,
+    });
+  } catch (issue) {
+    // Two presses at the same moment: the other one recorded this GoCardless refund. Nothing more to do.
+    if (gcRefund && (issue as { code?: string })?.code === "P2002") return;
+    throw issue;
+  }
   revalidatePath("/payments");
   revalidatePath(`/customers/${payment.customerId}`);
   revalidatePath("/accounting");

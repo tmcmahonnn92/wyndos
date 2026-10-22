@@ -137,7 +137,7 @@ async function main() {
     await Promise.all([act.completeJob(job.id), act.completeJob(job.id), act.completeJob(job.id)]);
     await Promise.all([settle(), core.collectForJobs(tenantId, [job.id]), core.collectForJobs(tenantId, [job.id]), core.syncTenant(tenantId), gca.collectDirectDebits([job.id])]);
     const all = await allPayments(job.id);
-    check("S2 three ticks + three collects + a sync at once: one collection", all.length === 1, String(all.length));
+    check("S2 three ticks + three collects + a sync at once: one collection", all.length === 1, `${all.length} made, ${(await livePayments(job.id)).length} live`);
     await rules("S2");
   }
 
@@ -353,7 +353,8 @@ async function main() {
     await act.refundPayment(pay.id, { amount: 20, outcome: "OWING", how: "GOCARDLESS" });
     const back = (await gcState()).refunds.filter((r) => r.links.payment === p.id).reduce((s, r) => s + r.amount, 0);
     check("S16 the rest refunded: £30 back in total, never more", back === 3000, String(back));
-    check("S16 clean: £10 written off, £20 owing again", (await owed(job.id)) === 20 && (await jobRow(job.id)).price === 20 && (await credit(c.id)) === 0, `${await owed(job.id)} / price ${(await jobRow(job.id)).price}`);
+    // Back through GoCardless is always written off ("leave it owing" isn't offered): it would never be collected again.
+    check("S16 clean: all £30 written off, nothing owing", (await owed(job.id)) === 0 && (await jobRow(job.id)).price === 0 && (await credit(c.id)) === 0, `${await owed(job.id)} / price ${(await jobRow(job.id)).price}`);
     await rules("S16");
     // A refund GoCardless cancels is undone, and refunding again works (a new key).
     const rf = (await gcState()).refunds.find((r) => r.links.payment === p.id && r.amount === 2000)!;

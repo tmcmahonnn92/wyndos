@@ -172,7 +172,7 @@ export function DirectDebitGuide({ publicView = false }: { publicView?: boolean 
           <ol>
             <li>Open the customer. Under <strong>Payments</strong>, press the refund button on the payment.</li>
             <li>Enter how much (all or part of it) and how it goes back: <strong>Back through GoCardless</strong> for a Direct Debit payment that&apos;s been collected, or cash, bank transfer or card if you give it back yourself.</li>
-            <li>Choose what happens to the clean: <strong>Write it off</strong> (they don&apos;t owe it: a poor job or goodwill) or <strong>Leave it owing</strong> (they still owe: paid by mistake or charged twice).</li>
+            <li>Back through GoCardless: the clean&apos;s price comes down by the refund, so they don&apos;t owe it. If you give it back yourself (cash, transfer, card), choose <strong>Write it off</strong> (a poor job or goodwill) or <strong>Leave it owing</strong> (they still owe for it).</li>
           </ol>
           <ul>
             <li>The refund shows on the customer as <strong>Refund −£…</strong>. It comes off your money in, Accounting and Making Tax Digital figures on the day of the refund. The original payment stays as it was.</li>
