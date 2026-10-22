@@ -82,9 +82,9 @@ import { expectsPaymentAtDoor, normalisePreference, preferenceLabel } from "@/li
 import { fmtDate, fmtShortDate, fmtCurrency, cn } from "@/lib/utils";
 import { addressPartsOf, collectKnownTowns, compareByStreet, composeAddress, withTownFallback } from "@/lib/address";
 import { MapsRouteModal, type RouteStop } from "@/components/maps-route-modal";
-import { isLinked, orderDays, orderJobs } from "@/lib/day-order";
+import { orderDays, orderJobs } from "@/lib/day-order";
 import { coveredByPlan, paysByDirectDebit } from "@/lib/gocardless/status";
-import { placeCustomerInArea, placeJobAfter, placeJobInArea, resetDayOrder, setCustomerPlaceAfter, setDateAreaOrder } from "@/lib/day-order-actions";
+import { placeCustomerInArea, placeJobInArea, resetDayOrder, setCustomerPlaceAfter, setDateAreaOrder, setTodayOrder } from "@/lib/day-order-actions";
 
 type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
 type FutureDay = Awaited<ReturnType<typeof getWorkDays>>[0];
@@ -363,7 +363,28 @@ export function DayView({
   }, [dragJobId]);
 
   // A fresh order from the server replaces whatever was shown straight after a move.
-  useEffect(() => { setOptimistic({ jobs: null, days: null }); }, [days]);
+  // Not while order changes are still saving (or mid-drag): an in-between refresh would show
+  // the list before the later moves and make jobs jump back under the user's finger.
+  const savingRef = useRef(0);
+  const staleRef = useRef(false);
+  useEffect(() => {
+    if (savingRef.current > 0 || dragJobIdRef.current !== null || dragAreaRef.current !== null) { staleRef.current = true; return; }
+    staleRef.current = false;
+    setOptimistic({ jobs: null, days: null });
+  }, [days]);
+  /** Save an order change; the page refreshes once, after the last of any quick moves has saved. */
+  const saveOrder = (fn: () => Promise<void>) => {
+    savingRef.current += 1;
+    safely(async () => {
+      try { await fn(); } finally {
+        savingRef.current -= 1;
+        if (savingRef.current === 0) router.refresh();
+      }
+    });
+  };
+  const dragEnded = () => {
+    if (staleRef.current && savingRef.current === 0) { staleRef.current = false; setOptimistic({ jobs: null, days: null }); }
+  };
 
   /** Areas on this date in working order. */
   const orderedDays: Day[] = useMemo(() => {
@@ -420,7 +441,19 @@ export function DayView({
     return area ? { name: area.name, color: area.color } : null;
   };
   // Pending cards sit under their area heading; a job moved in among another area's jobs is tagged.
-  const linkedIds = useMemo(() => new Set(dayOrder.filter((j) => isLinked(j, dayOrder)).map((j) => j.id)), [dayOrder]);
+  // A job shown on its own among another area's jobs (moved there): tag it with its area
+  // instead of starting a new heading. Worked out from the order itself.
+  const linkedIds = useMemo(() => {
+    const pending = dayOrder.filter((j) => j.status === "PENDING");
+    const count = new Map<number, number>();
+    for (const j of pending) count.set(j.workDayId, (count.get(j.workDayId) ?? 0) + 1);
+    const away = new Set<number>();
+    pending.forEach((j, i) => {
+      const prev = pending[i - 1], next = pending[i + 1];
+      if ((count.get(j.workDayId) ?? 0) > 1 && prev?.workDayId !== j.workDayId && next?.workDayId !== j.workDayId && (prev || next)) away.add(j.id);
+    });
+    return away;
+  }, [dayOrder]);
   const tagFor = (job: Job) => (!multi ? null : routeOrder || linkedIds.has(job.id) ? areaOf(job) : null);
 
   /** Run a change without ever crashing the page; queue it if there's no signal. */
@@ -490,28 +523,30 @@ export function DayView({
     setOffer(null);
     const day = dayById.get(moved.workDayId);
     const inOwnArea = prev ? prev.workDayId === moved.workDayId : next?.workDayId === moved.workDayId || !next;
+    // Today's order is saved exactly as dropped, so nothing linked earlier can pull jobs back.
+    const allPending = dayOrder.filter((j) => j.status === "PENDING").map((j) => j.id);
+    const wholeDay = allPending.every((id) => ids.includes(id));
+    const saveTodayOrder = () => setTodayOrder(days.map((d) => d.id), ids, wholeDay);
     if (inOwnArea) {
       // New order for this area's jobs (pending as dropped, then the rest as they were).
       const areaIds = fullOrder.filter((id) => byId.get(id)?.workDayId === moved.workDayId);
       const prevSame = prev && prev.workDayId === moved.workDayId ? prev : undefined;
       const nextSame = next && next.workDayId === moved.workDayId ? next : undefined;
-      safely(async () => {
+      saveOrder(async () => {
         await placeJobInArea(moved.workDayId, areaIds, movedId);
         // Within its own area: that's the area's walking order from now on too (no question asked).
         if (canEditAreas && day?.area && !day.area.isSystemArea && (prevSame || nextSame)) {
           await placeCustomerInArea(moved.customerId, { after: prevSame?.customerId ?? null, before: prevSame ? null : nextSame?.customerId ?? null }, movedId);
         }
-        router.refresh();
+        await saveTodayOrder();
       });
       return;
     }
-    safely(async () => {
-      await placeJobAfter(movedId, prev ? prev.id : 0);
-      if (canEditAreas && prev) {
-        setOffer({ kind: "after", jobId: movedId, customerId: moved.customerId, name: moved.customer.name, afterCustomerId: prev.customerId, afterName: prev.customer.name });
-      }
-      router.refresh();
-    });
+    // Offer straight away (not once saved), so it can't pop up over the next drag.
+    if (canEditAreas && prev) {
+      setOffer({ kind: "after", jobId: movedId, customerId: moved.customerId, name: moved.customer.name, afterCustomerId: prev.customerId, afterName: prev.customer.name });
+    }
+    saveOrder(saveTodayOrder);
   };
   const pendingIds = () => sortedJobs.filter((j) => j.status === "PENDING").map((j) => j.id);
   const moveJob = (jobId: number, direction: -1 | 1) => {
@@ -590,7 +625,13 @@ export function DayView({
     ids.splice(from, 1);
     ids.splice(to, 0, dragId);
     setOptimistic({ jobs: null, days: ids });
-    safely(async () => { await setDateAreaOrder(ids); router.refresh(); });
+    saveOrder(async () => { await setDateAreaOrder(ids); await areaBlocks(ids); });
+  };
+  /** After the areas are put in a new order: today's order becomes each area's jobs in turn. */
+  const areaBlocks = async (dayIds: number[]) => {
+    const pending = dayOrder.filter((j) => j.status === "PENDING");
+    const ordered = dayIds.flatMap((id) => pending.filter((j) => j.workDayId === id).map((j) => j.id));
+    if (ordered.length) await setTodayOrder(dayIds, ordered, true);
   };
   /** Move a whole area up or down the day. */
   const moveArea = (dayId: number, direction: -1 | 1) => {
@@ -601,12 +642,12 @@ export function DayView({
     ids.splice(from, 1);
     ids.splice(to, 0, dayId);
     setOptimistic({ jobs: null, days: ids });
-    safely(async () => { await setDateAreaOrder(ids); router.refresh(); });
+    saveOrder(async () => { await setDateAreaOrder(ids); await areaBlocks(ids); });
   };
   /** Each area's jobs in street order, for this day only (then tidy by hand). */
   const sortByStreet = () => {
     setOffer(null);
-    safely(async () => {
+    saveOrder(async () => {
       for (const day of orderedDays) {
         const jobs = day.jobs.filter((j) => j.status === "PENDING");
         if (jobs.length < 2) continue;
@@ -614,21 +655,22 @@ export function DayView({
         const rest = dayOrder.filter((j) => j.workDayId === day.id && j.status !== "PENDING");
         await reorderDayJobs(day.id, [...sorted, ...rest].map((j) => j.id));
       }
-      router.refresh();
+      // Today: each area in street order, areas in their order (earlier moves are replaced).
+      const ordered = orderedDays.flatMap((day) => [...day.jobs.filter((j) => j.status === "PENDING")].sort((a, b) => compareByStreet(streetKey.get(a.id)!, streetKey.get(b.id)!)).map((j) => j.id));
+      if (ordered.length) await setTodayOrder(orderedDays.map((d) => d.id), ordered, true);
     });
   };
   const resetOrder = () => {
     setOffer(null);
-    safely(async () => { await resetDayOrder(days.map((d) => d.id)); router.refresh(); });
+    saveOrder(async () => { await resetDayOrder(days.map((d) => d.id)); });
   };
   const acceptOffer = () => {
     const o = offer;
     if (!o) return;
     setOffer(null);
-    safely(async () => {
+    saveOrder(async () => {
       if (o.kind === "after") await setCustomerPlaceAfter(o.customerId, o.afterCustomerId, o.jobId);
       else await placeCustomerInArea(o.customerId, { after: o.after, before: o.before }, o.jobId);
-      router.refresh();
     });
   };
 
@@ -768,7 +810,7 @@ export function DayView({
         e.dataTransfer.effectAllowed = "move";
         dragJobIdRef.current = job.id; setDragJobId(job.id);
       }}
-      onDragEnd={() => { dragJobIdRef.current = null; setDragJobId(null); setDropIndex(null); }}
+      onDragEnd={() => { dragJobIdRef.current = null; setDragJobId(null); setDropIndex(null); dragEnded(); }}
       className={cn("relative rounded-xl transition-opacity", dragJobId === job.id && "opacity-40")}
     >
       {dropIndex !== null && dropLineBefore(job.id) && <DropLine />}
@@ -1132,7 +1174,7 @@ export function DayView({
               key={day.id}
               draggable={multi && !filtering && canReorderWork}
               onDragStart={(e) => { if (!multi || filtering || !canReorderWork) return; e.stopPropagation(); e.dataTransfer.setData("text/plain", String(day.id)); e.dataTransfer.effectAllowed = "move"; dragAreaRef.current = day.id; }}
-              onDragEnd={() => { dragAreaRef.current = null; setDragOverAreaId(null); }}
+              onDragEnd={() => { dragAreaRef.current = null; setDragOverAreaId(null); dragEnded(); }}
               onDragOver={(e) => { if (dragAreaRef.current === null) return; e.preventDefault(); setDragOverAreaId(day.id); }}
               onDrop={(e) => { if (dragAreaRef.current === null) return; e.preventDefault(); dropArea(day.id); }}
               className={cn("space-y-2", multi && "rounded-xl border border-slate-200 bg-white px-3 py-2.5", multi && !filtering && "cursor-grab",

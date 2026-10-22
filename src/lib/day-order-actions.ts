@@ -23,6 +23,27 @@ async function visibleJob(actor: Actor, jobId: number) {
 }
 
 /**
+ * Today's order exactly as it was dragged: the jobs still to do, first to last. Each is put
+ * straight after the one before it (today only), so links made earlier can't pull jobs back
+ * out of place. `wholeDay`: the list covers every area on the date (the first goes first of the
+ * day); otherwise it's one area's list (the first stays in its area's place).
+ * "Back to normal order" (resetDayOrder) clears all of this.
+ */
+export async function setTodayOrder(workDayIds: number[], orderedJobIds: number[], wholeDay: boolean) {
+  const actor = await requireReorder();
+  const dayIds = (Array.isArray(workDayIds) ? workDayIds : []).map(int);
+  const ids = (Array.isArray(orderedJobIds) ? orderedJobIds : []).map(int);
+  if (!ids.length) return;
+  const jobs = await prisma.job.findMany({
+    where: { tenantId: actor.tenantId, id: { in: ids }, workDayId: { in: dayIds }, ...visibleJobWhere(actor) },
+    select: { id: true, workDay: { select: { date: true } } },
+  });
+  if (jobs.length !== new Set(ids).size || new Set(jobs.map((j) => j.workDay.date.getTime())).size > 1) throw new Error("Those jobs aren't all on this day.");
+  await prisma.$transaction(ids.map((id, i) => prisma.job.update({ where: { id }, data: { afterJobId: i === 0 ? (wholeDay ? 0 : -1) : ids[i - 1] } })));
+  refresh();
+}
+
+/**
  * New order for one area's jobs on a day, after a job was moved within its own area.
  * The moved job stops following any link today (so it stays where it was put).
  */

@@ -5913,6 +5913,11 @@ async function persistRouteOrder(
       tx.job.update({ where: { id }, data: { sortOrder: index } })
     )
   );
+  // This is now the area's order: drop "today" links from earlier day-view moves, which would
+  // otherwise still pull these jobs into the old order. Jobs with an "always after" customer
+  // stay where they've been put (-1), as when moved on the day view.
+  await tx.job.updateMany({ where: { workDayId, id: { in: orderedJobIds } }, data: { afterJobId: null } });
+  await tx.job.updateMany({ where: { workDayId, id: { in: orderedJobIds }, customer: { placeAfterCustomerId: { not: null } } }, data: { afterJobId: -1 } });
 
   await tx.workDay.update({
     where: { id: workDayId },

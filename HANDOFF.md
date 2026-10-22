@@ -300,3 +300,9 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 
 ## Payments export
 - Payments → **Export** (`src/app/payments/export-payments.tsx`) → `GET /api/export/payments` (payments permission). Filters: date paid range (presets: last 7 days, this/last month, this/last tax year), how paid (cash / bank / card / Direct Debit), area, taken by, include refunds. Voided and credit-brought-forward rows left out. One row per payment with what it paid for (cleans + credit), total row.
+
+## Day order: drag fixes (new136)
+- Day view: every drag saves the whole day's order as dropped (`setTodayOrder` in day-order-actions: a chain of `afterJobId`), so old links can't pull jobs back.
+- Day view: the server copy no longer replaces the on-screen order while moves are still saving or mid-drag (`saveOrder` / `savingRef`); one refresh after the last save. The "always?" offer shows straight away, not after the save.
+- Schedule: reordering an area there (`persistRouteOrder`) clears that area's "today" links, so the day view follows it. The schedule list ignores fetched copies while order saves run, and cards can be dragged again before the last save finishes.
+- Test: `scripts/sim/day-order-check.ts`.
