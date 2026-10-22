@@ -10,7 +10,8 @@ import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Edit2, CalendarDays, PoundSterling, CheckCircle2, SkipForward, FileText, Download, Mail, MapPin, Tag as TagIcon, MessageSquare, ArrowLeftRight, Pencil, Trash2, Zap, UserCheck } from "lucide-react";
-import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, recordPayment, setCustomerTags, updateJobPrice, updatePaymentMeta, voidPayment, createOneOffJob, addCustomerToDate, markJobsInvoiced } from "@/lib/actions";
+import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, recordPayment, setCustomerTags, updateJobPrice, updatePaymentMeta, voidPayment, createOneOffJob, addNextVisitExtra, addCustomerToDate, markJobsInvoiced } from "@/lib/actions";
+import { NextVisitExtras } from "./next-visit-extras";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -117,10 +118,14 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
   const [oneOffOpen, setOneOffOpen] = useState(false);
   const [oneOffForm, setOneOffForm] = useState({
     date: new Date().toISOString().slice(0, 10),
-    name: customer.jobName ?? "Window Cleaning",
+    // An extra with their next visit needs its own name (their normal clean is already on it).
+    name: customer.areaId ? "" : customer.jobName ?? "Window Cleaning",
     price: String(customer.price),
     notes: "",
   });
+  // On a set date, or with their next visit (booked or not yet): customers in an area default to next visit.
+  const [oneOffWhen, setOneOffWhen] = useState<"next" | "date">(customer.areaId ? "next" : "date");
+  const [oneOffError, setOneOffError] = useState("");
   // Feature 5: convert a one-off customer into a regular scheduled customer.
   const [convertOpen, setConvertOpen] = useState(false);
   const firstRealAreaId = areas.find((a) => !a.isSystemArea)?.id ?? areas[0]?.id;
@@ -353,19 +358,26 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
 
   const handleAddOneOff = () => {
     const price = Number(oneOffForm.price);
-    if (!oneOffForm.name.trim() || !oneOffForm.date || !Number.isFinite(price) || price < 0) return;
+    if (!oneOffForm.name.trim() || (oneOffWhen === "date" && !oneOffForm.date) || !Number.isFinite(price) || price < 0) return;
     startTransition(async () => {
-      await createOneOffJob({
-        date: new Date(oneOffForm.date),
-        customerId: customer.id,
-        name: oneOffForm.name.trim() || "Window Cleaning",
-        price,
-        notes: oneOffForm.notes || undefined,
-      });
+      setOneOffError("");
+      try {
+        if (oneOffWhen === "next") await unwrap(addNextVisitExtra(customer.id, { name: oneOffForm.name.trim(), price, notes: oneOffForm.notes || undefined }));
+        else await createOneOffJob({
+          date: new Date(oneOffForm.date),
+          customerId: customer.id,
+          name: oneOffForm.name.trim() || "Window Cleaning",
+          price,
+          notes: oneOffForm.notes || undefined,
+        });
+      } catch (e) {
+        setOneOffError(e instanceof Error ? e.message : "Couldn't add that job.");
+        return;
+      }
       setOneOffOpen(false);
       setOneOffForm({
         date: new Date().toISOString().slice(0, 10),
-        name: customer.jobName ?? "Window Cleaning",
+        name: customer.areaId ? "" : customer.jobName ?? "Window Cleaning",
         price: String(customer.price),
         notes: "",
       });
@@ -704,6 +716,8 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
           </CardContent>
         </Card>
 
+        <NextVisitExtras customerId={customer.id} raw={customer.nextVisitExtras} hidePrices={hidePrices} />
+
         {/* Job history */}
         <Card>
           <CardHeader>
@@ -1013,6 +1027,21 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               <p className="text-xs text-blue-600 truncate">{customer.address}</p>
             </div>
           </div>
+          {customer.areaId && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">When</label>
+              <div className="grid grid-cols-2 gap-2">
+                {([["next", "With their next visit"], ["date", "On a set date"]] as const).map(([v, label]) => (
+                  <button key={v} type="button" onClick={() => setOneOffWhen(v)}
+                    className={cn("rounded-lg border px-3 py-2 text-sm font-semibold", oneOffWhen === v ? "border-blue-600 bg-blue-50 text-blue-800" : "border-slate-200 text-slate-600")}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {oneOffWhen === "next" && <p className="mt-1 text-xs text-slate-500">Goes on the same day as their next clean after today, even if it isn&apos;t booked yet.</p>}
+            </div>
+          )}
+          {oneOffWhen === "date" && (
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
             <input
@@ -1022,6 +1051,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Job name <span className="text-red-500">*</span>
@@ -1059,6 +1089,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+          {oneOffError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{oneOffError}</p>}
           <div className="flex gap-2 pt-1">
             <Button onClick={handleAddOneOff} disabled={isPending || !oneOffForm.name.trim()} className="flex-1">
               <Zap size={14} />

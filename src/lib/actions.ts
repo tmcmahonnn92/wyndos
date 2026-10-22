@@ -6,6 +6,7 @@ import { pickPlain } from "@/lib/safe-input";
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
+import { attachNextVisitExtras, parseExtras } from "@/lib/next-visit-extras";
 import { queueNotification } from "@/lib/notifications";
 import type { Prisma } from "@/generated/prisma/client";
 import { matchesLooseCustomerSearch } from "@/lib/customer-search";
@@ -825,6 +826,7 @@ async function syncAreaScheduleAfterCompletion(
     }
   }
 
+  await attachNextVisitExtras(tenantId);
   return { nextDue, nextWorkDayId: targetNextWorkDay.id, areaName: workDay.area.name };
 }
 
@@ -1275,6 +1277,7 @@ export async function scheduleAreaRun(areaId: number, dateISO: string, assignedU
 
   // Set nextDueDate to this scheduled date so the area shows as "scheduled"
   await prisma.area.update({ where: { id: area.id }, data: { nextDueDate: d } });
+  await attachNextVisitExtras(tenantId);
 
   revalidatePath("/days");
   revalidatePath("/scheduler");
@@ -1335,6 +1338,39 @@ export async function createOneOffJob(data: {
   revalidatePath(`/days/${workDay.id}`);
   revalidatePath("/days");
   return { workDay, job, alreadyExisted: false };
+}
+
+/**
+ * An extra job for their next visit ("conservatory next time"), before that visit is booked.
+ * Goes onto their next booked clean straight away if there is one, otherwise when it's booked.
+ */
+export async function addNextVisitExtra(...args: Parameters<typeof addNextVisitExtraImpl>) { return attempt(() => addNextVisitExtraImpl(...args)); }
+async function addNextVisitExtraImpl(customerId: number, extra: { name: string; price: number; notes?: string }) {
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
+  const customer = await requireTenantCustomer(tenantId, Number(customerId));
+  const name = String(extra.name ?? "").trim().slice(0, 120);
+  const price = Math.round(Number(extra.price) * 100) / 100;
+  if (!name) throw new Error("Give the job a name.");
+  if (name.toLowerCase() === (customer.jobName || "Window Cleaning").trim().toLowerCase()) throw new Error("Their normal clean is already on their next visit. Give the extra its own name, e.g. Conservatory.");
+  if (!Number.isFinite(price) || price < 0) throw new Error("Enter a price.");
+  const list = [...parseExtras(customer.nextVisitExtras), { name, price, notes: extra.notes?.trim() || null }];
+  if (list.length > 20) throw new Error("That's a lot of extras for one visit. Add them to a day instead.");
+  await prisma.customer.update({ where: { id: customer.id }, data: { nextVisitExtras: JSON.stringify(list) } });
+  const { added } = await attachNextVisitExtras(tenantId, [customer.id]);
+  revalidatePath(`/customers/${customer.id}`);
+  revalidatePath("/days");
+  return { addedToBookedVisit: added > 0 };
+}
+
+/** Take back an extra still waiting for their next visit. */
+export async function removeNextVisitExtra(customerId: number, index: number) {
+  const actor = await requirePerm("schedule");
+  const customer = await requireTenantCustomer(actor.tenantId, Number(customerId));
+  const list = parseExtras(customer.nextVisitExtras);
+  list.splice(Number(index), 1);
+  await prisma.customer.update({ where: { id: customer.id }, data: { nextVisitExtras: JSON.stringify(list) } });
+  revalidatePath(`/customers/${customer.id}`);
 }
 
 // ─── Customers ─────────────────────────────────────────────────────────────
@@ -1937,6 +1973,7 @@ async function autoAddToScheduledDays(tenantId: number, customerId: number, area
   if (customer.skipNextAreaRun) {
     await prisma.customer.updateMany({ where: { tenantId, id: customerId }, data: { skipNextAreaRun: false } });
   }
+  await attachNextVisitExtras(tenantId, [customerId]);
   revalidatePath(`/days/${run.id}`);
   revalidatePath("/days");
 }
@@ -3262,6 +3299,7 @@ export async function syncWorkDayCustomers(workDayId: number): Promise<{ added: 
     });
   }
 
+  await attachNextVisitExtras(tenantId);
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/days");
   return { added: missing.length };

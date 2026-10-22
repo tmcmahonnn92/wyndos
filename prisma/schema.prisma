@@ -366,6 +366,8 @@ model Customer {
   price                  Float
   notes                  String?
   jobName                String        @default("Window Cleaning")
+  /// Extra jobs asked for at their next visit (JSON [{name, price, notes}]): added to their next booked clean.
+  nextVisitExtras        String        @default("[]")
   advanceNotice          Boolean       @default(false)
   preferredPaymentMethod String        @default("")
   /// Send this customer their invoices by email (needs an email address).

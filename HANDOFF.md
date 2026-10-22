@@ -312,3 +312,10 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Admin → Businesses: bin icon on each business. Confirm box shows what goes and which logins are kept; type the business name to delete (`src/lib/admin-delete.ts`, super admin only).
 - Deletion lives in `src/lib/delete-business.ts` (server-only), shared with the owner's Close business. Only that business: people who also work for another business keep their login (only their place in this one goes; their current business switches only if it was this one); super admins are never deleted; Stripe subscription cancelled first, nothing deleted if that fails.
 - Test: `scripts/sim/delete-business-check.ts`.
+
+## Extras for the next visit (new140)
+- Customer → One-off Job → "With their next visit" (default for customers in an area): saved on `Customer.nextVisitExtras` (JSON [{name, price, notes}], migration `20261023090000_next_visit_extras`), shown on the customer as "For their next visit".
+- `attachNextVisitExtras` (`src/lib/next-visit-extras.ts`) puts them as one-off jobs on the same day as the customer's next PENDING regular clean dated after today, then clears them (claimed atomically, never added twice). Called when an extra is added, when a run is booked (`scheduleAreaRun`, `syncAreaScheduleAfterCompletion`, `syncWorkDayCustomers`, `autoAddToScheduledDays`).
+- An extra can't use their normal job name (it'd count as their regular clean).
+- Local note: `prisma generate` here needs `PRISMA_SCHEMA_ENGINE_BINARY=<any file>` (engine download is blocked); production deploy generates normally.
+- Test: `scripts/sim/next-visit-extras-check.ts`.
