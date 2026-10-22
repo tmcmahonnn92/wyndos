@@ -18,12 +18,17 @@ export function TodoList({ items }: { items: TodoItem[] }) {
   const router = useRouter();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [, start] = useTransition();
-  const shown = items.filter((i) => !hidden.has(i.key));
+  const [expanded, setExpanded] = useState(false);
+  const all = items.filter((i) => !hidden.has(i.key));
+  const LIMIT = 5;
+  const shown = expanded ? all : all.slice(0, LIMIT);
+  const more = all.length - LIMIT;
 
-  if (shown.length === 0) {
+  if (all.length === 0) {
     return <p className="px-4 py-4 text-sm text-slate-500">All done. Nice one.</p>;
   }
   return (
+    <>
     <ul className="divide-y divide-slate-100">
       {shown.map((item) => (
         <li key={item.key} className="flex items-center gap-2 pr-2">
@@ -54,5 +59,12 @@ export function TodoList({ items }: { items: TodoItem[] }) {
         </li>
       ))}
     </ul>
+    {more > 0 && (
+      <button type="button" onClick={() => setExpanded((e) => !e)}
+        className="w-full border-t border-slate-100 px-4 py-2.5 text-sm font-semibold text-blue-600 hover:bg-slate-50">
+        {expanded ? "Show less" : `Show ${more} more`}
+      </button>
+    )}
+    </>
   );
 }
