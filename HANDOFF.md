@@ -306,3 +306,9 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Day view: the server copy no longer replaces the on-screen order while moves are still saving or mid-drag (`saveOrder` / `savingRef`); one refresh after the last save. The "always?" offer shows straight away, not after the save.
 - Schedule: reordering an area there (`persistRouteOrder`) clears that area's "today" links, so the day view follows it. The schedule list ignores fetched copies while order saves run, and cards can be dragged again before the last save finishes.
 - Test: `scripts/sim/day-order-check.ts`.
+
+## To-do list and admin delete (new137)
+- Home "To do" list shows 5, then "Show N more" / "Show less" (`src/components/todo-list.tsx`).
+- Admin → Businesses: bin icon on each business. Confirm box shows what goes and which logins are kept; type the business name to delete (`src/lib/admin-delete.ts`, super admin only).
+- Deletion lives in `src/lib/delete-business.ts` (server-only), shared with the owner's Close business. Only that business: people who also work for another business keep their login (only their place in this one goes; their current business switches only if it was this one); super admins are never deleted; Stripe subscription cancelled first, nothing deleted if that fails.
+- Test: `scripts/sim/delete-business-check.ts`.

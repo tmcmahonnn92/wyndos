@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Building2, Search, ShieldAlert } from "lucide-react";
+import { ArrowRight, Building2, Search, ShieldAlert, Trash2 } from "lucide-react";
+import { adminDeleteBusiness, adminDeletePreview } from "@/lib/admin-delete";
 
 type Tenant = {
   id: number;
@@ -31,6 +32,27 @@ export function BusinessesPanel({ tenants, mode }: { tenants: Tenant[]; mode: "m
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [deleteFor, setDeleteFor] = useState<number | null>(null);
+  const [typed, setTyped] = useState("");
+  const [preview, setPreview] = useState<Awaited<ReturnType<typeof adminDeletePreview>> | null>(null);
+
+  const startDelete = async (id: number) => {
+    if (deleteFor === id) { setDeleteFor(null); return; }
+    setDeleteFor(id); setTyped(""); setPreview(null); setError(""); setOpenFor(null);
+    try { setPreview(await adminDeletePreview(id)); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't load that business."); }
+  };
+  const confirmDelete = async (t: Tenant) => {
+    setBusy(t.id); setError("");
+    try {
+      await adminDeleteBusiness(t.id, typed);
+      setDeleteFor(null);
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That didn't work.");
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -97,13 +119,51 @@ export function BusinessesPanel({ tenants, mode }: { tenants: Tenant[]; mode: "m
                 </button>
               ) : (
                 <button
-                  onClick={() => { setOpenFor(openFor === t.id ? null : t.id); setReason(""); setError(""); }}
+                  onClick={() => { setOpenFor(openFor === t.id ? null : t.id); setDeleteFor(null); setReason(""); setError(""); }}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:border-slate-500"
                 >
                   <ShieldAlert className="h-4 w-4 text-amber-400" /> Support access
                 </button>
               )}
+              <button
+                onClick={() => startDelete(t.id)}
+                title={`Delete ${t.name}`}
+                aria-label={`Delete ${t.name}`}
+                className="inline-flex items-center rounded-lg border border-slate-700 p-1.5 text-slate-400 hover:border-red-700 hover:text-red-400"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
             </div>
+            {deleteFor === t.id && (
+              <div className="mt-3 space-y-2 rounded-lg border border-red-900/70 bg-red-950/20 p-3 text-sm text-red-200/90">
+                <p className="font-semibold text-red-300">Delete {t.name} for good?</p>
+                {!preview ? <p className="text-xs text-slate-400">Checking…</p> : (
+                  <ul className="list-disc space-y-0.5 pl-5 text-xs">
+                    <li>Removes its {preview.customers} customers, {preview.payments} payments, schedule, accounts and settings, and cancels its subscription.</li>
+                    <li>{preview.loginsRemoved} login{preview.loginsRemoved === 1 ? "" : "s"} only used for this business {preview.loginsRemoved === 1 ? "is" : "are"} removed.</li>
+                    {preview.loginsKept.length > 0 && <li>Kept (they also work for another business, only their place here goes): {preview.loginsKept.join(", ")}.</li>}
+                    {preview.goCardless && <li>GoCardless is connected: Wyndos stops tracking it, but anything already sent to GoCardless still collects in their GoCardless account.</li>}
+                    <li>No other business is touched. This can&apos;t be undone.</li>
+                  </ul>
+                )}
+                <input
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  placeholder={`Type "${t.name}" to confirm`}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-red-600"
+                />
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setDeleteFor(null)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-300">Cancel</button>
+                  <button
+                    onClick={() => confirmDelete(t)}
+                    disabled={busy !== null || !preview || typed.trim().toLowerCase() !== t.name.trim().toLowerCase()}
+                    className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-40"
+                  >
+                    {busy === t.id ? "Deleting…" : "Delete business"}
+                  </button>
+                </div>
+              </div>
+            )}
             {openFor === t.id && !t.mine && (
               <div className="mt-3 space-y-2 rounded-lg border border-amber-900/60 bg-amber-950/20 p-3">
                 <p className="text-xs text-amber-200/90">Logged with your reason. Closes itself after 2 hours, or end it from the Access log.</p>
