@@ -71,7 +71,7 @@ export async function GET(request: Request) {
 
     const userIds = [...new Set(payments.map((p) => p.collectedByUserId).filter((id): id is string => Boolean(id)))];
     const users = new Map((await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } })).map((u) => [u.id, u.name || u.email]));
-    const how = (p: (typeof payments)[number]) => p.goCardlessPaymentId ? "Direct Debit" : p.method === "CASH" ? "Cash" : p.method === "CARD" ? "Card" : "Bank transfer";
+    const how = (p: (typeof payments)[number]) => p.notes?.startsWith("Pay by Bank") ? "Pay by Bank" : p.goCardlessPaymentId ? "Direct Debit" : p.method === "CASH" ? "Cash" : p.method === "CARD" ? "Card" : "Bank transfer";
 
     let total = 0;
     const rows = payments.map((p) => {

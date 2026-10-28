@@ -19,7 +19,7 @@ type Tab = "collect" | "progress" | "failed" | "customers" | "link";
 const STATUS: Record<string, string> = {
   pending_customer_approval: "Waiting for customer", pending_submission: "Being set up", submitted: "Submitted to bank",
   confirmed: "Collected", paid_out: "Paid out", active: "Active", failed: "Failed", cancelled: "Cancelled",
-  customer_approval_denied: "Customer said no", charged_back: "Charged back", expired: "Expired", consumed: "Used up",
+  customer_approval_denied: "Customer said no", retrying: "Failed: GoCardless will retry", charged_back: "Charged back", expired: "Expired", consumed: "Used up",
   blocked: "Blocked", suspended_by_payer: "Suspended by customer", link_sent: "Sign-up link sent", not_set_up: "Not set up", linked: "Linked",
 };
 const label = (s: string | null | undefined) => (s ? STATUS[s] ?? s.replace(/_/g, " ") : "—");

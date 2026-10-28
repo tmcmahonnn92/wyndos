@@ -49,6 +49,7 @@ export default async function CustomerPage({ params }: Props) {
         hidePrices={hidePrices}
         goCardlessReferencePrefix={settings.goCardlessReferencePrefix || "WD"}
         goCardlessOn={settings.goCardlessOn}
+        payByBankOn={Boolean(settings.goCardlessOn && settings.goCardlessConfigured && canPay)}
         canShareDirectDebit={Boolean(settings.goCardlessOn && settings.goCardlessConfigured && (user.role === "OWNER" || user.role === "SUPER_ADMIN"))}
         invoiceEmailOn={settings.invoiceEmailOn}
         invoiceEmailReady={settings.invoiceEmailReady}

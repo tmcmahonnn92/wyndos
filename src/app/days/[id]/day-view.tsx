@@ -84,6 +84,7 @@ import { addressPartsOf, collectKnownTowns, compareByStreet, composeAddress, wit
 import { MapsRouteModal, type RouteStop } from "@/components/maps-route-modal";
 import { orderDays, orderJobs } from "@/lib/day-order";
 import { coveredByPlan, paysByDirectDebit } from "@/lib/gocardless/status";
+import { PayByBankButton } from "@/components/pay-by-bank";
 import { placeCustomerInArea, placeJobInArea, resetDayOrder, setCustomerPlaceAfter, setDateAreaOrder, setTodayOrder } from "@/lib/day-order-actions";
 
 type Day = NonNullable<Awaited<ReturnType<typeof getWorkDay>>>;
@@ -153,6 +154,8 @@ interface Props {
   canReorderWork?: boolean;
   /** May edit customers (owner, or Customers permission): customer notes from the day. */
   canEditCustomers?: boolean;
+  /** GoCardless connected and this person takes payments: Pay by Bank on finished cleans. */
+  payByBankOn?: boolean;
 }
 
 /** After moving a job: offer to make it permanent. */
@@ -196,6 +199,7 @@ export function DayView({
   canEditAreas = false,
   canReorderWork = true,
   canEditCustomers = false,
+  payByBankOn = false,
 }: Props) {
   const todayDateValue = new Date().toISOString().slice(0, 10);
   const scheduledDateValue = dateISO;
@@ -1727,6 +1731,7 @@ export function DayView({
       {/* ── Job Action Modal ─────────────────────────────── */}
       <JobActionModal
         job={selectedJob}
+        payByBankOn={payByBankOn}
         openInPayFormMode={openJobInPayMode}
         onClose={() => { setSelectedJob(null); setOpenJobInPayMode(false); }}
         onDone={(price, note) => {
@@ -1853,7 +1858,9 @@ function JobActionModal({
   isPending,
   hidePrices = false,
   openInPayFormMode = false,
+  payByBankOn = false,
 }: {
+  payByBankOn?: boolean;
   job: Job | null;
   onClose: () => void;
   onDone: (price: number, note: string) => void;
@@ -2205,6 +2212,12 @@ function JobActionModal({
                     <Button variant="outline" size="sm" onClick={() => setShowPayForm(false)}>Back</Button>
                   </div>
                 </div>
+              )}
+              {payByBankOn && !isSettled && !showPayForm && job.status === "COMPLETE" && (
+                <PayByBankButton customerId={job.customerId} customerName={job.customer.name}
+                  phone={(job.customer as { phone?: string | null }).phone ?? null}
+                  jobIds={customerUnpaidJobs.map((j) => j.id)} label="Pay by bank (link)"
+                  className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50" />
               )}
 
               {askUndo ? (

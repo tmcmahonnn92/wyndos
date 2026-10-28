@@ -915,3 +915,23 @@ model CustomerAlias {
   @@unique([tenantId, kind, value])
   @@index([customerId])
 }
+
+/// Pay by Bank (GoCardless instant bank payment) link for a customer's cleans. While "pending",
+/// those cleans aren't collected by Direct Debit; once paid, the money is recorded on them.
+model PayByBankRequest {
+  id               Int      @id @default(autoincrement())
+  tenantId         Int
+  customerId       Int
+  billingRequestId String   @unique
+  url              String
+  /// JSON array of the clean (job) ids it pays for.
+  jobIds           String   @default("[]")
+  amount           Float
+  /// pending | paid | failed | cancelled | expired
+  status           String   @default("pending")
+  goCardlessPaymentId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, status])
+}

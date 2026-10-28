@@ -4,7 +4,7 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
-import { requireOwner } from "@/lib/guards";
+import { requireOwner, requirePerm } from "@/lib/guards";
 import { goCardlessOn } from "@/lib/trial-features";
 import {
   cleansToCollect, collectForJobs, createSignupLink, gcConnection, GC_MANDATE_USABLE,
@@ -144,7 +144,7 @@ export async function getDirectDebitBoard() {
   const [due, inProgress, failed, people] = await Promise.all([
     cleansToCollect(tenantId),
     prisma.job.findMany({
-      where: { tenantId, goCardlessPaymentId: { not: null }, goCardlessStatus: { in: ["pending_customer_approval", "pending_submission", "submitted", "confirmed"] } },
+      where: { tenantId, goCardlessPaymentId: { not: null }, goCardlessStatus: { in: ["pending_customer_approval", "pending_submission", "submitted", "confirmed", "retrying"] } },
       select: { id: true, price: true, goCardlessStatus: true, workDay: { select: { date: true } }, customer: { select: { id: true, name: true, address: true } } },
       orderBy: { id: "desc" }, take: 300,
     }),
@@ -274,6 +274,53 @@ export async function stopUsingDirectDebit(customerId: number) {
     await prisma.customer.update({ where: { id: me.id }, data: { goCardlessMandateId: null, goCardlessMandateStatus: null, goCardlessCustomerId: null, goCardlessBillingRequestId: null, goCardlessPlan: null } });
     revalidatePath(`/customers/${me.id}`);
     revalidatePath("/payments/direct-debit");
+    return { ok: true as const };
+  } catch (issue) {
+    return { ok: false as const, error: message(issue) };
+  }
+}
+
+
+// ── Pay by Bank ─────────────────────────────────────────────────────────────
+
+/** Anyone who takes payments, when Direct Debit (GoCardless) is on and connected. */
+async function payer() {
+  const actor = await requirePerm("payments");
+  if (!(await goCardlessOn(actor.tenantId))) throw new Error("GoCardless isn't switched on for your account.");
+  if (!(await gcConnection(actor.tenantId))) throw new Error("Connect GoCardless in Settings first.");
+  return actor;
+}
+
+/** A customer's cleans that can be paid by bank now, and any links already sent. */
+export async function getPayByBank(customerId: number) {
+  try {
+    const actor = await payer();
+    const { payByBankChoices } = await import("@/lib/gocardless/pay-by-bank");
+    return { ok: true as const, ...(await payByBankChoices(actor.tenantId, Number(customerId))) };
+  } catch (issue) {
+    return { ok: false as const, error: message(issue) };
+  }
+}
+
+/** Make a Pay by Bank link for these cleans. */
+export async function makePayByBankLink(customerId: number, jobIds: number[]) {
+  try {
+    const actor = await payer();
+    const { createPayByBankLink } = await import("@/lib/gocardless/pay-by-bank");
+    const res = await createPayByBankLink(actor.tenantId, Number(customerId), Array.isArray(jobIds) ? jobIds : []);
+    revalidatePath(`/customers/${customerId}`);
+    return { ok: true as const, ...res };
+  } catch (issue) {
+    return { ok: false as const, error: message(issue) };
+  }
+}
+
+/** Stop a link that hasn't been paid. */
+export async function stopPayByBankLink(id: number) {
+  try {
+    const actor = await payer();
+    const { cancelPayByBankLink } = await import("@/lib/gocardless/pay-by-bank");
+    await cancelPayByBankLink(actor.tenantId, Number(id));
     return { ok: true as const };
   } catch (issue) {
     return { ok: false as const, error: message(issue) };

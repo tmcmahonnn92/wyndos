@@ -61,6 +61,7 @@ export async function deleteBusinessData(tenantId: number) {
     await tx.homeUseMonth.deleteMany({ where });
     await tx.businessAsset.deleteMany({ where });
     await tx.mtdQuarterLock.deleteMany({ where });
+    await tx.payByBankRequest.deleteMany({ where });
 
     for (const userId of userIds) {
       const user = await tx.user.findUnique({ where: { id: userId }, select: { role: true, tenantId: true } });

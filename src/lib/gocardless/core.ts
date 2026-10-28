@@ -17,6 +17,8 @@ export const GC_RECEIVED = new Set(["confirmed", "paid_out"]);
 export const GC_FAILED = new Set(["failed", "cancelled", "customer_approval_denied", "charged_back"]);
 /** Failed collections Wyndos may try again ("Try again"). */
 export const GC_RETRYABLE = new Set(["failed", "cancelled"]);
+/** Wyndos's own status for a failed payment GoCardless will retry (Success+): still on its way, never taken again. */
+export const GC_RETRYING = "retrying";
 import { GC_MANDATE_USABLE, isExtraJob } from "@/lib/gocardless/status";
 export { GC_MANDATE_USABLE, isExtraJob };
 
@@ -58,7 +60,7 @@ export async function requireConnection(tenantId: number) {
   return conn;
 }
 
-async function gc<T>(conn: Conn, method: "GET" | "POST", path: string, opts: { params?: Record<string, string>; body?: unknown; idempotencyKey?: string } = {}): Promise<T> {
+export async function gc<T>(conn: Conn, method: "GET" | "POST", path: string, opts: { params?: Record<string, string>; body?: unknown; idempotencyKey?: string } = {}): Promise<T> {
   const url = new URL(conn.base + path);
   for (const [k, v] of Object.entries(opts.params ?? {})) url.searchParams.set(k, v);
   const headers: Record<string, string> = {
@@ -86,6 +88,24 @@ async function gc<T>(conn: Conn, method: "GET" | "POST", path: string, opts: { p
     throw new GoCardlessError(message + extra, response.status, json);
   }
   return json as T;
+}
+
+/**
+ * Success+: has GoCardless said it will retry this failed payment? From its latest "failed" event
+ * (details.will_attempt_retry). If it can't be checked, assume it might (safer: no second payment).
+ */
+async function willRetry(conn: Conn, paymentId: string): Promise<boolean> {
+  try {
+    const res = await gc<{ events: Array<{ created_at?: string; action: string; details?: { will_attempt_retry?: boolean } }> }>(conn, "GET", "/events", { params: { payment: paymentId, action: "failed", limit: "10" } });
+    const latest = [...(res.events ?? [])].sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))[0];
+    return latest?.details?.will_attempt_retry === true;
+  } catch {
+    return true;
+  }
+}
+/** A payment's status as Wyndos keeps it: "failed" that GoCardless will retry becomes "retrying". */
+async function effectiveStatus(conn: Conn, p: { id: string; status: string }): Promise<string> {
+  return p.status === "failed" && await willRetry(conn, p.id) ? GC_RETRYING : p.status;
 }
 
 /** All pages of a GoCardless list (capped). */
@@ -259,7 +279,11 @@ export async function cleansToCollect(tenantId: number, opts: { since?: Date | n
     orderBy: [{ workDay: { date: "asc" } }, { id: "asc" }],
     take: 2000,
   });
+  // Cleans with an open Pay by Bank link: the customer is paying those by bank.
+  const { jobsAwaitingPayByBank } = await import("@/lib/gocardless/pay-by-bank");
+  const byBank = await jobsAwaitingPayByBank(tenantId);
   return jobs
+    .filter((j) => !byBank.has(j.id))
     .map((j) => ({ ...j, due: round2(j.price - j.allocations.reduce((s, a) => s + a.amount, 0)) }))
     // A failed or cancelled collection can be tried again. Not a charge-back or a payment the
     // customer refused: collecting again needs their agreement (Direct Debit Guarantee).
@@ -318,9 +342,10 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
       // moved on), don't make a second one.
       if (j.goCardlessPaymentId) {
         const before = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${j.goCardlessPaymentId}`)).payments;
-        if (!GC_FAILED.has(before.status)) {
-          await prisma.job.update({ where: { id: j.id }, data: { goCardlessStatus: before.status } });
-          skipped.push({ jobId: j.id, reason: `The earlier payment is ${before.status.replace(/_/g, " ")} again, so it wasn't taken twice` });
+        const now = await effectiveStatus(conn, before);
+        if (!GC_FAILED.has(now)) {
+          await prisma.job.update({ where: { id: j.id }, data: { goCardlessStatus: now } });
+          skipped.push({ jobId: j.id, reason: now === GC_RETRYING ? "GoCardless is retrying this payment itself, so it wasn't taken twice" : `The earlier payment is ${before.status.replace(/_/g, " ")} again, so it wasn't taken twice` });
           continue;
         }
       }
@@ -333,6 +358,9 @@ export async function collectForJobs(tenantId: number, jobIds: number[]) {
             // Shown to the customer in GoCardless's payment emails: "Window Cleaning on 12 Oct 2026".
             description: `${j.name || "Window cleaning"}${shared.has(mandate) ? `, ${[j.customer.houseNameNumber, j.customer.street].filter(Boolean).join(" ") || j.customer.address?.split(",")[0] || j.customer.name},` : ""} on ${j.workDay.date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}`.slice(0, 100),
             metadata: { wyndosCustomerId: String(j.customer.id), wyndosJobId: String(j.id) },
+            // Success+: GoCardless may retry it if it fails for lack of funds (only where the
+            // business has Success+ on). Wyndos then shows it as "retrying" and never takes it twice.
+            retry_if_possible: true,
             links: { mandate },
           } },
         })).payments;
@@ -537,6 +565,14 @@ async function syncTenantNow(tenantId: number) {
 
     // 3. Payments from the last ~100 days.
     const since = new Date(Date.now() - 100 * 86400000).toISOString();
+    // 2b. Pay by Bank links: money paid is recorded on its cleans (before the lists below, so it
+    // isn't picked up a second time as an outside payment).
+    {
+      const { syncPayByBank } = await import("@/lib/gocardless/pay-by-bank");
+      const pbb = await syncPayByBank(tenantId);
+      summary.received += pbb.received;
+      summary.problems.push(...pbb.problems);
+    }
     const payments = await gcList<GcPayment>(conn, "/payments", "payments", { "created_at[gte]": since });
     const paymentById = new Map(payments.map((p) => [p.id, p]));
     const recorded = new Map((await prisma.payment.findMany({ where: { tenantId, goCardlessPaymentId: { not: null } }, select: { id: true, goCardlessPaymentId: true, voidedAt: true } })).map((p) => [p.goCardlessPaymentId!, p]));
@@ -546,7 +582,7 @@ async function syncTenantNow(tenantId: number) {
     // (a retry), and a charge-back can be reversed.
     const collecting = await prisma.job.findMany({
       where: { tenantId, goCardlessPaymentId: { not: null } },
-      select: { id: true, customerId: true, goCardlessPaymentId: true, goCardlessStatus: true },
+      select: { id: true, customerId: true, status: true, price: true, goCardlessPaymentId: true, goCardlessStatus: true, allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } } },
     });
     for (const job of collecting) {
       let p = paymentById.get(job.goCardlessPaymentId!);
@@ -554,6 +590,18 @@ async function syncTenantNow(tenantId: number) {
       if (!p && (GC_RECEIVED.has(job.goCardlessStatus ?? "") || GC_FAILED.has(job.goCardlessStatus ?? ""))) continue;
       if (!p) {
         try { p = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${job.goCardlessPaymentId}`)).payments; } catch { continue; }
+      }
+      // Success+: a failed payment GoCardless will retry stays "retrying" (no Try again, nothing to undo).
+      const status = p.status === "failed" && job.goCardlessStatus !== "failed" ? await effectiveStatus(conn, p) : p.status;
+      // A clean un-ticked, or paid another way, while its payment was failed-and-retrying:
+      // GoCardless has now resubmitted it, so cancel it (it isn't wanted any more).
+      const paidOtherwise = round2(job.price - job.allocations.reduce((s, a) => s + a.amount, 0)) <= 0.005;
+      if ((job.status !== "COMPLETE" || paidOtherwise) && ["pending_submission", "pending_customer_approval"].includes(p.status) && !recorded.has(p.id)) {
+        try {
+          await gc(conn, "POST", `/payments/${p.id}/actions/cancel`, { body: {} });
+          await prisma.job.update({ where: { id: job.id }, data: { goCardlessPaymentId: null, goCardlessStatus: null } });
+          continue;
+        } catch (issue) { summary.problems.push(`Couldn't cancel ${p.id} for an undone clean: ${issue instanceof Error ? issue.message : issue}`); }
       }
       const existing = recorded.get(p.id);
       // Money first, then the clean's status (so a crash in between is put right next time).
@@ -566,14 +614,14 @@ async function syncTenantNow(tenantId: number) {
           await prisma.payment.update({ where: { id: existing.id }, data: { voidedAt: null, voidReason: null, goCardlessStatus: p.status } });
           summary.received++;
         } else if (p.status !== job.goCardlessStatus) await prisma.payment.update({ where: { id: existing.id }, data: { goCardlessStatus: p.status } });
-      } else if (GC_FAILED.has(p.status) && p.status !== job.goCardlessStatus) {
+      } else if (GC_FAILED.has(status) && status !== job.goCardlessStatus) {
         summary.failed++;
         // Money taken back (charged back) after it was recorded: undo the payment so the clean owes again.
         if (existing && !existing.voidedAt) {
           await prisma.payment.update({ where: { id: existing.id }, data: { voidedAt: new Date(), voidReason: `Direct Debit ${p.status.replace(/_/g, " ")}`, goCardlessStatus: p.status } });
         }
       }
-      if (p.status !== job.goCardlessStatus || p.charge_date) await prisma.job.update({ where: { id: job.id }, data: { goCardlessStatus: p.status, ...(p.charge_date ? { goCardlessChargeDate: new Date(`${p.charge_date}T00:00:00Z`) } : {}) } });
+      if (status !== job.goCardlessStatus || p.charge_date) await prisma.job.update({ where: { id: job.id }, data: { goCardlessStatus: status, ...(p.charge_date ? { goCardlessChargeDate: new Date(`${p.charge_date}T00:00:00Z`) } : {}) } });
     }
 
     // 3b. Money received for payments made outside Wyndos (e.g. set up in GoCardless): match by mandate.
@@ -727,8 +775,11 @@ export async function cancelCollectionForJob(tenantId: number, jobId: number): P
     const p = (await gc<{ payments: GcPayment }>(conn, "GET", `/payments/${job.goCardlessPaymentId}`)).payments;
     if (GC_RECEIVED.has(p.status)) return "none";
     if (!["pending_customer_approval", "pending_submission"].includes(p.status)) {
-      await prisma.job.update({ where: { id: jobId }, data: { goCardlessStatus: p.status } });
-      return GC_FAILED.has(p.status) ? "none" : "too_late";
+      const status = await effectiveStatus(conn, p);
+      await prisma.job.update({ where: { id: jobId }, data: { goCardlessStatus: status } });
+      // Being retried (Success+): it can't be cancelled yet; the next sync cancels it once
+      // GoCardless resubmits it.
+      return GC_FAILED.has(status) ? "none" : "too_late";
     }
     await gc(conn, "POST", `/payments/${job.goCardlessPaymentId}/actions/cancel`, { body: {} });
     await prisma.job.update({ where: { id: jobId }, data: { goCardlessPaymentId: null, goCardlessStatus: null } });

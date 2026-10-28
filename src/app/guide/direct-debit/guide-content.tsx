@@ -17,6 +17,7 @@ const SECTIONS = [
   { id: "changes", title: "Undo, cancelled Direct Debits and payments made in GoCardless" },
   { id: "refunds", title: "Refunds" },
   { id: "shared", title: "One person paying for several houses" },
+  { id: "paybybank", title: "Pay by bank (paid in minutes)" },
   { id: "disconnect", title: "Disconnecting" },
 ];
 
@@ -152,6 +153,7 @@ export function DirectDebitGuide({ publicView = false }: { publicView?: boolean 
         <Section n={7} id="problems" title="Failed payments and charge-backs">
           <ul>
             <li><strong>Failed</strong> (not enough money in the account, for example): the clean shows under <strong>Failed</strong> and still owes. Check with the customer, then press <strong>Try again</strong>. Wyndos never retries on its own.</li>
+            <li>If you&apos;ve turned on <strong>Success+</strong> in your GoCardless account, GoCardless retries payments that failed for lack of funds by itself. Those show as <strong>Failed: GoCardless will retry</strong> under <strong>In progress</strong>, with no Try again (so the customer is never charged twice). If GoCardless&apos;s retries run out, it moves to <strong>Failed</strong>. If you undo the clean or take the money another way meanwhile, the retry is cancelled.</li>
             <li><strong>Charged back</strong> (the customer claimed it back from their bank under the Direct Debit Guarantee): the payment is cancelled in Wyndos and the clean owes again.</li>
             <li>A failed clean that&apos;s later paid another way (cash, transfer) drops off the Failed list by itself.</li>
           </ul>
@@ -207,7 +209,21 @@ export function DirectDebitGuide({ publicView = false }: { publicView?: boolean 
           </ul>
         </Section>
 
-        <Section n={11} id="disconnect" title="Disconnecting">
+        <Section n={11} id="paybybank" title="Pay by bank (paid in minutes)">
+          <p>For money you want now (a clean paid on the day, a catch-up after they were out, an extra job), send a <strong>Pay by bank</strong> link. The customer pays from their banking app. No card, and they don&apos;t need a Direct Debit.</p>
+          <ol>
+            <li>On the day, open a finished clean and press <strong>Pay by bank (link)</strong>. Or open the customer and press <strong>Pay by bank</strong>.</li>
+            <li>Tick the cleans it&apos;s for and press <strong>Make a link</strong>.</li>
+            <li>Press <strong>Open</strong> for them to pay on your phone, or <strong>Text it</strong> / <strong>Copy link</strong>.</li>
+          </ol>
+          <ul>
+            <li>It&apos;s usually confirmed within minutes, then shows as paid on those cleans.</li>
+            <li>While a link is open, those cleans aren&apos;t collected by Direct Debit. If they pay another way, or you undo the clean, the link is stopped so it can&apos;t be paid twice.</li>
+            <li>A new link for the same cleans replaces the old one. Links not paid within 7 days are stopped.</li>
+          </ul>
+        </Section>
+
+        <Section n={12} id="disconnect" title="Disconnecting">
           <p>
             Press <strong>Disconnect</strong> in <strong>Settings → GoCardless</strong> (or remove Wyndos in your GoCardless dashboard). Wyndos then stops
             collecting and syncing. Customers&apos; Direct Debits stay set up in GoCardless, and everything already recorded in Wyndos stays.

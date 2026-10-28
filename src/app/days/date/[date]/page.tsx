@@ -38,6 +38,7 @@ export default async function DatePage({ params }: Props) {
   const canText = isOwner || (user.permissions ?? []).includes("messaging");
   const runSiblings = await getRunSiblings(days.map((d) => d.id)).catch(() => ({}));
 
+  const settings = await getBusinessSettings().catch(() => null);
   return (
     <DayView
       days={days}
@@ -47,7 +48,8 @@ export default async function DatePage({ params }: Props) {
       team={team}
       canReschedule={canReschedule}
       canText={canText}
-      allowCredit={(await getBusinessSettings().catch(() => null))?.allowCustomerCredit ?? true}
+      allowCredit={settings?.allowCustomerCredit ?? true}
+      payByBankOn={Boolean(settings?.goCardlessOn && settings?.goCardlessConfigured && (user.role !== "WORKER" || (user.permissions ?? []).includes("payments")))}
       runSiblings={runSiblings}
       canReorderWork={canReorderWork}
       canEditCustomers={user.role === "OWNER" || user.role === "SUPER_ADMIN" || (user.permissions ?? []).includes("customers")}

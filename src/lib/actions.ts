@@ -3469,6 +3469,11 @@ export async function uncompleteJob(jobId: number, opts: { payment?: "auto" | "k
     const { cancelCollectionForJob } = await import("@/lib/gocardless/core");
     directDebit = await cancelCollectionForJob(tenantId, job.id);
   }
+  // An open Pay by Bank link for this clean: stopped (the clean isn't done any more).
+  if (await prisma.payByBankRequest.count({ where: { tenantId, status: "pending" } })) {
+    const { cancelLinksForCleans } = await import("@/lib/gocardless/pay-by-bank");
+    await cancelLinksForCleans(tenantId, [job.id]).catch((issue) => console.error("[pay by bank] cancel on undo", issue));
+  }
   await prisma.$transaction(async (tx) => {
     const voided = new Set<number>();
     for (const allocation of job.allocations) {
@@ -4320,6 +4325,10 @@ export async function recordPayment(data: {
     if (fullyPaid.length) {
       const { cancelCollectionForJob } = await import("@/lib/gocardless/core");
       for (const j of fullyPaid) await cancelCollectionForJob(tenantId, j.id);
+    }
+    if (await prisma.payByBankRequest.count({ where: { tenantId, status: "pending" } })) {
+      const { cancelLinksForCleans } = await import("@/lib/gocardless/pay-by-bank");
+      await cancelLinksForCleans(tenantId, paidIds).catch((issue) => console.error("[pay by bank] cancel after payment", issue));
     }
   }
 

@@ -12,6 +12,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Edit2, CalendarDays, PoundSterling, CheckCircle2, SkipForward, FileText, Download, Mail, MapPin, Tag as TagIcon, MessageSquare, ArrowLeftRight, Pencil, Trash2, Zap, UserCheck } from "lucide-react";
 import { getCustomer, getAreas, updateCustomer, rescheduleCustomer, recordPayment, setCustomerTags, updateJobPrice, updatePaymentMeta, voidPayment, createOneOffJob, addNextVisitExtra, addCustomerToDate, markJobsInvoiced } from "@/lib/actions";
 import { NextVisitExtras } from "./next-visit-extras";
+import { PayByBankButton } from "@/components/pay-by-bank";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +62,8 @@ interface Props {
   goCardlessReferencePrefix?: string;
   /** Direct Debit switched on for this business (Admin trial or server flag). */
   goCardlessOn?: boolean;
+  /** GoCardless connected and this person takes payments: offer Pay by Bank links. */
+  payByBankOn?: boolean;
   /** Owner, with GoCardless set up: can put this customer on someone else's Direct Debit. */
   canShareDirectDebit?: boolean;
   /** Invoice emails switched on for this business (Admin trial). */
@@ -98,7 +101,7 @@ function buildJobBalanceMap(jobs: Customer["jobs"]) {
 
   return balanceMap;
 }
-export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", goCardlessOn = false, canShareDirectDebit = false, invoiceEmailOn = false, invoiceEmailReady = false, autoInvoiceOn = false, texts = [] }: Props) {
+export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = false, allowCredit = true, allTags, hidePrices = false, goCardlessReferencePrefix = "WD", goCardlessOn = false, payByBankOn = false, canShareDirectDebit = false, invoiceEmailOn = false, invoiceEmailReady = false, autoInvoiceOn = false, texts = [] }: Props) {
   const [showAllTexts, setShowAllTexts] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [bookDate, setBookDate] = useState("");
@@ -660,6 +663,10 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
             <Zap size={15} />
             One-off Job
           </Button>
+          {payByBankOn && (
+            <PayByBankButton customerId={customer.id} customerName={customer.name} phone={customer.phone}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-[#1E2840] dark:text-slate-200" />
+          )}
           {customer.area.isSystemArea && !isInactiveArea(customer.area) ? (
             <Button onClick={() => setConvertOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">
               <UserCheck size={15} />

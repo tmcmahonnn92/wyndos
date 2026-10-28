@@ -44,6 +44,7 @@ export default async function DayPage({ params, searchParams }: Props) {
   const canText = isOwner || (user.permissions ?? []).includes("messaging");
   const runSiblings = await getRunSiblings([day].map((d) => d.id)).catch(() => ({}));
 
+  const settings = await getBusinessSettings().catch(() => null);
   return (
     <DayView
       days={[day]}
@@ -53,7 +54,8 @@ export default async function DayPage({ params, searchParams }: Props) {
       team={team}
       canReschedule={canReschedule}
       canText={canText}
-      allowCredit={(await getBusinessSettings().catch(() => null))?.allowCustomerCredit ?? true}
+      allowCredit={settings?.allowCustomerCredit ?? true}
+      payByBankOn={Boolean(settings?.goCardlessOn && settings?.goCardlessConfigured && (user.role !== "WORKER" || (user.permissions ?? []).includes("payments")))}
       runSiblings={runSiblings}
       canReorderWork={canReorderWork}
       canEditCustomers={user.role === "OWNER" || user.role === "SUPER_ADMIN" || (user.permissions ?? []).includes("customers")}
