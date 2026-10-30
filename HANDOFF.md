@@ -312,3 +312,15 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Admin → Businesses: bin icon on each business. Confirm box shows what goes and which logins are kept; type the business name to delete (`src/lib/admin-delete.ts`, super admin only).
 - Deletion lives in `src/lib/delete-business.ts` (server-only), shared with the owner's Close business. Only that business: people who also work for another business keep their login (only their place in this one goes; their current business switches only if it was this one); super admins are never deleted; Stripe subscription cancelled first, nothing deleted if that fails.
 - Test: `scripts/sim/delete-business-check.ts`.
+
+## Extras for the next visit (new140)
+- Customer → One-off Job → "With their next visit" (default for customers in an area): saved on `Customer.nextVisitExtras` (JSON [{name, price, notes}], migration `20261023090000_next_visit_extras`), shown on the customer as "For their next visit".
+- `attachNextVisitExtras` (`src/lib/next-visit-extras.ts`) puts them as one-off jobs on the same day as the customer's next PENDING regular clean dated after today, then clears them (claimed atomically, never added twice). Called when an extra is added, when a run is booked (`scheduleAreaRun`, `syncAreaScheduleAfterCompletion`, `syncWorkDayCustomers`, `autoAddToScheduledDays`).
+- An extra can't use their normal job name (it'd count as their regular clean).
+- Local note: `prisma generate` here needs `PRISMA_SCHEMA_ENGINE_BINARY=<any file>` (engine download is blocked); production deploy generates normally.
+- Test: `scripts/sim/next-visit-extras-check.ts`.
+
+## GoCardless partner requirements: Success+ and Pay by Bank (new141)
+- Success+: every payment is created with `retry_if_possible: true`. A failed payment whose latest `failed` event says `details.will_attempt_retry` is kept as job `goCardlessStatus = "retrying"` (`effectiveStatus` in core.ts, checked via `GET /events?payment=&action=failed`): shown under In progress ("Failed: GoCardless will retry"), never Try again / auto-collected (no double charge). `resubmission_requested` → the payment goes back to pending_submission and is followed as normal. Undone or paid-another-way while retrying → the resubmitted payment is cancelled at the next sync.
+- Pay by Bank: `src/lib/gocardless/pay-by-bank.ts`, model `PayByBankRequest` (migration `20261028100000_pay_by_bank`). Billing request with `payment_request` (scheme `faster_payments`) + flow → link. While pending its cleans are excluded from `cleansToCollect`. Sync step 2b records the payment (notes "Pay by Bank (GoCardless)") on those cleans once confirmed. One open link per clean (new link cancels old; refused if the old one can't be stopped). Paid another way / undone → link cancelled. Unpaid after 7 days → cancelled. UI: `src/components/pay-by-bank.tsx` on the customer page and the finished-clean modal on the day. Thank-you page `/paid-by-bank` (public, in middleware.ts).
+- Tests: `gc-money-check.ts` S31–S39 (mock has events, resubmit, billing requests).

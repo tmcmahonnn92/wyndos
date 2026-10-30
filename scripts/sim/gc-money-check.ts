@@ -137,7 +137,7 @@ async function main() {
     await Promise.all([act.completeJob(job.id), act.completeJob(job.id), act.completeJob(job.id)]);
     await Promise.all([settle(), core.collectForJobs(tenantId, [job.id]), core.collectForJobs(tenantId, [job.id]), core.syncTenant(tenantId), gca.collectDirectDebits([job.id])]);
     const all = await allPayments(job.id);
-    check("S2 three ticks + three collects + a sync at once: one collection", all.length === 1, String(all.length));
+    check("S2 three ticks + three collects + a sync at once: one collection", all.length === 1, `${all.length} made, ${(await livePayments(job.id)).length} live`);
     await rules("S2");
   }
 
@@ -353,7 +353,8 @@ async function main() {
     await act.refundPayment(pay.id, { amount: 20, outcome: "OWING", how: "GOCARDLESS" });
     const back = (await gcState()).refunds.filter((r) => r.links.payment === p.id).reduce((s, r) => s + r.amount, 0);
     check("S16 the rest refunded: £30 back in total, never more", back === 3000, String(back));
-    check("S16 clean: £10 written off, £20 owing again", (await owed(job.id)) === 20 && (await jobRow(job.id)).price === 20 && (await credit(c.id)) === 0, `${await owed(job.id)} / price ${(await jobRow(job.id)).price}`);
+    // Back through GoCardless is always written off ("leave it owing" isn't offered): it would never be collected again.
+    check("S16 clean: all £30 written off, nothing owing", (await owed(job.id)) === 0 && (await jobRow(job.id)).price === 0 && (await credit(c.id)) === 0, `${await owed(job.id)} / price ${(await jobRow(job.id)).price}`);
     await rules("S16");
     // A refund GoCardless cancels is undone, and refunding again works (a new key).
     const rf = (await gcState()).refunds.find((r) => r.links.payment === p.id && r.amount === 2000)!;
@@ -532,6 +533,137 @@ async function main() {
     check("S30 undo racing collection (20 runs): never a live collection for an un-done clean", bad === 0, String(bad));
     await rules("S30");
   }
+
+  // ── S31 Success+: a failed payment GoCardless will retry → "retrying", never taken a second time.
+  {
+    const { job } = await customer("S31 Success+ retry");
+    await tick(job.id);
+    const p = (await livePayments(job.id))[0];
+    check("S31 payments are made with retry_if_possible", (await gcState()).payments.find((x) => x.id === p.id)?.["retry_if_possible" as never] === true);
+    await mock("/_test/status", { id: p.id, status: "failed", retry: true }); await core.syncTenant(tenantId);
+    check("S31 failed but GoCardless will retry: shown as retrying, still owing", (await jobRow(job.id)).goCardlessStatus === "retrying" && (await owed(job.id)) === 20, String((await jobRow(job.id)).goCardlessStatus));
+    const board = await gca.getDirectDebitBoard();
+    check("S31 …not under Failed (no Try again), shown in progress", !board.failed.some((f) => f.jobId === job.id) && board.inProgress.some((f) => f.jobId === job.id && f.status === "retrying"));
+    await gca.collectDirectDebits([job.id]); await core.collectForJobs(tenantId, [job.id]); await core.syncTenant(tenantId);
+    check("S31 Try again / auto-collect / sync while retrying: no second payment", (await allPayments(job.id)).length === 1, String((await allPayments(job.id)).length));
+    await mock("/_test/resubmit", { id: p.id }); await core.syncTenant(tenantId);
+    check("S31 GoCardless resubmits: back in progress", (await jobRow(job.id)).goCardlessStatus === "pending_submission");
+    await status(p.id, "paid_out"); await core.syncTenant(tenantId); await core.syncTenant(tenantId);
+    check("S31 retry succeeds: paid once, one payment ever", (await owed(job.id)) === 0 && (await allPayments(job.id)).length === 1 && (await prisma.payment.count({ where: { tenantId, goCardlessPaymentId: p.id } })) === 1);
+    await rules("S31");
+  }
+
+  // ── S32 Success+ gives up (retries used) → Failed, Try again makes one new payment.
+  {
+    const { job } = await customer("S32 Retries used");
+    await tick(job.id);
+    const p = (await livePayments(job.id))[0];
+    await mock("/_test/status", { id: p.id, status: "failed", retry: true }); await core.syncTenant(tenantId);
+    await mock("/_test/resubmit", { id: p.id }); await core.syncTenant(tenantId);
+    await mock("/_test/status", { id: p.id, status: "failed", retry: false }); await core.syncTenant(tenantId);
+    check("S32 last retry failed: shown as Failed", (await jobRow(job.id)).goCardlessStatus === "failed");
+    await Promise.all([gca.collectDirectDebits([job.id]), gca.collectDirectDebits([job.id])]);
+    check("S32 Try again (twice quickly): one new payment", (await livePayments(job.id)).length === 1 && (await allPayments(job.id)).length === 2);
+    await rules("S32");
+  }
+
+  // ── S33 Clean undone while GoCardless is retrying → the resubmitted payment is cancelled.
+  {
+    const { job } = await customer("S33 Undo while retrying");
+    await tick(job.id);
+    const p = (await livePayments(job.id))[0];
+    await mock("/_test/status", { id: p.id, status: "failed", retry: true }); await core.syncTenant(tenantId);
+    await act.uncompleteJob(job.id); await settle();
+    await mock("/_test/resubmit", { id: p.id }); await core.syncTenant(tenantId);
+    check("S33 undone clean: GoCardless's retry is cancelled, nothing taken", (await gcState()).payments.find((x) => x.id === p.id)?.status === "cancelled" && (await livePayments(job.id)).length === 0);
+    await rules("S33");
+  }
+
+  // ── S34 Paid in cash while GoCardless is retrying → the retry is cancelled, no double charge.
+  {
+    const { c, job } = await customer("S34 Cash while retrying");
+    await tick(job.id);
+    const p = (await livePayments(job.id))[0];
+    await mock("/_test/status", { id: p.id, status: "failed", retry: true }); await core.syncTenant(tenantId);
+    await act.recordPayment({ customerId: c.id, allocations: [{ jobId: job.id, amount: 20 }], method: "CASH" });
+    await mock("/_test/resubmit", { id: p.id }); await core.syncTenant(tenantId);
+    check("S34 cash taken while retrying: retry cancelled, clean paid once, no credit", (await gcState()).payments.find((x) => x.id === p.id)?.status === "cancelled" && (await owed(job.id)) === 0 && (await credit(c.id)) === 0);
+    await rules("S34");
+  }
+
+  // ── Pay by Bank (instant bank payment links).
+  const pbb = await import("@/lib/gocardless/pay-by-bank");
+  const brs = async () => (await mock("/_test/state") as { billing_requests: Array<{ id: string; status: string; payment_request: { amount: string } }> }).billing_requests;
+  await gca.setGoCardlessAutoCollect(false);
+
+  // ── S35 Link paid → recorded once on the clean; the clean isn't collected by Direct Debit meanwhile.
+  {
+    const { c, job } = await customer("S35 Pay by bank");
+    await tick(job.id);
+    const [a, b] = await Promise.all([pbb.createPayByBankLink(tenantId, c.id, [job.id]), pbb.createPayByBankLink(tenantId, c.id, [job.id])]);
+    const mine = (await prisma.payByBankRequest.findMany({ where: { tenantId, customerId: c.id } }));
+    check("S35 link made (tapped twice): one link, one billing request", a.url === b.url && mine.length === 1 && (await brs()).filter((x) => x.id === mine[0].billingRequestId).length === 1, `${mine.length}`);
+    check("S35 …for what the clean owes, by Faster Payments", (await brs()).find((x) => x.id === mine[0].billingRequestId)?.payment_request.amount === "2000");
+    await core.collectForJobs(tenantId, [job.id]); await gca.setGoCardlessAutoCollect(true); await core.syncTenant(tenantId); await gca.setGoCardlessAutoCollect(false);
+    check("S35 while the link is open: no Direct Debit taken for that clean", (await allPayments(job.id)).length === 0);
+    const paid = await mock("/_test/pay-billing-request", { id: mine[0].billingRequestId }) as { payment: { id: string } };
+    await Promise.all([core.syncTenant(tenantId), core.syncTenant(tenantId)]); await core.syncTenant(tenantId);
+    check("S35 paid: clean paid once, link marked paid, no credit", (await owed(job.id)) === 0 && (await prisma.payment.count({ where: { tenantId, goCardlessPaymentId: paid.payment.id } })) === 1 && (await prisma.payByBankRequest.findUniqueOrThrow({ where: { id: mine[0].id } })).status === "paid" && (await credit(c.id)) === 0);
+    await rules("S35");
+  }
+
+  // ── S36 Link sent, then paid in cash → the link is cancelled (can't be paid twice).
+  {
+    const { c, job } = await customer("S36 Link then cash");
+    await tick(job.id);
+    await pbb.createPayByBankLink(tenantId, c.id, [job.id]);
+    const r = await prisma.payByBankRequest.findFirstOrThrow({ where: { tenantId, customerId: c.id } });
+    await act.recordPayment({ customerId: c.id, allocations: [{ jobId: job.id, amount: 20 }], method: "CASH" });
+    check("S36 cash taken: Pay by Bank link cancelled in GoCardless and here", (await brs()).find((x) => x.id === r.billingRequestId)?.status === "cancelled" && (await prisma.payByBankRequest.findUniqueOrThrow({ where: { id: r.id } })).status === "cancelled");
+    await rules("S36");
+  }
+
+  // ── S37 A new link for the same clean (price changed) → the old one is cancelled; one open link.
+  {
+    const { c, job } = await customer("S37 New link");
+    await tick(job.id);
+    await pbb.createPayByBankLink(tenantId, c.id, [job.id]);
+    await prisma.job.update({ where: { id: job.id }, data: { price: 25 } });
+    await pbb.createPayByBankLink(tenantId, c.id, [job.id]);
+    const rows = await prisma.payByBankRequest.findMany({ where: { tenantId, customerId: c.id }, orderBy: { id: "asc" } });
+    check("S37 new link: old one cancelled, one open for £25", rows.length === 2 && rows[0].status === "cancelled" && rows[1].status === "pending" && rows[1].amount === 25 && (await brs()).find((x) => x.id === rows[0].billingRequestId)?.status === "cancelled");
+    // The old link was already paid when the new one was asked for: refused, nothing doubled.
+    const { c: c2, job: j2 } = await customer("S37 Paid old link");
+    await tick(j2.id);
+    await pbb.createPayByBankLink(tenantId, c2.id, [j2.id]);
+    const old = await prisma.payByBankRequest.findFirstOrThrow({ where: { tenantId, customerId: c2.id } });
+    await mock("/_test/pay-billing-request", { id: old.billingRequestId });
+    await prisma.job.update({ where: { id: j2.id }, data: { price: 30 } });
+    const again = await pbb.createPayByBankLink(tenantId, c2.id, [j2.id]).then(() => "made", (e) => String(e));
+    await core.syncTenant(tenantId);
+    check("S37 old link already paid: new one refused; the payment is recorded", again !== "made" && (await owed(j2.id)) === 10, `${again} / owes ${await owed(j2.id)}`);
+    await rules("S37");
+  }
+
+  // ── S38 A clean already being collected by Direct Debit can't go on a Pay by Bank link.
+  {
+    const { c, job } = await customer("S38 DD first");
+    await gca.setGoCardlessAutoCollect(true); await tick(job.id); await gca.setGoCardlessAutoCollect(false);
+    const r = await pbb.createPayByBankLink(tenantId, c.id, [job.id]).then(() => "made", (e) => String(e));
+    check("S38 being collected by Direct Debit: Pay by Bank refused", r !== "made" && (await prisma.payByBankRequest.count({ where: { tenantId, customerId: c.id } })) === 0, r);
+    await rules("S38");
+  }
+
+  // ── S39 Clean undone with a link open → link cancelled.
+  {
+    const { c, job } = await customer("S39 Undo with link");
+    await tick(job.id);
+    await pbb.createPayByBankLink(tenantId, c.id, [job.id]);
+    await act.uncompleteJob(job.id); await settle();
+    check("S39 undone: link cancelled", (await prisma.payByBankRequest.findFirstOrThrow({ where: { tenantId, customerId: c.id } })).status === "cancelled");
+    await rules("S39");
+  }
+  await gca.setGoCardlessAutoCollect(true);
 
   // ── S23 Final sweep: sync twice more; all rules still hold.
   await core.syncTenant(tenantId); await core.syncTenant(tenantId);

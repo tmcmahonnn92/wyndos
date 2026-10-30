@@ -33,7 +33,7 @@ export function RefundPaymentButton({ paymentId }: { paymentId: number }) {
   const save = async () => {
     setBusy(true); setError("");
     try {
-      await unwrap(refundPayment(paymentId, { amount: Number(amount), outcome, how, reason }));
+      await unwrap(refundPayment(paymentId, { amount: Number(amount), outcome: how === "GOCARDLESS" ? "WRITE_OFF" : outcome, how, reason }));
       setOpen(false); router.refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Couldn't refund."); }
     setBusy(false);
@@ -66,7 +66,10 @@ export function RefundPaymentButton({ paymentId }: { paymentId: number }) {
                 {info.gcPending && " GoCardless can't refund this one yet: it hasn't been collected."}
               </p>
             </div>
-            {info.onCleans > 0.004 && (
+            {info.onCleans > 0.004 && how === "GOCARDLESS" && (
+              <p className="text-xs text-slate-500">The clean&apos;s price comes down by the refund, so they don&apos;t owe it.</p>
+            )}
+            {info.onCleans > 0.004 && how !== "GOCARDLESS" && (
               <div>
                 <span className="mb-1 block font-medium text-slate-700">The clean</span>
                 <label className="flex items-start gap-2 py-1"><input type="radio" checked={outcome === "WRITE_OFF"} onChange={() => setOutcome("WRITE_OFF")} className="mt-1" />

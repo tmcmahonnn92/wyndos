@@ -366,6 +366,8 @@ model Customer {
   price                  Float
   notes                  String?
   jobName                String        @default("Window Cleaning")
+  /// Extra jobs asked for at their next visit (JSON [{name, price, notes}]): added to their next booked clean.
+  nextVisitExtras        String        @default("[]")
   advanceNotice          Boolean       @default(false)
   preferredPaymentMethod String        @default("")
   /// Send this customer their invoices by email (needs an email address).
@@ -911,4 +913,24 @@ model CustomerAlias {
   createdAt   DateTime @default(now())
   @@unique([tenantId, kind, value])
   @@index([customerId])
+}
+
+/// Pay by Bank (GoCardless instant bank payment) link for a customer's cleans. While "pending",
+/// those cleans aren't collected by Direct Debit; once paid, the money is recorded on them.
+model PayByBankRequest {
+  id               Int      @id @default(autoincrement())
+  tenantId         Int
+  customerId       Int
+  billingRequestId String   @unique
+  url              String
+  /// JSON array of the clean (job) ids it pays for.
+  jobIds           String   @default("[]")
+  amount           Float
+  /// pending | paid | failed | cancelled | expired
+  status           String   @default("pending")
+  goCardlessPaymentId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, status])
 }

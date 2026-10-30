@@ -6,6 +6,7 @@ import { pickPlain } from "@/lib/safe-input";
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
+import { attachNextVisitExtras, parseExtras } from "@/lib/next-visit-extras";
 import { queueNotification } from "@/lib/notifications";
 import type { Prisma } from "@/generated/prisma/client";
 import { matchesLooseCustomerSearch } from "@/lib/customer-search";
@@ -825,6 +826,7 @@ async function syncAreaScheduleAfterCompletion(
     }
   }
 
+  await attachNextVisitExtras(tenantId);
   return { nextDue, nextWorkDayId: targetNextWorkDay.id, areaName: workDay.area.name };
 }
 
@@ -1275,6 +1277,7 @@ export async function scheduleAreaRun(areaId: number, dateISO: string, assignedU
 
   // Set nextDueDate to this scheduled date so the area shows as "scheduled"
   await prisma.area.update({ where: { id: area.id }, data: { nextDueDate: d } });
+  await attachNextVisitExtras(tenantId);
 
   revalidatePath("/days");
   revalidatePath("/scheduler");
@@ -1335,6 +1338,39 @@ export async function createOneOffJob(data: {
   revalidatePath(`/days/${workDay.id}`);
   revalidatePath("/days");
   return { workDay, job, alreadyExisted: false };
+}
+
+/**
+ * An extra job for their next visit ("conservatory next time"), before that visit is booked.
+ * Goes onto their next booked clean straight away if there is one, otherwise when it's booked.
+ */
+export async function addNextVisitExtra(...args: Parameters<typeof addNextVisitExtraImpl>) { return attempt(() => addNextVisitExtraImpl(...args)); }
+async function addNextVisitExtraImpl(customerId: number, extra: { name: string; price: number; notes?: string }) {
+  const actor = await requirePerm("schedule");
+  const tenantId = actor.tenantId;
+  const customer = await requireTenantCustomer(tenantId, Number(customerId));
+  const name = String(extra.name ?? "").trim().slice(0, 120);
+  const price = Math.round(Number(extra.price) * 100) / 100;
+  if (!name) throw new Error("Give the job a name.");
+  if (name.toLowerCase() === (customer.jobName || "Window Cleaning").trim().toLowerCase()) throw new Error("Their normal clean is already on their next visit. Give the extra its own name, e.g. Conservatory.");
+  if (!Number.isFinite(price) || price < 0) throw new Error("Enter a price.");
+  const list = [...parseExtras(customer.nextVisitExtras), { name, price, notes: extra.notes?.trim() || null }];
+  if (list.length > 20) throw new Error("That's a lot of extras for one visit. Add them to a day instead.");
+  await prisma.customer.update({ where: { id: customer.id }, data: { nextVisitExtras: JSON.stringify(list) } });
+  const { added } = await attachNextVisitExtras(tenantId, [customer.id]);
+  revalidatePath(`/customers/${customer.id}`);
+  revalidatePath("/days");
+  return { addedToBookedVisit: added > 0 };
+}
+
+/** Take back an extra still waiting for their next visit. */
+export async function removeNextVisitExtra(customerId: number, index: number) {
+  const actor = await requirePerm("schedule");
+  const customer = await requireTenantCustomer(actor.tenantId, Number(customerId));
+  const list = parseExtras(customer.nextVisitExtras);
+  list.splice(Number(index), 1);
+  await prisma.customer.update({ where: { id: customer.id }, data: { nextVisitExtras: JSON.stringify(list) } });
+  revalidatePath(`/customers/${customer.id}`);
 }
 
 // ─── Customers ─────────────────────────────────────────────────────────────
@@ -1937,6 +1973,7 @@ async function autoAddToScheduledDays(tenantId: number, customerId: number, area
   if (customer.skipNextAreaRun) {
     await prisma.customer.updateMany({ where: { tenantId, id: customerId }, data: { skipNextAreaRun: false } });
   }
+  await attachNextVisitExtras(tenantId, [customerId]);
   revalidatePath(`/days/${run.id}`);
   revalidatePath("/days");
 }
@@ -3262,6 +3299,7 @@ export async function syncWorkDayCustomers(workDayId: number): Promise<{ added: 
     });
   }
 
+  await attachNextVisitExtras(tenantId);
   revalidatePath(`/days/${workDayId}`);
   revalidatePath("/days");
   return { added: missing.length };
@@ -3347,11 +3385,13 @@ export async function completeJob(jobId: number) {
   if (job.status === "COMPLETE") return;
 
   const now = new Date();
-  await prisma.job.update({
-    where: { id: jobId },
+  // Only the first of several taps arriving together marks it done (one tick time, so one collection).
+  const marked = await prisma.job.updateMany({
+    where: { id: jobId, status: { not: "COMPLETE" } },
     // A job that was re-opened keeps the person who actually did it.
     data: { status: "COMPLETE", completedAt: now, completedByUserId: job.completedByUserId ?? actor.userId },
   });
+  if (marked.count === 0) return;
   // Credit (paid in advance / paid extra) pays this clean straight away, in full or part.
   await applyCredit(tenantId, [job.customerId]);
   // Direct Debit customers: collect now if the business has "collect automatically" on.
@@ -3428,6 +3468,11 @@ export async function uncompleteJob(jobId: number, opts: { payment?: "auto" | "k
   if (job.goCardlessPaymentId) {
     const { cancelCollectionForJob } = await import("@/lib/gocardless/core");
     directDebit = await cancelCollectionForJob(tenantId, job.id);
+  }
+  // An open Pay by Bank link for this clean: stopped (the clean isn't done any more).
+  if (await prisma.payByBankRequest.count({ where: { tenantId, status: "pending" } })) {
+    const { cancelLinksForCleans } = await import("@/lib/gocardless/pay-by-bank");
+    await cancelLinksForCleans(tenantId, [job.id]).catch((issue) => console.error("[pay by bank] cancel on undo", issue));
   }
   await prisma.$transaction(async (tx) => {
     const voided = new Set<number>();
@@ -4280,6 +4325,10 @@ export async function recordPayment(data: {
     if (fullyPaid.length) {
       const { cancelCollectionForJob } = await import("@/lib/gocardless/core");
       for (const j of fullyPaid) await cancelCollectionForJob(tenantId, j.id);
+    }
+    if (await prisma.payByBankRequest.count({ where: { tenantId, status: "pending" } })) {
+      const { cancelLinksForCleans } = await import("@/lib/gocardless/pay-by-bank");
+      await cancelLinksForCleans(tenantId, paidIds).catch((issue) => console.error("[pay by bank] cancel after payment", issue));
     }
   }
 
@@ -6600,7 +6649,9 @@ async function refundPaymentImpl(paymentId: number, data: { amount: number; outc
   const tenantId = actor.tenantId;
   const { refundable, recordRefund } = await import("@/lib/refunds");
   await assertPaymentNotLocked(tenantId, new Date());
-  const outcome = data.outcome === "OWING" ? "OWING" : "WRITE_OFF";
+  // Back through GoCardless: always taken off the clean. Left owing, it would show unpaid but
+  // never be collected again (that needs the customer's say-so), so it isn't offered.
+  const outcome = data.outcome === "OWING" && data.how !== "GOCARDLESS" ? "OWING" : "WRITE_OFF";
   const amount = round2(Number(data.amount));
   const { payment, left, refundedByGc } = await refundable(tenantId, Number(paymentId));
   if (!(amount > 0) || amount > left + 0.004) throw new Error(`Enter an amount up to £${left.toFixed(2)}.`);
@@ -6615,12 +6666,18 @@ async function refundPaymentImpl(paymentId: number, data: { amount: number; outc
   }
   // Pressed twice: GoCardless gave back the refund already made, and it's recorded. Nothing more to do.
   if (gcRefund && await prisma.payment.count({ where: { goCardlessRefundId: gcRefund.id } })) return;
-  await recordRefund(tenantId, {
-    paymentId: payment.id, amount, outcome,
-    method: data.how === "GOCARDLESS" ? "BACS" : data.how,
-    reason: data.reason, userId: actor.userId,
-    goCardlessRefundId: gcRefund?.id ?? null, goCardlessStatus: gcRefund?.status ?? null,
-  });
+  try {
+    await recordRefund(tenantId, {
+      paymentId: payment.id, amount, outcome,
+      method: data.how === "GOCARDLESS" ? "BACS" : data.how,
+      reason: data.reason, userId: actor.userId,
+      goCardlessRefundId: gcRefund?.id ?? null, goCardlessStatus: gcRefund?.status ?? null,
+    });
+  } catch (issue) {
+    // Two presses at the same moment: the other one recorded this GoCardless refund. Nothing more to do.
+    if (gcRefund && (issue as { code?: string })?.code === "P2002") return;
+    throw issue;
+  }
   revalidatePath("/payments");
   revalidatePath(`/customers/${payment.customerId}`);
   revalidatePath("/accounting");
