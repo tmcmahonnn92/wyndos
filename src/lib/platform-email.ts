@@ -67,5 +67,7 @@ export async function notifyNewSignup(d: { companyName: string; ownerName: strin
     });
   } catch (issue) {
     console.error("[notifyNewSignup]", issue);
+    const { alertAdmin } = await import("@/lib/alerts");
+    await alertAdmin("email:new-signup", "New sign-up email didn't send", issue, { Business: d.companyName, Email: d.email });
   }
 }

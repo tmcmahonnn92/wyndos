@@ -299,7 +299,7 @@ export function Nav({
             <LifeBuoy size={15} /> Help &amp; support
           </Link>
           <Link href="/guide" className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium", pathname.startsWith("/guide") ? "bg-[#131929] text-white" : "text-[#94a3b8] hover:bg-[#131929] hover:text-white")}>
-            <BookOpen size={15} /> Getting started
+            <BookOpen size={15} /> Guide
           </Link>
           {showInstall && (
             <button type="button" onClick={installApp} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[#94a3b8] hover:bg-[#131929] hover:text-white">

@@ -88,6 +88,8 @@ export async function sendTrialReminders(now = new Date()) {
     } catch (issue) {
       // Not sent: take the marker away so the next run tries again.
       console.error("[trial reminders]", t.id, issue);
+      const { alertAdmin } = await import("@/lib/alerts");
+      await alertAdmin("email:trial", "Trial reminder email didn't send", issue, { Business: `#${t.id}` });
       await prisma.notificationEvent.delete({ where: { id: mine.id } }).catch(() => {});
     }
   }

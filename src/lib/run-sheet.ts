@@ -1,3 +1,4 @@
+import { ddCollecting } from "@/lib/dd-status";
 import type { getWorkDay } from "@/lib/actions";
 import { orderDays, orderJobs } from "@/lib/day-order";
 import { addressPartsOf, collectKnownTowns, compareByStreet, withTownFallback } from "@/lib/address";
@@ -48,7 +49,7 @@ export function buildRunSheet(
 
   const owes = (job: RunSheetJob) =>
     job.customer.jobs
-      .filter((previous) => previous.id !== job.id)
+      .filter((previous) => previous.id !== job.id && !ddCollecting(previous))
       .reduce((sum, previous) => {
         const paid = previous.allocations.reduce((s, allocation) => s + allocation.amount, 0);
         return sum + Math.max(0, previous.price - paid);

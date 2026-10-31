@@ -1,5 +1,6 @@
 "use client";
 
+import { ddCollecting } from "@/lib/dd-status";
 import { DatePickerLoad } from "@/components/date-picker-load";
 import { useState, useTransition, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -863,7 +864,8 @@ export function DayView({
             };
             take(job.id, visitDue);
             if (includeDebt) {
-              for (const pj of (job.customer.jobs ?? []).filter((j) => j.id !== job.id)) {
+              // Never cleans whose Direct Debit is on its way (they'd be paid twice).
+              for (const pj of (job.customer.jobs ?? []).filter((j) => j.id !== job.id && !ddCollecting(j))) {
                 const paidSoFar = (pj.allocations ?? []).reduce((s: number, a: { amount: number }) => s + a.amount, 0);
                 take(pj.id, Number(Math.max(0, pj.price - paidSoFar).toFixed(2)));
               }
@@ -1924,7 +1926,7 @@ function JobActionModal({
       .map((j) => {
         const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
         const due = Number(Math.max(0, j.price - paid).toFixed(2));
-        return { id: j.id, name: j.label, price: j.price, paid: Number(paid.toFixed(2)), due, date: j.workDay?.date ?? null, isOneOff: j.isOneOff ?? false };
+        return { id: j.id, name: j.label, price: j.price, paid: Number(paid.toFixed(2)), due, date: j.workDay?.date ?? null, isOneOff: j.isOneOff ?? false, collecting: ddCollecting(j) };
       })
       .filter((j) => j.due > 0.005);
   }, [job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1947,7 +1949,7 @@ function JobActionModal({
       setPriceInput(String(job.price));
       if (openInPayFormMode && job.status === "PENDING") {
         // Opened directly from card "Done & Paid" button — jump straight to pay form
-        const allJobs = [{ id: job.id }, ...customerUnpaidJobs];
+        const allJobs = [{ id: job.id }, ...customerUnpaidJobs.filter(j => !j.collecting)];
         setPayJobIds(new Set(allJobs.map(j => j.id)));
         setShowPayForm(true);
       } else {
@@ -1961,7 +1963,7 @@ function JobActionModal({
   const open = job !== null;
   const effectiveAmount = payAmount === "" ? 0 : parseFloat(payAmount);
   const currentVisitAmount = job ? (job.status === "PENDING" ? (parseFloat(priceInput) || job.price) : job.price) : 0;
-  const previousDebt = job ? job.customer.jobs.filter(j => j.id !== job.id).reduce((sum, j) => {
+  const previousDebt = job ? job.customer.jobs.filter(j => j.id !== job.id && !ddCollecting(j)).reduce((sum, j) => {
     const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
     return sum + Math.max(0, j.price - paid);
   }, 0) : 0;
@@ -2112,6 +2114,11 @@ function JobActionModal({
               </div>
 
               {/* Mark as Paid inline form */}
+              {!isSettled && ddCollecting(job) && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                  This clean is being collected by Direct Debit. No need to take payment: it&apos;ll show as paid when the money arrives.
+                </div>
+              )}
               {isSettled ? (
                 <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-800">
                   <CheckCircle2 size={16} className="text-green-600" />
@@ -2121,7 +2128,7 @@ function JobActionModal({
                 <button
                   disabled={isPending}
                   onClick={() => {
-                    setPayJobIds(new Set(customerUnpaidJobs.map(j => j.id)));
+                    setPayJobIds(new Set(customerUnpaidJobs.filter(j => !j.collecting).map(j => j.id)));
                     setPayNotes("");
                     setPayMethod("CASH");
                     setShowPayForm(true);
@@ -2138,6 +2145,7 @@ function JobActionModal({
                     <Banknote size={16} className="text-blue-600" />
                     Mark as Paid
                   </p>
+                  <DdTwiceWarning jobs={customerUnpaidJobs} selected={payJobIds} hidePrices={hidePrices} />
                   {/* Specific jobs mode — always shown */}
                   {customerUnpaidJobs.length > 0 ? (
                     <div className="space-y-2">
@@ -2164,7 +2172,9 @@ function JobActionModal({
                               {!hidePrices && (
                                 <div className="text-right flex-shrink-0">
                                   <p className="text-[11px] text-slate-400">{fmtCurrency(j.price)}</p>
-                                  <p className="text-xs font-semibold text-red-600">{fmtCurrency(j.due)} due</p>
+                                  {j.collecting
+                                    ? <p className="text-xs font-semibold text-blue-700">Direct Debit on its way</p>
+                                    : <p className="text-xs font-semibold text-red-600">{fmtCurrency(j.due)} due</p>}
                                 </div>
                               )}
                             </button>
@@ -2338,7 +2348,7 @@ function JobActionModal({
                 <button
                   disabled={isPending}
                   onClick={() => {
-                    const allJobsForMode = [{ id: job.id, name: job.name ?? undefined, price: currentVisitAmount, paid: 0, due: visitToCollect, date: null as null, isOneOff: job.isOneOff ?? false }, ...customerUnpaidJobs];
+                    const allJobsForMode = [{ id: job.id, name: job.name ?? undefined, price: currentVisitAmount, paid: 0, due: visitToCollect, date: null as null, isOneOff: job.isOneOff ?? false }, ...customerUnpaidJobs.filter(j => !j.collecting)];
                     setPayJobIds(new Set(allJobsForMode.map(j => j.id)));
                     setPayNotes("");
                     setPayMethod("CASH");
@@ -2356,6 +2366,7 @@ function JobActionModal({
                     <Banknote size={16} className="text-blue-600" />
                     Done &amp; Paid
                   </p>
+                  <DdTwiceWarning jobs={customerUnpaidJobs} selected={payJobIds} hidePrices={hidePrices} />
                   {(() => {
                     const allJobsForMode = [{ id: job.id, name: job.name ?? undefined, price: currentVisitAmount, paid: 0, due: visitToCollect, date: null as null, isOneOff: job.isOneOff ?? false }, ...customerUnpaidJobs];
                     return (
@@ -2379,7 +2390,7 @@ function JobActionModal({
                                     <p className="text-xs font-medium text-slate-700 truncate">{j.name || "Window Cleaning"}{j.id === job.id ? " (today)" : ""}</p>
                                     <p className="text-[11px] text-slate-400">{j.date ? fmtDate(j.date) : "Today"}{j.isOneOff ? " · one-off" : ""}</p>
                                   </div>
-                                  {!hidePrices && <div className="text-right flex-shrink-0"><p className="text-[11px] text-slate-400">{fmtCurrency(j.price)}</p><p className="text-xs font-semibold text-red-600">{fmtCurrency(j.due)} due</p></div>}
+                                  {!hidePrices && <div className="text-right flex-shrink-0"><p className="text-[11px] text-slate-400">{fmtCurrency(j.price)}</p>{"collecting" in j && j.collecting ? <p className="text-xs font-semibold text-blue-700">Direct Debit on its way</p> : <p className="text-xs font-semibold text-red-600">{fmtCurrency(j.due)} due</p>}</div>}
                                 </button>
                               );
                             })}
@@ -2739,7 +2750,7 @@ function JobCard({
   const directDebit = !isQuote && paysByDirectDebit(job.customer);
   const onPlan = directDebit && coveredByPlan({ isOneOff: Boolean(job.isOneOff), name: getJobTitle(job) }, job.customer);
   const [ddConfirm, setDdConfirm] = useState(false);
-  const previousDebt = job.customer.jobs.filter(j => j.id !== job.id).reduce((sum, j) => {
+  const previousDebt = job.customer.jobs.filter(j => j.id !== job.id && !ddCollecting(j)).reduce((sum, j) => {
     const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
     return sum + Math.max(0, j.price - paid);
   }, 0);
@@ -2900,15 +2911,26 @@ function JobCard({
             </span>
           )}
           {(() => {
-            const debt = (job.customer.jobs ?? []).reduce((sum, j) => {
-              const paid = (j.allocations ?? []).reduce((s, a) => s + a.amount, 0);
-              return sum + Math.max(0, j.price - paid);
-            }, 0);
-            return debt > 0.005 ? (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 whitespace-nowrap">
-                owes {fmtCurrency(debt)}
-              </span>
-            ) : null;
+            // Cleans being taken by Direct Debit aren't owed: they're on their way.
+            let debt = 0, collecting = 0;
+            for (const j of job.customer.jobs ?? []) {
+              const left = Math.max(0, j.price - (j.allocations ?? []).reduce((s, a) => s + a.amount, 0));
+              if (ddCollecting(j)) collecting += left; else debt += left;
+            }
+            return (
+              <>
+                {collecting > 0.005 && (
+                  <span title="Being collected by Direct Debit" className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">
+                    collecting {fmtCurrency(collecting)}
+                  </span>
+                )}
+                {debt > 0.005 && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 whitespace-nowrap">
+                    owes {fmtCurrency(debt)}
+                  </span>
+                )}
+              </>
+            );
           })()}
           {job.isOneOff && !isQuote && (
             <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
@@ -3662,3 +3684,14 @@ function AddJobModal({ open, onClose, workDayId, currentAreaId, existingCustomer
   );
 }
 
+/** Taking cash for a clean whose Direct Debit is on its way means the customer pays twice. */
+function DdTwiceWarning({ jobs, selected, hidePrices }: { jobs: Array<{ id: number; due: number; collecting?: boolean }>; selected: Set<number>; hidePrices?: boolean }) {
+  const hit = jobs.filter((j) => j.collecting && selected.has(j.id));
+  if (!hit.length) return null;
+  const total = hit.reduce((s, j) => s + j.due, 0);
+  return (
+    <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <strong>Careful:</strong> {hit.length === 1 ? "one of these cleans is" : `${hit.length} of these cleans are`} already being collected by Direct Debit{hidePrices ? "" : ` (${fmtCurrency(total)})`}. Taking payment as well means the customer pays twice. Untick {hit.length === 1 ? "it" : "them"}, or cancel the Direct Debit first.
+    </div>
+  );
+}

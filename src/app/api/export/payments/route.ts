@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Payments export (CSV for Excel / Google Sheets): who paid, when, how much, how, and what for.
- * GET /api/export/payments?from=YYYY-MM-DD&to=YYYY-MM-DD&method=ALL|CASH|BACS|CARD|DD&area=<id>&worker=<userId>&refunds=1
+ * GET /api/export/payments?from=YYYY-MM-DD&to=YYYY-MM-DD&method=ALL|CASH|BACS|CARD|DD&area=<id>&worker=<userId>&refunds=1&pending=1 (add Direct Debits on their way)
  * GET /api/export/payments?options=1 → the areas and people to filter by.
  */
 
@@ -45,6 +45,7 @@ export async function GET(request: Request) {
     const areaId = Number(q.get("area")) || null;
     const worker = q.get("worker") || null;
     const withRefunds = q.get("refunds") !== "0";
+    const withPending = q.get("pending") === "1" && (method === "ALL" || method === "DD") && !worker;
 
     const payments = await prisma.payment.findMany({
       where: {
@@ -91,11 +92,52 @@ export async function GET(request: Request) {
       ];
     });
 
+    // Direct Debits on their way (taken, not failed, not yet paid): every one, whatever the dates,
+    // listed after the payments and not in the total. Date = when GoCardless expects to take it.
+    const pendingRows: Array<Array<string>> = [];
+    let pendingTotal = 0;
+    if (withPending) {
+      const jobs = await prisma.job.findMany({
+        where: {
+          tenantId,
+          goCardlessPaymentId: { not: null },
+          NOT: { goCardlessStatus: { in: ["failed", "cancelled", "customer_approval_denied", "charged_back"] } },
+          ...(areaId ? { customer: { areaId } } : {}),
+        },
+        select: {
+          name: true, price: true, goCardlessPaymentId: true, goCardlessStatus: true, goCardlessChargeDate: true,
+          workDay: { select: { date: true } },
+          customer: { select: { name: true, address: true, area: { select: { name: true } } } },
+          allocations: { where: { payment: { voidedAt: null } }, select: { amount: true } },
+        },
+        orderBy: [{ goCardlessChargeDate: "asc" }, { id: "asc" }],
+        take: 20000,
+      });
+      const STATUS: Record<string, string> = { pending_customer_approval: "Waiting for customer", pending_submission: "Waiting to go to the bank", submitted: "Sent to the bank", confirmed: "Collected, being paid out", retrying: "Being retried" };
+      for (const j of jobs) {
+        const due = Math.max(0, j.price - j.allocations.reduce((sum, a) => sum + a.amount, 0));
+        if (due < 0.005) continue; // already recorded as paid
+        pendingTotal += due;
+        pendingRows.push([
+          j.goCardlessChargeDate ? ukDate(j.goCardlessChargeDate) : "", j.customer.name, j.customer.address, j.customer.area?.name ?? "",
+          "Direct Debit", gbp(due), "Pending Direct Debit",
+          `${j.name || "Window Cleaning"} ${ukDate(j.workDay.date)}`, "", j.goCardlessPaymentId ?? "", STATUS[j.goCardlessStatus ?? ""] ?? (j.goCardlessStatus ?? ""),
+        ]);
+      }
+    }
+
     const body = csv([
       ["Date paid", "Customer", "Address", "Area", "How paid", "Amount (£)", "Type", "What it paid for", "Taken by", "Reference", "Notes"],
       ...rows,
       [],
       ["Total", `${rows.length} payment${rows.length === 1 ? "" : "s"}`, "", "", "", gbp(total)],
+      ...(withPending ? [
+        [],
+        ["Direct Debits on their way (not paid yet, not in the total above). Date = expected collection date."],
+        ...pendingRows,
+        [],
+        ["Pending total", `${pendingRows.length} Direct Debit${pendingRows.length === 1 ? "" : "s"}`, "", "", "", gbp(pendingTotal)],
+      ] : []),
     ]);
     const name = `wyndos-payments-${q.get("from") || "start"}-to-${q.get("to") || new Date().toISOString().slice(0, 10)}.csv`;
     return new NextResponse(body, {

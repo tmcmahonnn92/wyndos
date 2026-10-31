@@ -29,6 +29,7 @@ import { ukMobile } from "@/lib/text-format";
 import { INVOICE_EMAIL_ENABLED } from "@/lib/features";
 import { addressPartsOf, type AddressParts } from "@/lib/address";
 import { EditShareDirectDebit } from "./direct-debit-panel";
+import { ddCollecting } from "@/lib/dd-status";
 
 type Customer = NonNullable<Awaited<ReturnType<typeof getCustomer>>> & {
   goCardlessCustomerReference: string;
@@ -191,6 +192,9 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
       .map((j) => j.id)
   );
   const unpaidJobs = invoiceableJobs.filter((j) => unpaidJobIds.has(j.id));
+  // Cleans whose Direct Debit is on its way: not owed, just not in yet.
+  const collecting = Math.round(unpaidJobs.filter((j) => ddCollecting(j)).reduce((s, j) => s + (jobBalanceMap.get(j.id)?.due ?? 0), 0) * 100) / 100;
+  const owedNow = Math.max(0, Math.round((balance - collecting) * 100) / 100);
   const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set(unpaidJobIds));
   const [invoiceJobFilter, setInvoiceJobFilter] = useState<"unpaid" | "uninvoiced" | "complete" | "all">("unpaid");
   const [invoiceStatus, setInvoiceStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
@@ -475,20 +479,23 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               )}
             </CardContent>
           </Card>
-          <Card className={balance > 0 ? "border-red-200" : credit > 0.005 ? "border-green-200" : ""}>
+          <Card className={owedNow > 0.005 ? "border-red-200" : collecting > 0.005 ? "border-blue-200" : credit > 0.005 ? "border-green-200" : ""}>
             <CardContent className="py-3">
               <p className="text-xs text-slate-500 mb-0.5">Balance</p>
-              <p className={`text-lg font-bold ${balance > 0 ? "text-red-600" : credit > 0.005 ? "text-green-600" : "text-slate-800"}`}>
-                {hidePrices ? "–" : (balance > 0 ? `Owes ${fmtCurrency(balance)}` : credit > 0.005 ? `Credit ${fmtCurrency(credit)}` : "Settled")}
+              <p className={`text-lg font-bold ${owedNow > 0.005 ? "text-red-600" : collecting > 0.005 ? "text-blue-700" : credit > 0.005 ? "text-green-600" : "text-slate-800"}`}>
+                {hidePrices ? "–" : (owedNow > 0.005 ? `Owes ${fmtCurrency(owedNow)}` : collecting > 0.005 ? `Collecting ${fmtCurrency(collecting)}` : credit > 0.005 ? `Credit ${fmtCurrency(credit)}` : "Settled")}
               </p>
-              {balance > 0 && (
+              {!hidePrices && collecting > 0.005 && (
+                <p className="text-xs text-blue-700">{owedNow > 0.005 ? `Plus ${fmtCurrency(collecting)} being collected by Direct Debit` : "By Direct Debit, on its way"}</p>
+              )}
+              {owedNow > 0.005 && (
                 <div className="space-y-1">
                   <p className="text-xs text-slate-500">
-                    {unpaidJobs.length} unpaid job{unpaidJobs.length !== 1 ? "s" : ""}
+                    {unpaidJobs.filter((j) => !ddCollecting(j)).length} unpaid job{unpaidJobs.filter((j) => !ddCollecting(j)).length !== 1 ? "s" : ""}
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <button onClick={() => { setLogPayJobIds(new Set(unpaidJobIds)); setPayOpen(true); }} className="text-xs text-blue-600 hover:underline">Log payment</button>
-                    {canPay && !hidePrices && <BalanceFixButton customerId={customer.id} kind="debt" max={balance} />}
+                    <button onClick={() => { setLogPayJobIds(new Set(unpaidJobs.filter((j) => !ddCollecting(j)).map((j) => j.id))); setPayOpen(true); }} className="text-xs text-blue-600 hover:underline">Log payment</button>
+                    {canPay && !hidePrices && <BalanceFixButton customerId={customer.id} kind="debt" max={owedNow} />}
                   </div>
                 </div>
               )}
@@ -655,7 +662,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
 
         {/* Action buttons */}
         <div className="grid grid-cols-2 gap-2">
-          <Button onClick={() => { setLogPayJobIds(new Set(unpaidJobIds)); setPayOpen(true); }} variant="outline">
+          <Button onClick={() => { setLogPayJobIds(new Set(unpaidJobs.filter((j) => !ddCollecting(j)).map((j) => j.id))); setPayOpen(true); }} variant="outline">
             <PoundSterling size={15} />
             Log Payment
           </Button>
@@ -764,6 +771,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                           if (hidePrices || job.status !== "COMPLETE") return null;
                           const paid = Math.round(job.allocations.reduce((sum, allocation) => sum + allocation.amount, 0) * 100) / 100;
                           if (paid >= job.price - 0.005) return job.price > 0 ? <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-green-50 text-green-700">Paid {fmtCurrency(paid)}</span> : null;
+                          if (ddCollecting(job)) return <span title="Being collected by Direct Debit" className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">Collecting by Direct Debit</span>;
                           if (paid > 0.005) return <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800">Paid {fmtCurrency(paid)} · {fmtCurrency(job.price - paid)} unpaid</span>;
                           return <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-700">Unpaid</span>;
                         })()}
@@ -1177,9 +1185,9 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
       {/* Log Payment Modal */}
       <Modal open={payOpen} onClose={() => setPayOpen(false)} title="Log Payment">
         <div className="space-y-3">
-          {balance > 0 && !hidePrices && (
+          {owedNow > 0.005 && !hidePrices && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800">
-              Balance owed: <strong>{fmtCurrency(balance)}</strong>
+              Balance owed: <strong>{fmtCurrency(owedNow)}</strong>
             </div>
           )}
           <div className="space-y-2">
@@ -1190,6 +1198,14 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                 <button type="button" onClick={() => setLogPayJobIds(new Set())} className="text-slate-400 hover:underline">Clear</button>
               </div>
             </div>
+            {(() => {
+              const twice = unpaidJobs.filter((j) => ddCollecting(j) && logPayJobIds.has(j.id));
+              return twice.length ? (
+                <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <strong>Careful:</strong> {twice.length === 1 ? "one of these cleans is" : `${twice.length} of these cleans are`} already being collected by Direct Debit. Logging a payment as well means the customer pays twice. Untick {twice.length === 1 ? "it" : "them"}, or cancel the Direct Debit first.
+                </div>
+              ) : null;
+            })()}
             {unpaidJobs.length === 0 ? (
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">No unpaid completed jobs found.</div>
             ) : (
@@ -1212,7 +1228,9 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
                       {!hidePrices && (
                         <div className="text-right flex-shrink-0">
                           <p className="text-xs text-slate-400">{fmtCurrency(j.price)}</p>
-                          <p className="text-sm font-semibold text-red-600">{fmtCurrency(due)} due</p>
+                          {ddCollecting(j)
+                            ? <p className="text-xs font-semibold text-blue-700">Direct Debit on its way</p>
+                            : <p className="text-sm font-semibold text-red-600">{fmtCurrency(due)} due</p>}
                         </div>
                       )}
                     </button>
