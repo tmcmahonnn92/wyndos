@@ -330,3 +330,11 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - WhatsApp number: `SUPPORT_WHATSAPP` env (digits, default 447947939782).
 - Trial reminders (`src/lib/trial-reminders.ts`): 3 days before and on the day a trial ends, after 9am UK, once per business per trial end date (marker rows in NotificationEvent, kind `TRIAL_3_DAYS:<date>` / `TRIAL_LAST_DAY:<date>`, sentAt set so the notifications queue ignores them). Runs hourly from `src/instrumentation.ts` and from `/api/cron/notifications`. Skips free-forever and subscribed businesses. Test: `scripts/sim/trial-reminders-check.ts` (needs an SMTP sink).
 - Admin → Businesses: search always shown; sort Newest (default) / Oldest / Name / Most customers.
+
+## Price calculator (new146), internal only
+- Engine `src/lib/pricing-calc.ts` (pure, browser-safe): presets (property type × bedrooms → price + minutes), items (unit each/pane/m²/metre/panel/hour, price, minutes, priced by storey), storey multipliers, adjustments (% or £), frequency multipliers (0 weeks = one-off), minimum, call-out, rounding, VAT, labour rate + margin (commercial "price by time"). `calculate(config, input)` → per visit, net/VAT, minutes (and per person with a crew), per month/year, workings.
+- Price list per business: `TenantSettings.pricingConfig` (JSON, empty = the example UK list, `readPricingConfig` makes saved lists safe). Edited at Quotes → Price calculator → Price list (owners).
+- Page `/quotes/calculator`: House / Detailed / Commercial (buildings or elevations, people, access kit, price by items or time). "Put this price on a quote" picks an open quote.
+- Quote cards: "Price it" opens the calculator; saving marks it quoted at that price/frequency (`priceQuote` recalculates on the server from the saved list) and keeps the answers in `Job.quoteCalc` (re-opened next time).
+- Quote won → `Customer.cleanMinutes` from the calculator; shown on the customer ("about 25 min") and as time left on the day.
+- Migration `20261031090000_price_calculator`. Tests: `scripts/sim/pricing-calc-check.ts`, `scripts/sim/pricing-quote-check.ts`.

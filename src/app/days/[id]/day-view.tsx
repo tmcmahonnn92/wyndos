@@ -915,6 +915,11 @@ export function DayView({
           <span className="text-slate-600">
             <b className="text-green-700 tabular-nums">{doneJobs.length}</b> of <b className="text-slate-800 tabular-nums">{sortedJobs.length}</b> done
             {pendingJobs.length > 0 && <span className="text-slate-400"> · {pendingJobs.length} to go</span>}
+            {(() => {
+              // Customers with a known clean time (from the price calculator): roughly how long is left.
+              const mins = pendingJobs.reduce((s, j) => s + ((j.customer as { cleanMinutes?: number | null }).cleanMinutes ?? 0), 0);
+              return mins > 0 ? <span className="text-slate-400"> · about {mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`}</span> : null;
+            })()}
           </span>
           {!hidePrices && (
             <span className="text-slate-600 tabular-nums">

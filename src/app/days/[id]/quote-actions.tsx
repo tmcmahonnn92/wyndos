@@ -2,10 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardCheck, UserCheck, X } from "lucide-react";
+import { Calculator as CalcIcon, ClipboardCheck, UserCheck, X } from "lucide-react";
 import { markQuoted, markQuoteLost, markQuoteWon } from "@/lib/actions";
 import { PAYMENT_PREFERENCES } from "@/lib/payment-preference";
 import { fmtCurrency, cn } from "@/lib/utils";
+import { Modal } from "@/components/ui/modal";
+import { Calculator } from "@/app/quotes/calculator/calculator";
+import { getPricing, priceQuote, quoteCalcInput } from "@/lib/pricing-actions";
+import type { CalcInput, PricingConfig } from "@/lib/pricing-calc";
 
 type QuoteJob = {
   id: number;
@@ -43,6 +47,14 @@ export function QuoteActions({ job, canMarkLive }: { job: QuoteJob; canMarkLive:
   const [firstClean, setFirstClean] = useState("");
   const [paysBy, setPaysBy] = useState(job.customer.preferredPaymentMethod ?? "");
   const [error, setError] = useState<string | null>(null);
+  const [calc, setCalc] = useState<{ config: PricingConfig; initial: CalcInput | null } | null>(null);
+  const openCalc = async () => {
+    setError(null);
+    try {
+      const [{ config }, initial] = await Promise.all([getPricing(), quoteCalcInput(job.id)]);
+      setCalc({ config, initial });
+    } catch { setError("Couldn't open the price calculator."); }
+  };
 
   const run = (fn: () => Promise<unknown>) => {
     setError(null);
@@ -86,6 +98,13 @@ export function QuoteActions({ job, canMarkLive }: { job: QuoteJob; canMarkLive:
             <ClipboardCheck size={15} /> Mark quoted
           </button>
         )}
+        <button
+          type="button"
+          onClick={openCalc}
+          className="flex flex-1 items-center justify-center gap-2 border-l border-purple-100 py-2.5 text-sm font-semibold text-purple-800 hover:bg-purple-100"
+        >
+          <CalcIcon size={15} /> Price it
+        </button>
         {canMarkLive && (
           <button
             type="button"
@@ -188,6 +207,12 @@ export function QuoteActions({ job, canMarkLive }: { job: QuoteJob; canMarkLive:
         </div>
       )}
       {error && <p className="mx-3 mb-3 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">{error}</p>}
+      <Modal open={Boolean(calc)} onClose={() => setCalc(null)} title="Price it" className="max-w-4xl">
+        {calc && (
+          <Calculator config={calc.config} initial={calc.initial} busy={isPending} useLabel="Save as the quote"
+            onUse={(input) => run(async () => { await priceQuote(job.id, input, note || undefined); setCalc(null); })} />
+        )}
+      </Modal>
     </div>
   );
 }

@@ -93,6 +93,8 @@ model TenantSettings {
   /// Show VAT on invoices (needs a VAT number). Prices are treated as including VAT.
   invoiceVatEnabled Boolean @default(false)
   invoiceVatRate    Float   @default(20)
+  /// Price calculator price list (JSON, see src/lib/pricing-calc.ts). Empty = the default UK list.
+  pricingConfig     String  @default("")
   /// Keep money paid in advance or paid extra as credit for the next cleans.
   allowCustomerCredit Boolean @default(true)
   /// When an area's run is finished, give its next run to the same worker. Off: next run is unassigned.
@@ -368,6 +370,8 @@ model Customer {
   jobName                String        @default("Window Cleaning")
   /// Extra jobs asked for at their next visit (JSON [{name, price, notes}]): added to their next booked clean.
   nextVisitExtras        String        @default("[]")
+  /// Roughly how long their clean takes (minutes), e.g. from the price calculator.
+  cleanMinutes           Int?
   advanceNotice          Boolean       @default(false)
   preferredPaymentMethod String        @default("")
   /// Send this customer their invoices by email (needs an email address).
@@ -480,6 +484,8 @@ model Job {
   quotedPrice          Float?
   quotedFrequencyWeeks Int?
   quotedAt             DateTime?
+  /// Price calculator answers and result behind this quote (JSON), so it can be re-priced.
+  quoteCalc            String?
   /// Worker for this job. Null = follow the work day's assigned worker.
   assignedUserId    String?
   assignedUser      User?     @relation("AssignedWorkerJobs", fields: [assignedUserId], references: [id], onDelete: SetNull)
