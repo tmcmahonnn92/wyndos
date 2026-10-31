@@ -729,6 +729,13 @@ export function SettingsClient({
             <CardHeader><CardTitle><Link2 size={16} className="inline mr-2 text-blue-600" />GoCardless (Direct Debit)</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <GoCardlessConnect available={Boolean(settings.goCardlessConnectAvailable)} connected={Boolean(settings.goCardlessConnected)} environment={settings.goCardlessEnvironment} />
+              {settings.goCardlessConnected && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 space-y-1">
+                  <p className="font-semibold">Worth switching on: Success+ (in your GoCardless account)</p>
+                  <p>When a payment fails because the customer was short of money, GoCardless tries it again on a day they&apos;re most likely to have it (around payday), so you get paid without chasing. Wyndos shows these as <b>GoCardless will retry</b> and never takes the money twice.</p>
+                  <p>Switch it on in GoCardless under <b>Success+</b> (an owner/admin login is needed). Check GoCardlessGoCardless charges a small extra fee for it. <Linkapos;s pricing for it first. <Link href="/guide/direct-debit#problems" className="font-semibold underline">How it works in Wyndos →</Link></p>
+                </div>
+              )}
               <details className="group space-y-3" open={!settings.goCardlessConnectAvailable}>
               {settings.goCardlessConnectAvailable && <summary className="cursor-pointer text-xs font-semibold text-slate-500">Or paste an access token instead</summary>}
               <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 space-y-1">
