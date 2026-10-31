@@ -3094,6 +3094,8 @@ export async function markQuoteWon(
     nextDueDate: data.firstCleanISO ? isoToUTC(data.firstCleanISO) : null,
     sortOrder: (lastInArea?.sortOrder ?? -1) + 1,
     ...(data.preferredPaymentMethod !== undefined ? { preferredPaymentMethod: data.preferredPaymentMethod } : {}),
+    // Priced with the calculator: how long their clean takes comes with it.
+    ...(calcMinutes(job.quoteCalc) ? { cleanMinutes: calcMinutes(job.quoteCalc) } : {}),
   } });
 
   const now = new Date();
@@ -3113,6 +3115,10 @@ export async function markQuoteWon(
   revalidatePath("/customers");
   revalidatePath(`/customers/${job.customerId}`);
   revalidatePath("/scheduler");
+}
+
+function calcMinutes(raw: string | null) {
+  try { const m = Math.round(Number(JSON.parse(raw ?? "null")?.result?.minutes)); return m > 0 ? m : null; } catch { return null; }
 }
 
 /** Owner: the customer said no (or never replied). */

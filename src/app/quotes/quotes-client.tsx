@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ClipboardList, Phone, Plus, RotateCcw } from "lucide-react";
+import { Calculator, ClipboardList, Phone, Plus, RotateCcw } from "lucide-react";
 import type { getQuotes } from "@/lib/actions";
 import { reopenQuote } from "@/lib/actions";
 import { QuoteActions, quoteSummary } from "@/app/days/[id]/quote-actions";
@@ -49,6 +49,10 @@ export function QuotesClient({ quotes }: { quotes: Quote[] }) {
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-800"><ClipboardList size={20} /> Quotes</h1>
           <p className="text-sm text-slate-500">Quote visits and whether they turned into customers.</p>
         </div>
+        <div className="flex gap-2">
+        <Link href="/quotes/calculator" className="flex items-center gap-1.5 rounded-lg border border-purple-200 px-3 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50">
+          <Calculator size={15} /> Price calculator
+        </Link>
         <button
           type="button"
           onClick={() => setBookOpen(true)}
@@ -56,6 +60,7 @@ export function QuotesClient({ quotes }: { quotes: Quote[] }) {
         >
           <Plus size={15} /> Book quote
         </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1">

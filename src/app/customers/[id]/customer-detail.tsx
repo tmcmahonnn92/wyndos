@@ -471,7 +471,7 @@ export function CustomerDetail({ customer, areas, balance, credit = 0, canPay = 
               <p className="text-xs text-slate-500 mb-0.5">Price</p>
               <p className="text-lg font-bold text-slate-800">{hidePrices ? "–" : fmtCurrency(customer.price)}</p>
               {!customer.area.isSystemArea && (
-                <p className="text-xs text-slate-400">every {customer.frequencyWeeks}w{customer.slip === false ? " · no slip" : ""}</p>
+                <p className="text-xs text-slate-400">every {customer.frequencyWeeks}w{customer.slip === false ? " · no slip" : ""}{customer.cleanMinutes ? ` · about ${customer.cleanMinutes < 60 ? `${customer.cleanMinutes} min` : `${Math.floor(customer.cleanMinutes / 60)}h${customer.cleanMinutes % 60 ? ` ${customer.cleanMinutes % 60}m` : ""}`}` : ""}</p>
               )}
             </CardContent>
           </Card>
