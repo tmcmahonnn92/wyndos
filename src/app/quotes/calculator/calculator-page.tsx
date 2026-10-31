@@ -14,9 +14,9 @@ import { PriceListEditor } from "./price-list-editor";
 type OpenQuote = Awaited<ReturnType<typeof openQuotesForPricing>>[number];
 
 /** Quotes → Price calculator: work out a price on the spot, put it on a quote, or edit the price list. */
-export function CalculatorPage({ config, canEdit, saved }: { config: PricingConfig; canEdit: boolean; saved: boolean }) {
+export function CalculatorPage({ config, canEdit, canUse, saved }: { config: PricingConfig; canEdit: boolean; canUse: boolean; saved: boolean }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"calc" | "list">("calc");
+  const [tab, setTab] = useState<"calc" | "list">(canUse ? "calc" : "list");
   const [pending, setPending] = useState<{ input: CalcInput; price: number } | null>(null);
   const [quotes, setQuotes] = useState<OpenQuote[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -43,7 +43,7 @@ export function CalculatorPage({ config, canEdit, saved }: { config: PricingConf
       <Link href="/quotes" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800"><ChevronLeft size={15} /> Quotes</Link>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex items-center gap-2 text-xl font-bold text-slate-800 dark:text-white"><CalcIcon size={20} /> Price calculator</h1>
-        {canEdit && (
+        {canEdit && canUse && (
           <div className="flex gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
             {([["calc", "Calculator"], ["list", "Price list"]] as const).map(([k, l]) => (
               <button key={k} type="button" onClick={() => setTab(k)} className={cn("rounded-lg px-3 py-1.5 text-sm font-semibold", tab === k ? "bg-white text-slate-800 shadow-sm dark:bg-slate-900 dark:text-white" : "text-slate-500")}>{l}</button>

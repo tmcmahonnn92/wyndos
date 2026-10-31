@@ -28,6 +28,8 @@ const STEPS = [
   { id: "workers", title: "Add your workers" },
   { id: "payments", title: "Keep track of money" },
   { id: "direct-debit", title: "Direct Debit (GoCardless)" },
+  { id: "quotes", title: "Quotes and the price calculator" },
+  { id: "extras", title: "Extra jobs for next time" },
   { id: "dashboard", title: "Your dashboard" },
   { id: "help", title: "Help and the app" },
 ];
@@ -105,6 +107,16 @@ export default async function GuidePage() {
               ))}
             </ol>
           </nav>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm print:hidden">
+            <p className="mb-2 text-sm font-semibold text-emerald-900">New in Wyndos</p>
+            <ul className="space-y-1.5 text-sm text-emerald-950">
+              <li><a href="#quotes" className="font-semibold underline">Price calculator</a>: price a house, a detailed job or commercial work in seconds, with how long it takes. Set your own prices.</li>
+              <li><a href="#extras" className="font-semibold underline">Extra jobs for next time</a>: &quot;do the conservatory next time&quot; goes on their next clean by itself.</li>
+              <li><a href="#direct-debit" className="font-semibold underline">Pay by bank</a>: send a link and get paid from their banking app in minutes.</li>
+              <li><a href="#direct-debit" className="font-semibold underline">Success+</a>: GoCardless retries payments that failed for lack of funds, and Wyndos never takes them twice.</li>
+              <li><a href="#workers" className="font-semibold underline">Team permissions</a> for the price calculator and your price list.</li>
+            </ul>
+          </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm print:hidden">
             <p className="mb-2 text-sm font-semibold text-slate-900">More guides</p>
             <Link href="/guide/direct-debit" className="flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:bg-blue-100">
@@ -294,6 +306,11 @@ export default async function GuidePage() {
             <strong>Change job order:</strong> tick this for a worker if they may reorder their day. Leave it off and they always see
             their whole day in the order you set, with no Reorder button.
           </p>
+          <p>
+            <strong>Price calculator</strong> and <strong>Change price list</strong> are permissions too: tick the first for anyone who prices
+            quotes, the second only for whoever sets your prices. You always have both. <strong>Office / admin</strong> gets both,
+            <strong> Senior worker</strong> gets the calculator.
+          </p>
           <Shot src="d-team-reorder" alt="Editing a worker's permissions, with Change Job Order next to Their Days" caption="Settings → Team → edit permissions" />
           <Pair>
             <Shot phone src="p-worker" alt="A worker's dashboard on the phone: their work this month, coming up and cash to hand over" caption="A worker's dashboard" />
@@ -315,7 +332,7 @@ export default async function GuidePage() {
           </ul>
           <p>On a customer&apos;s page, under <strong>Payments</strong>, you can put their money right:</p>
           <ul>
-            <li><strong>Refund this payment</strong>: all or part of it, back through GoCardless or given back yourself. Choose whether the clean is <strong>written off</strong> or <strong>left owing</strong>.</li>
+            <li><strong>Refund this payment</strong>: all or part of it, back through GoCardless or given back yourself. Back through GoCardless, the clean&apos;s price comes down by the refund. Given back yourself, choose whether the clean is <strong>written off</strong> or <strong>left owing</strong>.</li>
             <li><strong>Move payment to another customer</strong>: logged against the wrong person.</li>
             <li><strong>Use credit for another customer</strong>: one person paying for two houses. It pays the other customer&apos;s oldest unpaid cleans and isn&apos;t counted as new money.</li>
             <li><strong>Write off what they owe</strong>, <strong>Remove credit</strong> or <strong>Add credit</strong> (credit that isn&apos;t money received, such as carried over from your old system). <strong>Refund credit</strong> gives spare credit back.</li>
@@ -344,26 +361,93 @@ export default async function GuidePage() {
             </p>
             <Shot phone src="p-customer-dd" alt="A customer's Direct Debit section: Active, shared with another customer, each clean collected separately" caption="A house on someone else's Direct Debit" />
           </div>
+          <ul>
+            <li>
+              <strong>Pay by bank:</strong> for money you want now (paid on the day, a catch-up, an extra job), open a finished clean and press
+              <strong> Pay by bank (link)</strong>, or <strong>Pay by bank</strong> on the customer. They pay from their banking app (no card, no
+              Direct Debit needed) and it shows as paid in minutes. Open the link on your phone for them, or text it.
+            </li>
+            <li>
+              <strong>Success+</strong> (switch it on in your GoCardless account): payments that fail for lack of funds are retried by GoCardless
+              around payday. They show as <strong>GoCardless will retry</strong>, with no Try again, so nobody is charged twice.
+            </li>
+          </ul>
           <p>
             <Link href="/guide/direct-debit" className="font-semibold text-blue-700 underline">Read the full Direct Debit guide →</Link>{" "}
-            (failed payments, refunds, moving from another program, sharing).
+            (failed payments, Success+, refunds, Pay by bank, moving from another program, sharing).
           </p>
         </Step>
 
-        <Step n={11} id="dashboard" title="Your dashboard">
+        <Step n={11} id="quotes" title="Quotes and the price calculator">
+          <p>
+            <strong>Quotes</strong> keeps track of quote visits and whether they turned into customers. The <strong>Price calculator</strong>{" "}
+            works out a price on the spot, on the doorstep or over the phone, from your own price list, and says roughly how long the job takes.
+          </p>
+          <ol>
+            <li>Open <strong>Quotes → Price calculator</strong>, or press <strong>Price it</strong> on a quote.</li>
+            <li>
+              Choose how to price it:
+              <ul>
+                <li><strong>House:</strong> property type and bedrooms, plus any extras (solar panels, conservatory roof and so on).</li>
+                <li><strong>Detailed:</strong> count windows by type (standard, large, bay, sash, roof), doors, frames, gutters, cladding. Pick the storey for higher ones.</li>
+                <li><strong>Commercial:</strong> add each building or elevation, the number of people and any access kit or hire. Price it by the items, or by time (your labour rate plus margin).</li>
+              </ul>
+            </li>
+            <li>Pick <strong>how often</strong> and tick any <strong>adjustments</strong> (first clean, inside as well, hard water, difficult access, discount).</li>
+            <li>Read the price per visit, the time, and what it&apos;s worth a month and a year. <strong>Show workings</strong> lists every line.</li>
+            <li>On a quote, press <strong>Save as the quote</strong>. From the calculator page, <strong>Put this price on a quote</strong> and pick the quote.</li>
+          </ol>
+          <Shot src="d-calculator" alt="The price calculator: a semi-detached 3 bed with solar panels and a conservatory roof, price per visit, time, a month and a year, and the workings" caption="Quotes → Price calculator" />
+          <div className="grid items-start gap-6 sm:grid-cols-[1fr_280px]">
+            <ul>
+              <li>The answers are saved with the quote, so <strong>Price it</strong> opens where you left off.</li>
+              <li>When the quote becomes a customer, the time comes with it: their page shows <strong>about 25 min</strong>, and a day shows roughly how long is left.</li>
+            </ul>
+            <Shot phone src="p-price-it" alt="Price it on a phone: detached 4 bed, inside as well, £47 every 4 weeks, about 28 minutes" caption="Price it on a quote" />
+          </div>
+          <Shot src="d-calculator-commercial" alt="Commercial pricing: two buildings of glass panes, one on the third storey, two people, priced by items or by time" caption="Commercial: buildings, people and access kit" />
+          <p><strong>Your price list</strong> (Price calculator → <strong>Price list</strong>) is yours to set. It starts with example UK prices: change them to your own and press <strong>Save price list</strong>.</p>
+          <ul>
+            <li><strong>Houses:</strong> a price and time for each property type and number of bedrooms.</li>
+            <li><strong>Items:</strong> anything you count, with its unit (each, per pane, per m², per metre, per panel, per hour), price and minutes. Tick <strong>Height</strong> for items that cost more higher up.</li>
+            <li><strong>Adjustments</strong> (% or £), <strong>Frequency</strong> (how the price changes with how often), and <strong>Rules</strong>: minimum charge, call-out, rounding, VAT, labour rate, margin and the height multipliers.</li>
+          </ul>
+          <Shot src="d-price-list-items" alt="The price list's Items: name, group, unit, price, minutes and whether it's priced by height" caption="Price list → Items" />
+          <Tip>Price the same house a few ways and compare with what you charge now, then adjust the list until it matches. After that, everyone in your team quotes the same way.</Tip>
+        </Step>
+
+        <Step n={12} id="extras" title="Extra jobs for next time">
+          <div className="grid items-start gap-6 sm:grid-cols-[1fr_280px]">
+            <div className="space-y-4">
+              <p>Asked on the doorstep to do the conservatory or gutters next time? Add it now, even though their next clean isn&apos;t booked yet.</p>
+              <ol>
+                <li>Open the customer and press <strong>One-off Job</strong>.</li>
+                <li>Leave <strong>With their next visit</strong> chosen, give it a name and price, and add it.</li>
+              </ol>
+              <ul>
+                <li>It shows on the customer under <strong>For their next visit</strong> until it&apos;s booked.</li>
+                <li>It goes on the same day as their next clean as soon as that&apos;s booked, for example when you finish today&apos;s run. Never twice.</li>
+                <li>For something to do today, choose <strong>On a set date</strong> instead.</li>
+              </ul>
+            </div>
+            <Shot phone src="p-next-visit" alt="Add One-off Job with 'With their next visit' chosen: Conservatory roof, £35, inside and out" caption="An extra for their next visit" />
+          </div>
+        </Step>
+
+        <Step n={13} id="dashboard" title="Your dashboard">
           <div className="grid items-start gap-6 sm:grid-cols-[1fr_280px]">
             <div className="space-y-4">
               <p>
                 The <strong>Dashboard</strong> is your start point each morning: today&apos;s round, a short <strong>To do</strong> list
                 (reminders to send, people to chase, areas overdue) and what you&apos;re owed.
               </p>
-              <p>Each to-do has a button that takes you straight to the job.</p>
+              <p>Each to-do has a button that takes you straight to the job. The first five show; press <strong>Show more</strong> for the rest.</p>
             </div>
             <Shot phone src="p-dashboard" alt="The dashboard on a phone: today's round, to-do list, round value and money owed" />
           </div>
         </Step>
 
-        <Step n={12} id="help" title="Help and the app">
+        <Step n={14} id="help" title="Help and the app">
           <div className="grid items-start gap-6 sm:grid-cols-[1fr_280px]">
             <div className="space-y-4">
               <p>
@@ -376,7 +460,8 @@ export default async function GuidePage() {
               </p>
               <p>
                 Stuck? Use <strong>Help</strong> in the app or email{" "}
-                <a href="mailto:support@wyndos.io" className="font-semibold text-blue-700 underline">support@wyndos.io</a>.
+                <a href="mailto:support@wyndos.io" className="font-semibold text-blue-700 underline">support@wyndos.io</a>, or WhatsApp{" "}
+                <a href="https://wa.me/447947939782" className="font-semibold text-blue-700 underline">07947 939782</a>. Struggling to get your round in? Send your spreadsheet or old app&apos;s export and it&apos;ll be imported for you.
                 You&apos;ll hear back from the person who builds Wyndos, usually within a working day.
               </p>
             </div>

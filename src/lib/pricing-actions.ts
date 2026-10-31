@@ -2,20 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
-import { requireOwner, requirePerm } from "@/lib/guards";
+import { hasPermission, requirePerm } from "@/lib/guards";
 import { calculate, readPricingConfig, type CalcInput, type PricingConfig } from "@/lib/pricing-calc";
 
 /** The business's price list (the default UK list until they change it). */
 export async function getPricing() {
-  // Anyone who does quotes (customers) or quote visits (schedule).
-  const actor = await requirePerm("customers").catch(() => requirePerm("schedule"));
+  const actor = await requirePerm("calculator").catch(() => requirePerm("pricelist"));
   const s = await prisma.tenantSettings.findUnique({ where: { tenantId: actor.tenantId }, select: { pricingConfig: true } });
-  return { config: readPricingConfig(s?.pricingConfig), canEdit: actor.role === "OWNER" || actor.role === "SUPER_ADMIN", saved: Boolean(s?.pricingConfig) };
+  return { config: readPricingConfig(s?.pricingConfig), canEdit: hasPermission(actor, "pricelist"), canUse: hasPermission(actor, "calculator"), saved: Boolean(s?.pricingConfig) };
 }
 
-/** Owner: save the price list. */
+/** Save the price list (owners, or anyone allowed to change it). */
 export async function savePricing(config: PricingConfig) {
-  const actor = await requireOwner();
+  const actor = await requirePerm("pricelist");
   const clean = readPricingConfig(JSON.stringify(config));
   clean.version = (readPricingConfig((await prisma.tenantSettings.findUnique({ where: { tenantId: actor.tenantId }, select: { pricingConfig: true } }))?.pricingConfig).version || 0) + 1;
   await prisma.tenantSettings.update({ where: { tenantId: actor.tenantId }, data: { pricingConfig: JSON.stringify(clean) } });
@@ -23,16 +22,16 @@ export async function savePricing(config: PricingConfig) {
   return clean;
 }
 
-/** Owner: back to the default UK list. */
+/** Back to the example UK list. */
 export async function resetPricing() {
-  const actor = await requireOwner();
+  const actor = await requirePerm("pricelist");
   await prisma.tenantSettings.update({ where: { tenantId: actor.tenantId }, data: { pricingConfig: "" } });
   revalidatePath("/quotes/calculator");
 }
 
 /** Open quotes to put a calculated price on. */
 export async function openQuotesForPricing() {
-  const actor = await requirePerm("customers");
+  const actor = await requirePerm("calculator");
   const quotes = await prisma.job.findMany({
     where: { tenantId: actor.tenantId, isQuote: true, quoteStatus: { in: ["TO_VISIT", "QUOTED"] } },
     select: { id: true, quotedPrice: true, customer: { select: { name: true, address: true } }, workDay: { select: { date: true } } },
@@ -46,7 +45,7 @@ export async function openQuotesForPricing() {
  * saved so it can be re-priced. The price is worked out again here from the saved price list.
  */
 export async function priceQuote(jobId: number, input: CalcInput, note?: string) {
-  const actor = await requirePerm("schedule");
+  const actor = await requirePerm("calculator");
   const s = await prisma.tenantSettings.findUnique({ where: { tenantId: actor.tenantId }, select: { pricingConfig: true } });
   const config = readPricingConfig(s?.pricingConfig);
   const result = calculate(config, input);
@@ -60,7 +59,7 @@ export async function priceQuote(jobId: number, input: CalcInput, note?: string)
 
 /** The saved answers behind a quote (to open it in the calculator again). */
 export async function quoteCalcInput(jobId: number) {
-  const actor = await requirePerm("customers").catch(() => requirePerm("schedule"));
+  const actor = await requirePerm("calculator");
   const job = await prisma.job.findFirst({ where: { id: Number(jobId), tenantId: actor.tenantId, isQuote: true }, select: { quoteCalc: true } });
   try { return (JSON.parse(job?.quoteCalc ?? "null")?.input ?? null) as CalcInput | null; } catch { return null; }
 }

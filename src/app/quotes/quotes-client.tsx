@@ -29,7 +29,7 @@ function fmtDay(value: string | Date) {
   return `${DAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
-export function QuotesClient({ quotes }: { quotes: Quote[] }) {
+export function QuotesClient({ quotes, canPrice = false, canOpenCalculator = false }: { quotes: Quote[]; canPrice?: boolean; canOpenCalculator?: boolean }) {
   const router = useRouter();
   const { open: bookOpen, setOpen: setBookOpen, close: closeBooking } = useActionParam("book");
   const [tab, setTab] = useState<(typeof SECTIONS)[number]["key"]>("QUOTED");
@@ -44,19 +44,21 @@ export function QuotesClient({ quotes }: { quotes: Quote[] }) {
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 px-4 py-5">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-800"><ClipboardList size={20} /> Quotes</h1>
           <p className="text-sm text-slate-500">Quote visits and whether they turned into customers.</p>
         </div>
         <div className="flex gap-2">
-        <Link href="/quotes/calculator" className="flex items-center gap-1.5 rounded-lg border border-purple-200 px-3 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50">
-          <Calculator size={15} /> Price calculator
-        </Link>
+        {canOpenCalculator && (
+          <Link href="/quotes/calculator" className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-purple-200 px-3 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50">
+            <Calculator size={15} /> Price calculator
+          </Link>
+        )}
         <button
           type="button"
           onClick={() => setBookOpen(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-sm font-semibold text-white"
+          className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-purple-600 px-3 py-2 text-sm font-semibold text-white"
         >
           <Plus size={15} /> Book quote
         </button>
@@ -129,7 +131,7 @@ export function QuotesClient({ quotes }: { quotes: Quote[] }) {
                     </button>
                   </div>
                 ) : (
-                  <QuoteActions job={quote} canMarkLive />
+                  <QuoteActions job={quote} canMarkLive canPrice={canPrice} />
                 )}
               </li>
             );

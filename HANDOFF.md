@@ -337,4 +337,5 @@ Round management for window cleaners (wyndos.io). Owner: Tom. Keep replies to To
 - Page `/quotes/calculator`: House / Detailed / Commercial (buildings or elevations, people, access kit, price by items or time). "Put this price on a quote" picks an open quote.
 - Quote cards: "Price it" opens the calculator; saving marks it quoted at that price/frequency (`priceQuote` recalculates on the server from the saved list) and keeps the answers in `Job.quoteCalc` (re-opened next time).
 - Quote won → `Customer.cleanMinutes` from the calculator; shown on the customer ("about 25 min") and as time left on the day.
+- Permissions: `calculator` (use it, Price it on quotes) and `pricelist` (change the price list); owners have both. "Office" role has both, "Senior worker" has calculator.
 - Migration `20261031090000_price_calculator`. Tests: `scripts/sim/pricing-calc-check.ts`, `scripts/sim/pricing-quote-check.ts`.

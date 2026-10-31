@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { createContext, useContext, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Calculator as CalcIcon, ClipboardCheck, UserCheck, X } from "lucide-react";
 import { markQuoted, markQuoteLost, markQuoteWon } from "@/lib/actions";
@@ -35,7 +35,12 @@ export function quoteStatusLabel(status: string | null | undefined) {
  * Buttons on a quote visit card. Workers mark it quoted (price + how often);
  * owners can also mark the customer live straight away, or lost.
  */
-export function QuoteActions({ job, canMarkLive }: { job: QuoteJob; canMarkLive: boolean }) {
+/** Whether this person may use the price calculator (set by the day view; the Quotes page passes it). */
+export const CanPriceContext = createContext(false);
+
+export function QuoteActions({ job, canMarkLive, canPrice }: { job: QuoteJob; canMarkLive: boolean; canPrice?: boolean }) {
+  const pricingAllowed = useContext(CanPriceContext);
+  const showPriceIt = canPrice ?? pricingAllowed;
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [panel, setPanel] = useState<"none" | "quoted" | "live">("none");
@@ -98,13 +103,13 @@ export function QuoteActions({ job, canMarkLive }: { job: QuoteJob; canMarkLive:
             <ClipboardCheck size={15} /> Mark quoted
           </button>
         )}
-        <button
+        {showPriceIt && <button
           type="button"
           onClick={openCalc}
           className="flex flex-1 items-center justify-center gap-2 border-l border-purple-100 py-2.5 text-sm font-semibold text-purple-800 hover:bg-purple-100"
         >
           <CalcIcon size={15} /> Price it
-        </button>
+        </button>}
         {canMarkLive && (
           <button
             type="button"

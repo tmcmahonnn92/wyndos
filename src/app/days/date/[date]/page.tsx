@@ -49,6 +49,7 @@ export default async function DatePage({ params }: Props) {
       canReschedule={canReschedule}
       canText={canText}
       allowCredit={settings?.allowCustomerCredit ?? true}
+      canPrice={user.role !== "WORKER" || (user.permissions ?? []).includes("calculator")}
       payByBankOn={Boolean(settings?.goCardlessOn && settings?.goCardlessConfigured && (user.role !== "WORKER" || (user.permissions ?? []).includes("payments")))}
       runSiblings={runSiblings}
       canReorderWork={canReorderWork}

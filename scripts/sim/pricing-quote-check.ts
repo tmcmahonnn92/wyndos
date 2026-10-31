@@ -1,6 +1,6 @@
 /** Price calculator on quotes: price saved from the server's own price list, answers kept, time carried to the customer. */
 import prisma from "@/lib/db";
-import { createBusiness, setToday, settle } from "./lib";
+import { createBusiness, setToday, settle, loginAs } from "./lib";
 import { defaultPricingConfig } from "@/lib/pricing-calc";
 
 let failed = 0;
@@ -34,6 +34,24 @@ async function main() {
   await act.markQuoteWon(quote.id, { areaId: area.id, price: 40, frequencyWeeks: 4 });
   const c = await prisma.customer.findUniqueOrThrow({ where: { id: quote.customerId } });
   check("won: customer's clean time from the calculator (18 + 15 = 33 min)", c.cleanMinutes === 33, String(c.cleanMinutes));
+
+  // Workers: what they can do depends on the two permissions.
+  const asWorker = async (perms: string[]) => {
+    const u = await prisma.user.create({ data: { email: `w${Date.now()}${Math.random()}@sim.test`, name: "W", role: "WORKER", tenantId, onboardingComplete: true } });
+    await prisma.membership.create({ data: { userId: u.id, tenantId, role: "WORKER", permissions: JSON.stringify(perms) } });
+    loginAs(u.id, tenantId);
+  };
+  const ok = (p: Promise<unknown>) => p.then(() => true, () => false);
+  await asWorker(["dashboard", "schedule"]);
+  check("worker without permission: no calculator, can't change prices", !(await ok(pa.getPricing())) && !(await ok(pa.savePricing(cfg))));
+  await asWorker(["dashboard", "schedule", "calculator"]);
+  const g = await pa.getPricing();
+  check("worker with Price calculator: can use it, can't change the price list", g.canUse && !g.canEdit && !(await ok(pa.savePricing(cfg))));
+  await asWorker(["dashboard", "pricelist"]);
+  const g2 = await pa.getPricing();
+  check("worker with Change price list: can save it", g2.canEdit && (await ok(pa.savePricing(cfg))));
+  const owner = await prisma.membership.findFirstOrThrow({ where: { tenantId, role: "OWNER" } });
+  loginAs(owner.userId, tenantId);
 
   await pa.resetPricing();
   check("reset: back to the example list", !(await pa.getPricing()).saved);
