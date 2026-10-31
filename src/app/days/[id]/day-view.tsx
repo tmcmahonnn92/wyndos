@@ -76,7 +76,7 @@ import { PhoneOutboxModal } from "@/components/phone-outbox-modal";
 import { SharePdfButton } from "@/components/share-pdf-button";
 import { hasPin, mapsHref, mapsPoint } from "@/lib/maps-link";
 import { getDayCleanedTextStatus, getPhoneOutbox, textDayCleaned } from "@/lib/text-actions";
-import { QuoteActions, quoteCardClass, quoteSummary } from "./quote-actions";
+import { CanPriceContext, QuoteActions, quoteCardClass, quoteSummary } from "./quote-actions";
 import { getQueue, isNetworkError, onQueueChange, runOrQueue } from "@/lib/offline-queue";
 import { expectsPaymentAtDoor, normalisePreference, preferenceLabel } from "@/lib/payment-preference";
 import { fmtDate, fmtShortDate, fmtCurrency, cn } from "@/lib/utils";
@@ -156,6 +156,8 @@ interface Props {
   canEditCustomers?: boolean;
   /** GoCardless connected and this person takes payments: Pay by Bank on finished cleans. */
   payByBankOn?: boolean;
+  /** May use the price calculator on quote visits ("Price it"). */
+  canPrice?: boolean;
 }
 
 /** After moving a job: offer to make it permanent. */
@@ -200,6 +202,7 @@ export function DayView({
   canReorderWork = true,
   canEditCustomers = false,
   payByBankOn = false,
+  canPrice = false,
 }: Props) {
   const todayDateValue = new Date().toISOString().slice(0, 10);
   const scheduledDateValue = dateISO;
@@ -887,6 +890,7 @@ export function DayView({
     : { variant: "muted" as const, label: days.length ? "Planned" : "Free" };
 
   return (
+    <CanPriceContext.Provider value={canPrice}>
     <div className="max-w-lg mx-auto">
       {/* Sticky header */}
       <div className="sticky top-0 z-30 bg-white border-b border-slate-100 shadow-sm">
@@ -1842,6 +1846,7 @@ export function DayView({
         />
       )}
     </div>
+    </CanPriceContext.Provider>
   );
 }
 

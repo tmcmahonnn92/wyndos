@@ -19,6 +19,8 @@ export const PERMISSIONS = {
   SETTINGS:    "settings",    // access business settings
   VIEW_PRICES: "viewprices",  // see job/customer prices
   MESSAGING:   "messaging",   // send texts: day reminders and bulk messages
+  CALCULATOR:  "calculator",  // use the price calculator and price quotes with it
+  PRICE_LIST:  "pricelist",   // change the price list the calculator uses
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -28,6 +30,8 @@ export const ALL_PERMISSIONS: Permission[] = [
   "dashboard", "schedule", "reorder", "viewprices",
   // Customers and money
   "customers", "payments", "messaging",
+  // Pricing
+  "calculator", "pricelist",
   // Planning
   "scheduler", "areas", "routeoptimiser",
   // Office
@@ -49,13 +53,13 @@ export const ROLE_PRESETS: Array<{ key: string; label: string; description: stri
     key: "senior",
     label: "Senior worker",
     description: "Also sees customers and payments, and can plan days.",
-    permissions: ["dashboard", "schedule", "reorder", "viewprices", "customers", "payments", "scheduler", "routeoptimiser"],
+    permissions: ["dashboard", "schedule", "reorder", "viewprices", "customers", "payments", "scheduler", "routeoptimiser", "calculator"],
   },
   {
     key: "office",
     label: "Office / admin",
     description: "Everything except business settings.",
-    permissions: ["dashboard", "schedule", "reorder", "scheduler", "routeoptimiser", "customers", "areas", "payments", "viewprices", "messaging", "accounting"],
+    permissions: ["dashboard", "schedule", "reorder", "scheduler", "routeoptimiser", "customers", "areas", "payments", "viewprices", "messaging", "accounting", "calculator", "pricelist"],
   },
 ];
 
@@ -70,6 +74,8 @@ export const PERMISSION_LABELS: Record<Permission, { label: string; description:
   customers:  { label: "Customers",     description: "Customer list: view, add and edit; quotes"              },
   payments:   { label: "All payments",  description: "Every customer payment, log or edit any, invoices"      },
   messaging:  { label: "Texts",         description: "Send day reminders and bulk texts"                      },
+  calculator: { label: "Price calculator", description: "Work out prices and price quotes with the calculator" },
+  pricelist:  { label: "Change price list", description: "Set the prices, times and rules the calculator uses" },
   scheduler:  { label: "Plan the diary", description: "Scheduler: book, move and give out days"               },
   areas:      { label: "Areas",         description: "Create and change areas and their frequency"            },
   routeoptimiser: { label: "Route optimiser", description: "Optimise route order (hidden for now)"            },
