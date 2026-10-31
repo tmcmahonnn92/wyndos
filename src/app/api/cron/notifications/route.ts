@@ -11,5 +11,7 @@ export async function GET(request: Request) {
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
-  return NextResponse.json({ ok: true, ...(await processDueNotifications()) });
+  const { sendTrialReminders } = await import("@/lib/trial-reminders");
+  const trial = await sendTrialReminders().catch((e) => { console.error("[cron] trial reminders", e); return { sent: 0 }; });
+  return NextResponse.json({ ok: true, ...(await processDueNotifications()), trialReminders: trial.sent });
 }
