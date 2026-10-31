@@ -733,7 +733,7 @@ export function SettingsClient({
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 space-y-1">
                   <p className="font-semibold">Worth switching on: Success+ (in your GoCardless account)</p>
                   <p>When a payment fails because the customer was short of money, GoCardless tries it again on a day they&apos;re most likely to have it (around payday), so you get paid without chasing. Wyndos shows these as <b>GoCardless will retry</b> and never takes the money twice.</p>
-                  <p>Switch it on in GoCardless under <b>Success+</b> (an owner/admin login is needed). Check GoCardlessGoCardless charges a small extra fee for it. <Linkapos;s pricing for it first. <Link href="/guide/direct-debit#problems" className="font-semibold underline">How it works in Wyndos →</Link></p>
+                  <p>Switch it on in GoCardless under <b>Success+</b> (an owner/admin login is needed). Check GoCardlessCheck GoCardless&apos;s pricing for it first. <Link href="/guide/direct-debit#problems" className="font-semibold underline">How it works in Wyndos →</Link></p>
                 </div>
               )}
               <details className="group space-y-3" open={!settings.goCardlessConnectAvailable}>
