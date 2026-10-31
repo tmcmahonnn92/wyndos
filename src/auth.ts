@@ -110,6 +110,9 @@ async function ensureGoogleOwnerSetup(userId: string, profile: { name?: string |
       },
     });
   });
+  // Tell us straight away (not only once they finish setting up).
+  const { notifyNewSignup } = await import("@/lib/platform-email");
+  await notifyNewSignup({ companyName, ownerName, email, how: "Google" });
 }
 
 function getAuthSecret() {

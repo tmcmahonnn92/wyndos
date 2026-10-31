@@ -7,7 +7,7 @@ import { cookies } from "next/headers";
 import { hash, compare } from "bcryptjs";
 import { addDays } from "date-fns";
 import nodemailer from "nodemailer";
-import { platformEmailConfigured, sendPlatformEmail, SUPPORT_COPY, SUPPORT_TO } from "@/lib/platform-email";
+import { notifyNewSignup, platformEmailConfigured, sendPlatformEmail, SUPPORT_COPY, SUPPORT_TO } from "@/lib/platform-email";
 import prisma from "@/lib/db";
 import { auth } from "@/auth";
 import { ACTIVE_TENANT_COOKIE } from "@/lib/auth-cookies";
@@ -158,6 +158,8 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
       // A mail problem must never stop a sign-up; they can resend from the banner.
       console.error("[registerOwner] verification email failed", issue);
     }
+    // Tell us straight away (not only once they finish setting up).
+    await notifyNewSignup({ companyName, ownerName: name, email, how: "Email and password" });
 
     return { ok: true, ...result };
   } catch (err) {
@@ -255,6 +257,8 @@ async function sendSignupEmails(d: {
 }) {
   const base = (process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "https://wyndos.io").replace(/\/$/, "");
   const first = d.ownerName.split(" ")[0] || "there";
+  // Each email on its own: one failing (e.g. the customer's mailbox refusing it) never stops the other.
+  const welcome = async () => {
   if (d.email) {
     const steps = [
       ["Import your customers", `${base}/customers/import`, "Upload a spreadsheet. Areas are created for you."],
@@ -271,20 +275,24 @@ async function sendSignupEmails(d: {
 <p>Stuck? Use <strong>Help &amp; support</strong> in the app, or just reply to this email.</p><p>Wyndos</p></div>`,
     });
   }
+  };
   const to = SUPPORT_TO;
   const info = d.signupInfo;
   const rows: Array<[string, string]> = [
     ["Business", d.companyName], ["Owner", `${d.ownerName} <${d.email}>`], ["Phone", d.phone], ["Address", d.address], ["Website", d.website],
     ["Customers", info.customerCount], ["Team", info.teamSize], ["Payments", info.paymentMethods.join(", ")], ["Found us", info.heardFrom],
   ];
-  await sendPlatformEmail({
+  const admin = () => sendPlatformEmail({
     to,
     bcc: SUPPORT_COPY,
     replyTo: d.email || undefined,
-    subject: `New sign-up: ${d.companyName}`,
+    subject: `Set up: ${d.companyName}`,
     text: rows.map(([k, v]) => `${k}: ${v || "-"}`).join("\n"),
     html: `<table style="font-family:Arial,sans-serif;font-size:14px">${rows.map(([k, v]) => `<tr><td style="padding:2px 12px 2px 0;font-weight:bold">${k}</td><td>${escHtml(v || "-")}</td></tr>`).join("")}</table>`,
   });
+  const [a, w] = await Promise.allSettled([admin(), welcome()]);
+  if (a.status === "rejected") console.error("[signup] admin email failed", a.reason);
+  if (w.status === "rejected") console.error("[signup] welcome email failed", w.reason);
 }
 
 export async function completeOwnerOnboarding(input: OnboardingInput): Promise<OnboardingResult> {
