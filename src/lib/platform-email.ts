@@ -46,3 +46,26 @@ export function appUrl(path = "") {
   const base = (process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
   return `${base}${path}`;
 }
+
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+
+/**
+ * Tell Wyndos (support + Tom) about a new business the moment the account is made, before
+ * they've finished setting up (many never do). Never throws: a mail problem mustn't stop a sign-up.
+ */
+export async function notifyNewSignup(d: { companyName: string; ownerName: string; email: string; how: string }) {
+  if (!platformEmailConfigured()) return;
+  const rows: Array<[string, string]> = [["Business", d.companyName], ["Owner", d.ownerName], ["Email", d.email], ["Signed up with", d.how]];
+  try {
+    await sendPlatformEmail({
+      to: SUPPORT_TO,
+      bcc: SUPPORT_COPY,
+      replyTo: d.email || undefined,
+      subject: `New sign-up: ${d.companyName}`,
+      text: `${rows.map(([k, v]) => `${k}: ${v || "-"}`).join("\n")}\n\nThey haven't finished setting up yet. You'll get their details (customers, team, how they found us) when they do.\n${appUrl("/admin")}`,
+      html: `<table style="font-family:Arial,sans-serif;font-size:14px">${rows.map(([k, v]) => `<tr><td style="padding:2px 12px 2px 0;font-weight:bold">${k}</td><td>${esc(v || "-")}</td></tr>`).join("")}</table><p style="font-family:Arial,sans-serif;font-size:13px;color:#64748b">They haven't finished setting up yet. You'll get their details when they do. <a href="${esc(appUrl("/admin"))}">Admin</a></p>`,
+    });
+  } catch (issue) {
+    console.error("[notifyNewSignup]", issue);
+  }
+}
