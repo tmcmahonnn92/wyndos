@@ -28,6 +28,7 @@ const MIN_REASON_LENGTH = 12;
 export function BusinessesPanel({ tenants, mode }: { tenants: Tenant[]; mode: "mine" | "all" }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<"newest" | "oldest" | "name" | "customers">("newest");
   const [openFor, setOpenFor] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
@@ -56,10 +57,17 @@ export function BusinessesPanel({ tenants, mode }: { tenants: Tenant[]; mode: "m
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const joined = (t: Tenant) => new Date(t.createdAt).getTime();
+    const by = {
+      newest: (a: Tenant, b: Tenant) => joined(b) - joined(a),
+      oldest: (a: Tenant, b: Tenant) => joined(a) - joined(b),
+      name: (a: Tenant, b: Tenant) => a.name.localeCompare(b.name),
+      customers: (a: Tenant, b: Tenant) => b.customerCount - a.customerCount || joined(b) - joined(a),
+    }[sort];
     return tenants
       .filter((t) => !q || `${t.name} ${t.ownerEmail ?? ""} ${t.slug}`.toLowerCase().includes(q))
-      .sort((a, b) => Number(b.mine) - Number(a.mine) || a.name.localeCompare(b.name));
-  }, [tenants, query]);
+      .sort(by);
+  }, [tenants, query, sort]);
 
   const post = async (url: string, body: object, tenantId: number) => {
     setBusy(tenantId);
@@ -82,8 +90,8 @@ export function BusinessesPanel({ tenants, mode }: { tenants: Tenant[]; mode: "m
 
   return (
     <div className="space-y-3">
-      {mode === "all" && (
-        <label className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex min-w-[200px] flex-1 items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2">
           <Search className="h-4 w-4 text-slate-500" />
           <input
             value={query}
@@ -92,7 +100,15 @@ export function BusinessesPanel({ tenants, mode }: { tenants: Tenant[]; mode: "m
             className="min-w-0 flex-1 bg-transparent text-sm text-slate-100 outline-none"
           />
         </label>
-      )}
+        <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="Sort businesses"
+          className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-100">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="name">Name A–Z</option>
+          <option value="customers">Most customers</option>
+        </select>
+        <span className="text-xs text-slate-500">{shown.length} of {tenants.length}</span>
+      </div>
       {error && <p className="rounded-lg border border-red-800 bg-red-950/50 px-3 py-2 text-sm text-red-300">{error}</p>}
 
       <ul className="divide-y divide-slate-800 overflow-hidden rounded-xl border border-slate-800 bg-slate-900">

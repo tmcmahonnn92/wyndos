@@ -160,6 +160,11 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
     }
     // Tell us straight away (not only once they finish setting up).
     await notifyNewSignup({ companyName, ownerName: name, email, how: "Email and password" });
+    try {
+      await sendWelcomeEmail({ email, ownerName: name, companyName });
+    } catch (issue) {
+      console.error("[registerOwner] welcome email failed", issue);
+    }
 
     return { ok: true, ...result };
   } catch (err) {
@@ -217,6 +222,7 @@ export async function startOwnBusiness(input: { companyName: string; acceptTerms
       void sendSignupEmails({
         email: user.email ?? "", ownerName: user.name ?? "", companyName, phone: "", address: "", website: "",
         signupInfo: { customerCount: "", teamSize: "", paymentMethods: [], heardFrom: "Worker starting their own business" },
+        sendWelcome: true,
       }).catch((e) => console.error("[startOwnBusiness] email", e));
     }
     return { ok: true };
@@ -250,31 +256,63 @@ export type OnboardingResult = { ok: true } | { ok: false; error: string };
 
 const ONBOARDING_REFRESH_COOKIE = "wyndos_onboarding_refresh";
 
-/** A welcome email to the new owner, and a heads-up to Wyndos support. */
+/** WhatsApp number for direct support (international format, digits only). */
+const SUPPORT_WHATSAPP = (process.env.SUPPORT_WHATSAPP ?? "447947939782").replace(/\D/g, "");
+
+/**
+ * Welcome email, sent as soon as the account is made: who to talk to (Tom, by WhatsApp or a
+ * reply), the offer to import their round for them, and the first three things to do.
+ */
+async function sendWelcomeEmail(d: { email: string; ownerName: string; companyName: string }) {
+  const base = (process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "https://wyndos.io").replace(/\/$/, "");
+  const first = d.ownerName.split(" ")[0] || "there";
+  const wa = SUPPORT_WHATSAPP ? `https://wa.me/${SUPPORT_WHATSAPP}` : "";
+  const waShown = SUPPORT_WHATSAPP.startsWith("44") ? `0${SUPPORT_WHATSAPP.slice(2, 6)} ${SUPPORT_WHATSAPP.slice(6)}` : `+${SUPPORT_WHATSAPP}`;
+  const steps = [
+    ["Import your customers", `${base}/customers/import`, "Upload a spreadsheet. Areas are created for you."],
+    ["Plan your round", `${base}/scheduler`, "Drag areas onto days."],
+    ["Invite your team", `${base}/settings`, "Settings, then Team."],
+  ];
+  const btn = "display:inline-block;background:#25D366;color:#ffffff;font-weight:bold;text-decoration:none;padding:10px 18px;border-radius:8px";
+  await sendPlatformEmail({
+    to: d.email,
+    replyTo: SUPPORT_TO,
+    subject: `Welcome to Wyndos, ${first}`,
+    text: [
+      `Hi ${first},`,
+      `Thanks for signing up to Wyndos. I'm Tom. I cleaned windows for years before I built Wyndos, and I'm the one who answers when you get in touch.`,
+      `Need a hand? You can get straight through to me:`,
+      ...(wa ? [`- WhatsApp: ${waShown} (${wa})`] : []),
+      `- Or just reply to this email`,
+      `Don't fancy typing your round in? Send me your spreadsheet, an export from your old app, or even photos of your round book, and I'll import it all for you.`,
+      `Three things to do first:\n${steps.map(([t, u, x]) => `- ${t}: ${x} ${u}`).join("\n")}`,
+      `Tom\nWyndos`,
+    ].join("\n\n"),
+    html: `<div style="font-family:Arial,sans-serif;font-size:15px;color:#1e293b;line-height:1.5;max-width:560px">
+<p>Hi ${escHtml(first)},</p>
+<p>Thanks for signing up to Wyndos. I&#39;m Tom. I cleaned windows for years before I built Wyndos, and I&#39;m the one who answers when you get in touch.</p>
+<p><strong>Need a hand? You can get straight through to me.</strong></p>
+${wa ? `<p><a href="${escHtml(wa)}" style="${btn}">WhatsApp me: ${escHtml(waShown)}</a></p>` : ""}
+<p>Or just reply to this email.</p>
+<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin:16px 0">
+<strong>Don&#39;t fancy typing your round in?</strong><br>Send me your spreadsheet, an export from your old app, or even photos of your round book, and I&#39;ll import it all for you.
+</div>
+<p>Three things to do first:</p>
+<ol>${steps.map(([t, u, x]) => `<li style="margin-bottom:6px"><a href="${escHtml(u)}" style="color:#2563eb;font-weight:bold">${escHtml(t)}</a><br><span style="color:#64748b">${escHtml(x)}</span></li>`).join("")}</ol>
+<p>Tom<br>Wyndos</p></div>`,
+  });
+}
+
+/** A heads-up to Wyndos support with their details (and the welcome email if it hasn't gone yet). */
 async function sendSignupEmails(d: {
   email: string; ownerName: string; companyName: string; phone: string; address: string; website: string;
   signupInfo: { customerCount: string; teamSize: string; paymentMethods: string[]; heardFrom: string };
+  /** The welcome email goes when the account is made; only send it here if it hasn't been. */
+  sendWelcome?: boolean;
 }) {
-  const base = (process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "https://wyndos.io").replace(/\/$/, "");
-  const first = d.ownerName.split(" ")[0] || "there";
   // Each email on its own: one failing (e.g. the customer's mailbox refusing it) never stops the other.
   const welcome = async () => {
-  if (d.email) {
-    const steps = [
-      ["Import your customers", `${base}/customers/import`, "Upload a spreadsheet. Areas are created for you."],
-      ["Plan your round", `${base}/scheduler`, "Drag areas onto days."],
-      ["Invite your team", `${base}/settings`, "Settings, then Team."],
-    ];
-    await sendPlatformEmail({
-      to: d.email,
-      subject: `Welcome to Wyndos, ${first}`,
-      text: `Hi ${first},\n\n${d.companyName} is set up on Wyndos. Three things to do first:\n\n${steps.map(([t, u, x]) => `- ${t}: ${x} ${u}`).join("\n")}\n\nStuck? Use Help & support in the app, or just reply to this email.\n\nWyndos`,
-      html: `<div style="font-family:Arial,sans-serif;font-size:15px;color:#1e293b;line-height:1.5">
-<p>Hi ${escHtml(first)},</p><p><strong>${escHtml(d.companyName)}</strong> is set up on Wyndos. Three things to do first:</p>
-<ol>${steps.map(([t, u, x]) => `<li style="margin-bottom:6px"><a href="${escHtml(u)}" style="color:#2563eb;font-weight:bold">${escHtml(t)}</a><br><span style="color:#64748b">${escHtml(x)}</span></li>`).join("")}</ol>
-<p>Stuck? Use <strong>Help &amp; support</strong> in the app, or just reply to this email.</p><p>Wyndos</p></div>`,
-    });
-  }
+    if (d.sendWelcome && d.email) await sendWelcomeEmail({ email: d.email, ownerName: d.ownerName, companyName: d.companyName });
   };
   const to = SUPPORT_TO;
   const info = d.signupInfo;
