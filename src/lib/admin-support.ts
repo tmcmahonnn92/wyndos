@@ -1,6 +1,7 @@
 import prisma from "@/lib/db";
 import { auth } from "@/auth";
 import { requireSuperAdmin } from "@/lib/tenant-context";
+import { billingStateOf } from "@/lib/billing";
 
 const db = prisma as any;
 
@@ -14,6 +15,16 @@ export type AdminTenantSummary = {
   customerCount: number;
   areaCount: number;
   workDayCount: number;
+  /** Activation: phone from sign-up, when anyone in it last used Wyndos, set-up finished, days and cleans done. */
+  phone: string;
+  ownerName: string;
+  lastSeenAt: Date | null;
+  setupDone: boolean;
+  daysDone: number;
+  cleansDone: number;
+  /** "Trial · 5 days left", "Paying", "Trial ended", "Free". */
+  plan: string;
+  planTone: "good" | "warn" | "bad" | "plain";
   /** The super admin belongs to this business (e.g. it's their own). */
   mine: boolean;
   myRole: string | null;
@@ -94,9 +105,10 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       include: {
         users: {
           where: { role: "OWNER" },
-          select: { email: true },
+          select: { email: true, onboardingComplete: true },
           take: 1,
         },
+        settings: { select: { phone: true, ownerName: true } },
         _count: {
           select: {
             users: true,
@@ -134,6 +146,27 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     db.supportTicket.count({ where: { status: "OPEN" } }),
   ]);
   const tenantNames = new Map<number, string>(tenants.map((t: any) => [t.id, t.name]));
+  const [daysDone, cleansDone, seen] = await Promise.all([
+    db.workDay.groupBy({ by: ["tenantId"], where: { status: "COMPLETE" }, _count: { _all: true } }),
+    db.job.groupBy({ by: ["tenantId"], where: { status: "COMPLETE" }, _count: { _all: true } }),
+    db.membership.findMany({ where: { user: { role: { not: "SUPER_ADMIN" }, lastLoginAt: { not: null } } }, select: { tenantId: true, user: { select: { lastLoginAt: true } } } }),
+  ]);
+  const countBy = (rows: Array<{ tenantId: number; _count: { _all: number } }>) => new Map(rows.map((r) => [r.tenantId, r._count._all]));
+  const daysBy = countBy(daysDone);
+  const cleansBy = countBy(cleansDone);
+  const seenBy = new Map<number, Date>();
+  for (const m of seen as Array<{ tenantId: number; user: { lastLoginAt: Date } }>) {
+    const was = seenBy.get(m.tenantId);
+    if (!was || m.user.lastLoginAt > was) seenBy.set(m.tenantId, m.user.lastLoginAt);
+  }
+  const planOf = (t: any): Pick<AdminTenantSummary, "plan" | "planTone"> => {
+    const b = billingStateOf(t);
+    if (b.kind === "free") return { plan: "Free", planTone: "plain" };
+    if (b.kind === "subscribed") return { plan: b.cancelAtPeriodEnd ? "Paying · cancelling" : "Paying", planTone: b.cancelAtPeriodEnd ? "warn" : "good" };
+    if (b.kind === "past_due") return { plan: "Card failed", planTone: "bad" };
+    if (b.kind === "trial") return { plan: `Trial · ${b.daysLeft} day${b.daysLeft === 1 ? "" : "s"} left`, planTone: "warn" };
+    return { plan: b.hadSubscription ? "Cancelled" : "Trial ended", planTone: "bad" };
+  };
 
   return {
     stats: {
@@ -161,6 +194,13 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       customerCount: tenant._count.customers,
       areaCount: tenant._count.areas,
       workDayCount: tenant._count.workDays,
+      phone: tenant.settings?.phone ?? "",
+      ownerName: tenant.settings?.ownerName ?? "",
+      lastSeenAt: seenBy.get(tenant.id) ?? null,
+      setupDone: Boolean(tenant.users[0]?.onboardingComplete),
+      daysDone: daysBy.get(tenant.id) ?? 0,
+      cleansDone: cleansBy.get(tenant.id) ?? 0,
+      ...planOf(tenant),
       mine: myRoleByTenant.has(tenant.id),
       myRole: myRoleByTenant.get(tenant.id) ?? null,
     })),

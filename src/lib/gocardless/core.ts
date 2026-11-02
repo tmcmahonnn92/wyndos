@@ -447,12 +447,42 @@ async function recordReceived(tenantId: number, customerId: number, p: GcPayment
 const syncRunning = new Map<number, Promise<unknown>>();
 export async function syncTenant(tenantId: number): Promise<Awaited<ReturnType<typeof syncTenantNow>>> {
   const before = syncRunning.get(tenantId) ?? Promise.resolve();
-  const run = before.catch(() => undefined).then(() => syncTenantNow(tenantId));
+  const run = before.catch(() => undefined).then(() => withSyncLease(tenantId, () => syncTenantNow(tenantId)));
   syncRunning.set(tenantId, run);
   try {
     return await run;
   } finally {
     if (syncRunning.get(tenantId) === run) syncRunning.delete(tenantId);
+  }
+}
+
+const LEASE_MS = 10 * 60_000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Only one sync per business at a time across every app process (they share the database):
+ * claim a lease on the business's settings row, wait for one held by another process (up to
+ * a few minutes), and give it back when done. A lease left by a crashed process runs out.
+ */
+export async function withSyncLease<T>(tenantId: number, work: () => Promise<T>): Promise<T> {
+  const waitUntil = Date.now() + 4 * 60_000;
+  let mine: Date | null = null;
+  for (;;) {
+    const now = new Date();
+    const until = new Date(now.getTime() + LEASE_MS);
+    const got = await prisma.tenantSettings.updateMany({
+      where: { tenantId, OR: [{ goCardlessSyncLockUntil: null }, { goCardlessSyncLockUntil: { lt: now } }] },
+      data: { goCardlessSyncLockUntil: until },
+    });
+    if (got.count) { mine = until; break; }
+    if (!(await prisma.tenantSettings.count({ where: { tenantId } }))) break; // no settings: nothing to lock
+    if (Date.now() > waitUntil) throw new Error("A GoCardless sync is already running for this business. Try again in a minute.");
+    await sleep(Number(process.env.GC_SYNC_LEASE_POLL_MS) || 1_500);
+  }
+  try {
+    return await work();
+  } finally {
+    if (mine) await prisma.tenantSettings.updateMany({ where: { tenantId, goCardlessSyncLockUntil: mine }, data: { goCardlessSyncLockUntil: null } }).catch(() => undefined);
   }
 }
 
@@ -738,6 +768,8 @@ async function syncTenantNow(tenantId: number) {
   } catch (issue) {
     const message = issue instanceof Error ? issue.message : "GoCardless sync failed";
     await prisma.tenantSettings.update({ where: { tenantId }, data: { goCardlessLastError: message.slice(0, 300) } }).catch(() => undefined);
+    const { alertAdmin, tenantLabel } = await import("@/lib/alerts");
+    await alertAdmin(`gc-sync:${tenantId}`, "GoCardless sync failed", issue, { Business: await tenantLabel(tenantId) });
     throw issue;
   }
 }
@@ -760,6 +792,8 @@ export async function autoCollectNow(tenantId: number, jobIds: number[]) {
     if (ids.length) await collectForJobs(tenantId, ids);
   } catch (issue) {
     console.error("[gocardless] auto-collect after clean failed", issue);
+    const { alertAdmin, tenantLabel } = await import("@/lib/alerts");
+    await alertAdmin(`gc-autocollect:${tenantId}`, "Direct Debit auto-collect after a clean failed", issue, { Business: await tenantLabel(tenantId) });
   }
 }
 

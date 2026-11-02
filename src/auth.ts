@@ -65,11 +65,14 @@ async function ensureGoogleOwnerSetup(userId: string, profile: { name?: string |
   const slug = await uniqueSlug(toSlug(companyName));
   const email = (existing.email ?? profile.email ?? "").trim().toLowerCase();
 
+  const { hadTrialBefore } = await import("@/lib/repeat-trial");
+  const noTrial = await hadTrialBefore(email);
   await db.$transaction(async (tx: any) => {
     const tenant = await tx.tenant.create({
       data: {
         name: companyName,
         slug,
+        ...(noTrial ? { trialEndsAt: new Date() } : {}),
       },
     });
 
@@ -205,6 +208,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.sub) {
         const current = await db.user.findUnique({ where: { id: token.sub } });
         if (current) {
+          // "Last seen" for Admin: at most one write every 15 minutes per person.
+          const seen = (current as { lastLoginAt?: Date | null }).lastLoginAt;
+          if (!seen || Date.now() - seen.getTime() > 15 * 60_000) {
+            await db.user.update({ where: { id: current.id }, data: { lastLoginAt: new Date() } }).catch(() => undefined);
+          }
           const memberships = await db.membership.findMany({
             where: { userId: current.id },
             include: { tenant: { select: { id: true, name: true } } },

@@ -1,4 +1,5 @@
-﻿import Link from "next/link";
+﻿import { ddCollecting } from "@/lib/dd-status";
+import Link from "next/link";
 import { TableProperties, Sparkles, Upload, MapPin, Zap } from "lucide-react";
 import { getCustomers, getAreas, getTags, countOneOffCustomers } from "@/lib/actions";
 import { AREA_SORT_ENABLED } from "@/lib/features";
@@ -50,7 +51,8 @@ export default async function CustomersPage({ searchParams }: Props) {
   ]);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const owes = (customer: (typeof allCustomers)[number]) => customer.jobs.reduce((jobSum, job) => {
+  // Cleans being collected by Direct Debit aren't owed (they're on their way).
+  const owes = (customer: (typeof allCustomers)[number]) => customer.jobs.filter((job) => !ddCollecting(job)).reduce((jobSum, job) => {
     const paid = job.allocations.reduce((paidSum, allocation) => paidSum + allocation.amount, 0);
     return jobSum + Math.max(0, job.price - paid);
   }, 0);

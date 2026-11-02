@@ -311,6 +311,12 @@ export async function makePayByBankLink(customerId: number, jobIds: number[]) {
     revalidatePath(`/customers/${customerId}`);
     return { ok: true as const, ...res };
   } catch (issue) {
+    // GoCardless itself refused or failed (not "nothing owing" and the like): tell Tom.
+    const { GoCardlessError } = await import("@/lib/gocardless/core");
+    if (issue instanceof GoCardlessError && issue.status !== 422) {
+      const { alertAdmin } = await import("@/lib/alerts");
+      await alertAdmin(`pbb-link:${issue.status}`, "Couldn't make a Pay by Bank link", issue, { Customer: customerId, "GoCardless status": issue.status });
+    }
     return { ok: false as const, error: message(issue) };
   }
 }

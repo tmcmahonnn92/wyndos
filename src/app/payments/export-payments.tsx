@@ -31,6 +31,7 @@ export function ExportPaymentsButton({ className }: { className: string }) {
   const [area, setArea] = useState("");
   const [worker, setWorker] = useState("");
   const [refunds, setRefunds] = useState(true);
+  const [pending, setPending] = useState(false);
   const [options, setOptions] = useState<{ areas: Array<{ id: number; name: string }>; people: Array<{ id: string; name: string }> } | null>(null);
 
   useEffect(() => {
@@ -41,6 +42,7 @@ export function ExportPaymentsButton({ className }: { className: string }) {
   const href = `/api/export/payments?${new URLSearchParams({
     ...(from ? { from } : {}), ...(to ? { to } : {}), method,
     ...(area ? { area } : {}), ...(worker ? { worker } : {}), refunds: refunds ? "1" : "0",
+    ...(pending ? { pending: "1" } : {}),
   })}`;
   const field = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900";
   const label = "mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300";
@@ -89,6 +91,10 @@ export function ExportPaymentsButton({ className }: { className: string }) {
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
             <input type="checkbox" checked={refunds} onChange={(e) => setRefunds(e.target.checked)} /> Include refunds (as minus amounts)
+          </label>
+          <label className={`flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200 ${(method === "ALL" || method === "DD") && !worker ? "" : "opacity-50"}`}>
+            <input type="checkbox" className="mt-0.5" checked={pending} disabled={!((method === "ALL" || method === "DD") && !worker)} onChange={(e) => setPending(e.target.checked)} />
+            <span>Add Direct Debits on their way <span className="block text-xs text-slate-500">Taken but not paid yet, listed separately with when they&apos;re due. Not in the total.</span></span>
           </label>
           <p className="text-xs text-slate-500">
             One row per payment: date, customer, address, area, how paid, amount, which cleans it paid for (and any credit), who took it and the reference.

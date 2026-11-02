@@ -1,14 +1,15 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { auth } from "@/auth";
+import { GuideMenu } from "./guide-menu";
 
 export const metadata = {
-  title: "Getting started | Wyndos",
+  title: "Guide | Wyndos",
   description: "Set up Wyndos step by step: your business, areas, importing customers, planning, working a day, texts, workers, payments and Direct Debit.",
 };
 
 /*
- * Getting started guide. Screenshots come from a made-up demo business:
+ * The Wyndos guide. Screenshots come from a made-up demo business:
  * scripts/seed-guide-demo.ts → scripts/guide-screenshots.mjs → scripts/guide-compress.py
  * (they land in public/screens/guide/). Re-run those when the screens change.
  * Also scripts/guide-day-order-shots.mjs, and scripts/seed-guide-dd.ts → scripts/guide-extra-shots.mjs
@@ -55,7 +56,7 @@ function Shot({ src, alt, caption, phone = false }: { src: string; alt: string; 
 
 function Step({ n, id, title, children }: { n: number; id: string; title: string; children: ReactNode }) {
   return (
-    <section id={id} className="scroll-mt-20 space-y-4 border-t border-slate-200 pt-10 print:break-before-page">
+    <section id={id} className="scroll-mt-36 md:scroll-mt-24 lg:scroll-mt-6 space-y-4 border-t border-slate-200 pt-10 print:break-before-page">
       <h2 className="flex items-center gap-3 text-xl font-bold text-slate-900 sm:text-2xl">
         <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">{n}</span>
         {title}
@@ -81,11 +82,13 @@ export default async function GuidePage() {
   const signedIn = Boolean(session?.user);
 
   return (
-    <div className={signedIn ? "bg-slate-50 px-4 py-6" : "min-h-screen bg-slate-50 px-4 py-10"}>
-      <article className="mx-auto max-w-3xl space-y-10">
+    <div className={signedIn ? "bg-slate-50 px-4 pb-6 lg:py-6" : "min-h-screen bg-slate-50 px-4 pb-10 lg:py-10"}>
+      <div className="mx-auto max-w-6xl lg:flex lg:gap-8">
+      <GuideMenu steps={STEPS} signedIn={signedIn} />
+      <article id="top" className="mx-auto min-w-0 max-w-3xl flex-1 scroll-mt-40 space-y-10 pt-6 lg:mx-0 lg:pt-0">
         <header className="space-y-4">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-blue-600">Wyndos</p>
-          <h1 className="text-3xl font-black leading-tight text-slate-900 sm:text-4xl">Getting started</h1>
+          <h1 className="text-3xl font-black leading-tight text-slate-900 sm:text-4xl">Guide</h1>
           <p className="text-[15px] leading-7 text-slate-700">
             This guide takes you from a new account to a working round. Most people get through it in an evening.
             The pictures use a made-up business, Brightside Window Cleaning, so yours will look a little different.
@@ -97,7 +100,7 @@ export default async function GuidePage() {
               and when the day is finished each customer&apos;s next visit books itself.
             </p>
           </div>
-          <nav aria-label="Steps" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm print:hidden">
+          <nav aria-label="Steps" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm print:hidden lg:hidden">
             <p className="mb-2 text-sm font-semibold text-slate-900">Steps</p>
             <ol className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
               {STEPS.map((s, i) => (
@@ -479,6 +482,7 @@ export default async function GuidePage() {
           <span>Print this guide or save it as a PDF from your browser&apos;s print menu.</span>
         </footer>
       </article>
+      </div>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Building2, Search, ShieldAlert, Trash2 } from "lucide-react";
+import { ArrowRight, Building2, MessageCircle, Search, ShieldAlert, Trash2 } from "lucide-react";
 import { adminDeleteBusiness, adminDeletePreview } from "@/lib/admin-delete";
 
 type Tenant = {
@@ -15,11 +15,49 @@ type Tenant = {
   customerCount: number;
   areaCount: number;
   workDayCount: number;
+  phone?: string;
+  ownerName?: string;
+  lastSeenAt?: string | Date | null;
+  setupDone?: boolean;
+  daysDone?: number;
+  cleansDone?: number;
+  plan?: string;
+  planTone?: "good" | "warn" | "bad" | "plain";
   mine: boolean;
   myRole: string | null;
 };
 
 const MIN_REASON_LENGTH = 12;
+
+/** WhatsApp link for a UK or international number ("07…" → 447…), or null if it doesn't look like one. */
+export function whatsAppLink(phone: string | undefined, text = "") {
+  let d = (phone ?? "").replace(/[^\d+]/g, "");
+  if (d.startsWith("+")) d = d.slice(1);
+  else if (d.startsWith("00")) d = d.slice(2);
+  else if (d.startsWith("0")) d = `44${d.slice(1)}`;
+  d = d.replace(/\D/g, "");
+  if (d.startsWith("440")) d = `44${d.slice(3)}`; // +44 (0)7…
+  if (d.length < 10 || d.length > 15) return null;
+  return `https://wa.me/${d}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
+}
+
+function ago(when: string | Date | null | undefined) {
+  if (!when) return "never";
+  const mins = Math.round((Date.now() - new Date(when).getTime()) / 60_000);
+  if (mins < 60) return "in the last hour";
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 60) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return new Date(when).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+const TONE = {
+  good: "bg-emerald-500/15 text-emerald-300",
+  warn: "bg-amber-500/15 text-amber-300",
+  bad: "bg-red-500/15 text-red-300",
+  plain: "bg-slate-700/60 text-slate-300",
+} as const;
 
 /**
  * Businesses. Your own open straight away, as you. Anyone else's needs an audited
@@ -28,7 +66,7 @@ const MIN_REASON_LENGTH = 12;
 export function BusinessesPanel({ tenants, mode }: { tenants: Tenant[]; mode: "mine" | "all" }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<"newest" | "oldest" | "name" | "customers">("newest");
+  const [sort, setSort] = useState<"newest" | "oldest" | "name" | "customers" | "seen">("newest");
   const [openFor, setOpenFor] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
@@ -63,9 +101,10 @@ export function BusinessesPanel({ tenants, mode }: { tenants: Tenant[]; mode: "m
       oldest: (a: Tenant, b: Tenant) => joined(a) - joined(b),
       name: (a: Tenant, b: Tenant) => a.name.localeCompare(b.name),
       customers: (a: Tenant, b: Tenant) => b.customerCount - a.customerCount || joined(b) - joined(a),
+      seen: (a: Tenant, b: Tenant) => (b.lastSeenAt ? new Date(b.lastSeenAt).getTime() : 0) - (a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0) || joined(b) - joined(a),
     }[sort];
     return tenants
-      .filter((t) => !q || `${t.name} ${t.ownerEmail ?? ""} ${t.slug}`.toLowerCase().includes(q))
+      .filter((t) => !q || `${t.name} ${t.ownerEmail ?? ""} ${t.slug} ${t.ownerName ?? ""} ${t.phone ?? ""}`.toLowerCase().includes(q))
       .sort(by);
   }, [tenants, query, sort]);
 
@@ -106,6 +145,7 @@ export function BusinessesPanel({ tenants, mode }: { tenants: Tenant[]; mode: "m
           <option value="oldest">Oldest first</option>
           <option value="name">Name A–Z</option>
           <option value="customers">Most customers</option>
+          <option value="seen">Last seen</option>
         </select>
         <span className="text-xs text-slate-500">{shown.length} of {tenants.length}</span>
       </div>
@@ -122,9 +162,30 @@ export function BusinessesPanel({ tenants, mode }: { tenants: Tenant[]; mode: "m
                   {t.mine && <span className="ml-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">Yours · {t.myRole === "OWNER" ? "owner" : "worker"}</span>}
                 </p>
                 <p className="truncate text-xs text-slate-500">
-                  {t.ownerEmail ?? "No owner"} · {t.customerCount} customers · {t.userCount} users · joined {new Date(t.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  {t.ownerName ? `${t.ownerName} · ` : ""}{t.ownerEmail ?? "No owner"}{t.phone ? ` · ${t.phone}` : ""} · joined {new Date(t.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                 </p>
+                {mode === "all" && (
+                  <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    {t.plan && <span className={`rounded-full px-2 py-0.5 font-semibold ${TONE[t.planTone ?? "plain"]}`}>{t.plan}</span>}
+                    <Pill ok={Boolean(t.setupDone)}>{t.setupDone ? "Set up" : "Set-up not finished"}</Pill>
+                    <Pill ok={t.customerCount > 0}>{t.customerCount} customers</Pill>
+                    <Pill ok={(t.daysDone ?? 0) > 0}>{t.daysDone ? `${t.daysDone} day${t.daysDone === 1 ? "" : "s"} finished` : "No day finished"}</Pill>
+                    <Pill ok={(t.cleansDone ?? 0) > 0}>{t.cleansDone ?? 0} cleans done</Pill>
+                    <span className="text-slate-500">{t.userCount} users · last seen {ago(t.lastSeenAt)}</span>
+                  </p>
+                )}
               </div>
+              {whatsAppLink(t.phone) && (
+                <a
+                  href={whatsAppLink(t.phone, `Hi ${(t.ownerName ?? "").trim().split(/\s+/)[0] || "there"}, it's Tom from Wyndos. `)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`WhatsApp ${t.phone}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#25D366] px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110"
+                >
+                  <MessageCircle className="h-4 w-4" /> WhatsApp
+                </a>
+              )}
               {t.mine ? (
                 <button
                   onClick={() => post("/api/admin/own-business", { tenantId: t.id }, t.id)}
@@ -208,4 +269,8 @@ export function BusinessesPanel({ tenants, mode }: { tenants: Tenant[]; mode: "m
       </ul>
     </div>
   );
+}
+
+function Pill({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+  return <span className={`rounded-full px-2 py-0.5 font-semibold ${ok ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-700/60 text-slate-400"}`}>{children}</span>;
 }

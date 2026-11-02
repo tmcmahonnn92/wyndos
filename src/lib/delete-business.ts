@@ -33,6 +33,11 @@ export async function deleteBusinessData(tenantId: number) {
     }
   }
 
+  // Signing up again with the same email won't give another free trial.
+  const owners = await prisma.membership.findMany({ where: { tenantId, role: "OWNER", user: { role: { not: "SUPER_ADMIN" } } }, select: { user: { select: { email: true } } } });
+  const { rememberDeletedOwners } = await import("@/lib/repeat-trial");
+  await rememberDeletedOwners(owners.map((o) => o.user.email));
+
   const members = await prisma.membership.findMany({ where: { tenantId }, select: { userId: true } });
   const userIds = [...new Set(members.map((m) => m.userId))];
   const where = { tenantId };

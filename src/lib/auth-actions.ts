@@ -9,6 +9,8 @@ import { addDays } from "date-fns";
 import nodemailer from "nodemailer";
 import { notifyNewSignup, platformEmailConfigured, sendPlatformEmail, SUPPORT_COPY, SUPPORT_TO } from "@/lib/platform-email";
 import prisma from "@/lib/db";
+import { alertAdmin } from "@/lib/alerts";
+import { hadTrialBefore } from "@/lib/repeat-trial";
 import { auth } from "@/auth";
 import { ACTIVE_TENANT_COOKIE } from "@/lib/auth-cookies";
 import { TERMS_VERSION } from "@/lib/legal";
@@ -88,13 +90,15 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
 
     const passwordHash = await hash(input.password, 12);
     const slug = await uniqueSlug(toSlug(companyName));
+    const noTrial = await hadTrialBefore(email);
 
     const result = await db.$transaction(async (tx: any) => {
-      // 1. Create the Tenant
+      // 1. Create the Tenant (no new free trial if this email had a business that was deleted)
       const tenant = await tx.tenant.create({
         data: {
           name: companyName,
           slug,
+          ...(noTrial ? { trialEndsAt: new Date() } : {}),
         },
       });
 
@@ -157,18 +161,21 @@ export async function registerOwner(input: RegisterOwnerInput): Promise<Register
     } catch (issue) {
       // A mail problem must never stop a sign-up; they can resend from the banner.
       console.error("[registerOwner] verification email failed", issue);
+      await alertAdmin("email:verify", "Confirm-your-email email didn't send", issue, { To: email });
     }
     // Tell us straight away (not only once they finish setting up).
-    await notifyNewSignup({ companyName, ownerName: name, email, how: "Email and password" });
+    await notifyNewSignup({ companyName, ownerName: name, email, how: noTrial ? "Email and password (had a business before: no new free trial)" : "Email and password" });
     try {
       await sendWelcomeEmail({ email, ownerName: name, companyName });
     } catch (issue) {
       console.error("[registerOwner] welcome email failed", issue);
+      await alertAdmin("email:welcome", "Welcome email didn't send", issue, { To: email, Business: companyName });
     }
 
     return { ok: true, ...result };
   } catch (err) {
     console.error("[registerOwner]", err);
+    await alertAdmin("signup:failed", "A sign-up failed", err, { Email: input?.email, Business: input?.companyName });
     return { ok: false, error: "Registration failed. Please try again." };
   }
 }
@@ -193,11 +200,13 @@ export async function startOwnBusiness(input: { companyName: string; acceptTerms
     if (owns) return { ok: false, error: "You already have your own business. Use Switch business in the menu." };
 
     const slug = await uniqueSlug(toSlug(companyName));
+    const noTrial = await hadTrialBefore(user.email ?? "");
     const tenantId: number = await db.$transaction(async (tx: any) => {
       const tenant = await tx.tenant.create({
         data: {
           name: companyName,
           slug,
+          ...(noTrial ? { trialEndsAt: new Date() } : {}),
           termsVersion: TERMS_VERSION,
           termsAcceptedAt: new Date(),
           termsAcceptedByUserId: userId,
@@ -329,8 +338,8 @@ async function sendSignupEmails(d: {
     html: `<table style="font-family:Arial,sans-serif;font-size:14px">${rows.map(([k, v]) => `<tr><td style="padding:2px 12px 2px 0;font-weight:bold">${k}</td><td>${escHtml(v || "-")}</td></tr>`).join("")}</table>`,
   });
   const [a, w] = await Promise.allSettled([admin(), welcome()]);
-  if (a.status === "rejected") console.error("[signup] admin email failed", a.reason);
-  if (w.status === "rejected") console.error("[signup] welcome email failed", w.reason);
+  if (a.status === "rejected") { console.error("[signup] admin email failed", a.reason); await alertAdmin("email:setup", "Set-up email to support didn't send", a.reason, { Business: d.companyName, Email: d.email }); }
+  if (w.status === "rejected") { console.error("[signup] welcome email failed", w.reason); await alertAdmin("email:welcome", "Welcome email didn't send", w.reason, { Business: d.companyName, To: d.email }); }
 }
 
 export async function completeOwnerOnboarding(input: OnboardingInput): Promise<OnboardingResult> {

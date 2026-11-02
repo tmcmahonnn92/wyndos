@@ -1,5 +1,6 @@
 "use server";
 
+import { ddCollecting } from "@/lib/dd-status";
 import { normalisePreference } from "@/lib/payment-preference";
 import { INACTIVE_AREA_NAME, AREA_IN_USE } from "@/lib/system-areas";
 import { pickPlain } from "@/lib/safe-input";
@@ -1395,6 +1396,8 @@ export async function getCustomers(areaIds?: number[], search?: string, includeI
         where: { status: "COMPLETE" },
         select: {
           price: true,
+          goCardlessPaymentId: true,
+          goCardlessStatus: true,
           allocations: {
             where: { payment: { voidedAt: null } },
             select: { amount: true },
@@ -2418,6 +2421,8 @@ export async function getWorkDays() {
                   name: true,
                   price: true,
                   isOneOff: true,
+                  goCardlessPaymentId: true,
+                  goCardlessStatus: true,
                   workDay: { select: { date: true } },
                   allocations: {
                     where: { payment: { voidedAt: null } },
@@ -2467,6 +2472,8 @@ function workDayInclude(actor: Actor) {
                   name: true,
                   price: true,
                   isOneOff: true,
+                  goCardlessPaymentId: true,
+                  goCardlessStatus: true,
                   workDay: { select: { date: true } },
                   allocations: {
                     where: { payment: { voidedAt: null } },
@@ -4777,9 +4784,11 @@ export async function getPaymentsPage() {
             isOneOff: j.isOneOff,
             date: j.workDay?.date,
             notes: j.notes ?? "",
+            collecting: ddCollecting(j),
           };
         })
-        .filter((j) => j.due > 0.005);
+        // Cleans whose Direct Debit is on its way aren't owed (and mustn't be paid twice).
+        .filter((j) => j.due > 0.005 && !j.collecting);
 
       const debt = Number(unpaidJobs.reduce((sum, j) => sum + j.due, 0).toFixed(2));
 

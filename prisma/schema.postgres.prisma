@@ -112,6 +112,8 @@ model TenantSettings {
   goCardlessAutoCollect     Boolean  @default(false)
   goCardlessAutoCollectFrom DateTime?
   goCardlessLastError       String   @default("")
+  /// Sync lease: set while one app process syncs this business with GoCardless, so two never run at once.
+  goCardlessSyncLockUntil   DateTime?
   /// The GoCardless account connected with "Connect GoCardless" (OAuth); null for a pasted token.
   goCardlessOrganisationId  String?
   /// Accounts: CASH (money in/out when paid; default for sole traders) or ACCRUALS (income when the clean is done).
@@ -194,6 +196,8 @@ model User {
   tenantId           Int?
   tenant             Tenant?   @relation(fields: [tenantId], references: [id])
   onboardingComplete Boolean   @default(false)
+  /// Last time this person signed in (shown in Admin).
+  lastLoginAt        DateTime?
   /// JSON array of Permission strings â€” only used for WORKER accounts. OWNER/SUPER_ADMIN always have full access.
   workerPermissions  String    @default("[]")
   createdAt          DateTime  @default(now())
@@ -940,4 +944,17 @@ model PayByBankRequest {
   updatedAt        DateTime @updatedAt
 
   @@index([tenantId, status])
+}
+
+/// Owner emails of deleted businesses (HMAC, not the address), so signing up again doesn't give a new free trial.
+model DeletedAccount {
+  emailHash String   @id
+  deletedAt DateTime @default(now())
+}
+
+/// Alerts emailed to the Wyndos admin, throttled per key.
+model PlatformAlert {
+  key       String   @id
+  sentAt    DateTime
+  suppressed Int     @default(0)
 }

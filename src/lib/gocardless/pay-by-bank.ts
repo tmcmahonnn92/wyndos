@@ -197,6 +197,8 @@ export async function syncPayByBank(tenantId: number) {
       if (br.status !== "fulfilled" && Date.now() - r.createdAt.getTime() > EXPIRE_DAYS * 86_400_000) await cancelRequest(tenantId, r.id, r.billingRequestId, "expired");
     } catch (issue) {
       out.problems.push(`Pay by Bank ${r.billingRequestId}: ${issue instanceof Error ? issue.message : issue}`);
+      const { alertAdmin, tenantLabel } = await import("@/lib/alerts");
+      await alertAdmin(`pbb-sync:${tenantId}`, "Pay by Bank check failed", issue, { Business: await tenantLabel(tenantId), Request: r.billingRequestId });
     }
   }
   return out;
